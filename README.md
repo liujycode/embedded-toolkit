@@ -1,5 +1,7 @@
 # 嵌入式开发工具箱（embedded-toolkit）
 
+[![ci](https://github.com/liujycode/embedded-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/liujycode/embedded-toolkit/actions/workflows/ci.yml)
+
 > Evidence-first embedded dev skills for AI coding agents — register lookup from CMSIS-SVD, offline, every answer cites its source.
 
 给 AI 编程助手用的嵌入式技能包。原则：**AI 负责写得快，工具箱负责验得对**。所有结论离线计算，并带上出处和证据标签，不靠模型凭记忆回答寄存器细节。
