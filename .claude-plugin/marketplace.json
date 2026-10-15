@@ -1,0 +1,18 @@
+{
+  "name": "embedded-toolkit",
+  "owner": {
+    "name": "liujycode"
+  },
+  "metadata": {
+    "description": "嵌入式开发工具箱：离线、带出处的 Agent 技能（寄存器查询，后续加入核验、排障、时序计算）"
+  },
+  "plugins": [
+    {
+      "name": "embedded-toolkit",
+      "source": ".",
+      "description": "寄存器百事通：基于 CMSIS SVD 查询外设、寄存器、位域、复位值，支持地址反查与寄存器值解码",
+      "category": "development",
+      "tags": ["embedded", "mcu", "stm32", "svd", "register"]
+    }
+  ]
+}

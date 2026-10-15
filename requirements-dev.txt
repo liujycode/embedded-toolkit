@@ -1,0 +1,2 @@
+# 仅开发和测试使用。运行时（shared/etk_core 与各技能脚本）只依赖 Python 标准库。
+pytest>=7.0

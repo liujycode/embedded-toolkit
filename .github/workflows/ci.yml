@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: 安装开发依赖（运行时无第三方依赖）
+        run: python -m pip install -r requirements-dev.txt
+      - name: 仓库质量门
+        run: python tools/check_repo.py
+      - name: 单元与集成测试（真实厂商 SVD 测试在 CI 中跳过）
+        run: python -m pytest -q

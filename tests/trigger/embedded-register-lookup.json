@@ -1,0 +1,39 @@
+{
+  "skill": "embedded-register-lookup",
+  "description": "触发评测用例。正例应触发本技能，反例不应触发。按总方案 5 个必测 Agent（Claude Code、Codex、OpenCode、Trae、WorkBuddy）各跑一遍，记录结果到 benchmarks/trigger-results.md。",
+  "pass_threshold": 0.9,
+  "positive": [
+    "STM32G431 的 USART1 CR1 第 3 位是什么？",
+    "I2C1 的 TIMINGR 复位值是多少",
+    "0x40013800 是哪个外设",
+    "帮我查一下 TIM1 的 PSC 寄存器位域",
+    "nRF52840 的 GPIO OUTSET 怎么用",
+    "把 0x00040002 按 RCC_CR 解码",
+    "SPI1 CR1 的 BR 字段有哪些取值",
+    "RCC APB1ENR 里 I2C1EN 在哪一位",
+    "DMA1 通道 3 的 CCR 寄存器有哪些位",
+    "这个值 0x0000000F 写进 TIM2_CR1 会怎样",
+    "what is the reset value of USART1_CR1 on STM32F103",
+    "which bit enables the HSI16 clock in RCC_CR",
+    "ESP32 的 UART 寄存器基地址",
+    "GD32F303 的 ADC_CTL0 寄存器定义",
+    "STM32 的 SysTick 寄存器在哪",
+    "查 SPI 的 CR2 寄存器",
+    "TIM1 的 ARR 寄存器宽度是多少",
+    "这个外设地址 0x40020000 对应哪个寄存器块",
+    "USART2 和 USART1 的 CR1 偏移一样吗",
+    "列出 GPIOA 的所有寄存器"
+  ],
+  "negative": [
+    "STM32 怎么配置 UART 收发",
+    "帮我写一个 I2C 驱动",
+    "PA5 复用成什么功能",
+    "搜一下 STM32 手册里的电源章节",
+    "Keil 怎么编译工程",
+    "串口没输出，帮我排查",
+    "这段代码有没有寄存器错误",
+    "时钟 168MHz 下波特率怎么算",
+    "解释一下 volatile 关键字",
+    "帮我把这段代码格式化"
+  ]
+}
