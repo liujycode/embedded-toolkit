@@ -1,6 +1,6 @@
 {
   "skill": "embedded-register-lookup",
-  "description": "触发评测用例。正例应触发本技能，反例不应触发。按总方案 5 个必测 Agent（Claude Code、Codex、OpenCode、Trae、WorkBuddy）各跑一遍，记录结果到 benchmarks/trigger-results.md。",
+  "description": "触发评测用例。正例应触发本技能，反例不应触发。按总方案 5 个必测 Agent（Claude Code、Codex、OpenCode、Trae、WorkBuddy）各跑一遍，记录结果到 benchmarks/trigger-results.md。判定用 tools/trigger_eval.py（结构化信号；技能名会出现在系统提示的技能清单里，禁止用纯文本匹配）。",
   "pass_threshold": 0.9,
   "positive": [
     "STM32G431 的 USART1 CR1 第 3 位是什么？",
