@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件：厂商 CMSIS-Pack 或用户自备的 .svd。
 metadata:
   author: liujycode
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # 寄存器百事通

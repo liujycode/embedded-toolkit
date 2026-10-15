@@ -1,8 +1,14 @@
 """命令行入口测试：通过子进程调用 skills/.../lookup.py，检查输出格式、退出码与错误处理。"""
 
 import json
+import re
 
-from helpers import SYNTH, run_cli
+from helpers import LOOKUP, SYNTH, run_cli
+
+
+def _script_version():
+    with open(LOOKUP, encoding="utf-8") as fh:
+        return re.search(r'__version__ = "([^"]+)"', fh.read()).group(1)
 
 
 def test_lookup_json_envelope_and_field(tmp_path):
@@ -11,7 +17,7 @@ def test_lookup_json_envelope_and_field(tmp_path):
     env = json.loads(r.stdout)
     assert env["ok"] is True
     assert env["tool"] == "embedded-register-lookup"
-    assert env["version"] == "1.0.0"
+    assert env["version"] == _script_version()
     res = env["results"][0]
     assert res["kind"] == "field"
     assert res["field"]["bits"] == "0"

@@ -12,6 +12,7 @@
 | `enumeratedValues` | 支持十进制、`0x` 十六进制、`#` 二进制；`#1XX` 形式的任意位 |
 | 属性继承 | 位宽、访问、复位值、复位掩码按 寄存器 → 外设 → 设备 逐级继承 |
 | XML 命名空间 | 带或不带 `xmlns` 都能解析 |
+| XML 声明前的空白/BOM | 自动剥离并记录警告（如 GD32F3x0 的 SVD 开头有两个空格）；其余脏数据仍报错 |
 
 ## 继承规则要点
 
@@ -42,5 +43,5 @@
 ## 验证情况
 
 - 合成夹具 `tests/fixtures/synthetic.svd` 覆盖以上全部特性，期望值人工计算。
-- 真实样本：STM32G431xx（ST）、nRF52840（Nordic）、GD32F3x0（GigaDevice，本机 Pack）。其中 G431 与 nRF52840 做了独立遍历对照（见 `tests/test_real_svd.py`）。
+- 真实样本：STM32G431xx（ST）、nRF52840（Nordic）、GD32F3x0（GigaDevice，本机 Pack）。三者均做了独立遍历对照（见 `tests/test_real_svd.py`；GD32F3x0 为 41 个外设中 36 个逐项一致）。
 - 尚未覆盖：NXP、Microchip、Espressif 的真实 SVD，待补。

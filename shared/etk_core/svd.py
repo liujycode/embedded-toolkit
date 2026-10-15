@@ -455,11 +455,39 @@ class _Builder:
         return out
 
 
+_LEADING_JUNK_OK = frozenset(b" \t\r\n") | {0xEF, 0xBB, 0xBF}
+
+
+def _load_root(path):
+    """解析 XML 根元素，容忍 <?xml 声明前的空白或 BOM。
+
+    部分厂商 SVD（实测 GigaDevice GD32F3x0_DFP 3.0.2）在 XML 声明前带空格，
+    expat 会报 "XML or text declaration not at start of entity"。此处仅在
+    首轮失败后剥离开头的纯空白/BOM 字节重试；其余内容保持原样，错误照旧上报。
+    返回 (根元素, 说明或 None)。
+    """
+    try:
+        return ET.parse(path).getroot(), None
+    except ET.ParseError as original:
+        with open(path, "rb") as fh:
+            data = fh.read()
+        idx = 0
+        while idx < len(data) and data[idx] in _LEADING_JUNK_OK:
+            idx += 1
+        if idx == 0 or idx >= len(data) or data[idx:idx + 1] != b"<":
+            raise original
+        try:
+            root = ET.fromstring(data[idx:])
+        except ET.ParseError:
+            raise original
+        return root, "文件开头有 %d 字节空白或 BOM（XML 声明之前），已自动忽略" % idx
+
+
 def load_device(path):
     """解析 SVD 文件，返回 Device。文件不可读或 XML 有误时抛出 EtkError。"""
     path = os.fspath(path)
     try:
-        tree = ET.parse(path)
+        root, note = _load_root(path)
     except ET.ParseError as exc:
         line, column = exc.position
         raise EtkError(
@@ -474,11 +502,13 @@ def load_device(path):
             "无法读取 SVD 文件：%s（%s）" % (path, exc.strerror or exc),
             hint="确认路径存在且有读取权限。",
         ) from None
-    root = tree.getroot()
     if _local(root.tag) != "device":
         raise EtkError(
             E_SVD_PARSE,
             "不是 CMSIS-SVD 文件：根元素是 <%s>，应为 <device>" % _local(root.tag),
             hint="确认选择的是芯片的 .svd 文件，而不是 .pdsc、.h 或其他文件。",
         )
-    return _Builder(root, path).build()
+    device = _Builder(root, path).build()
+    if note:
+        device.warnings.insert(0, note + "（建议向厂商反馈该 SVD 的格式问题）")
+    return device

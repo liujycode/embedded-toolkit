@@ -54,8 +54,18 @@ def _bits(field_el):
     return lsb, msb - lsb + 1
 
 
+def _parse_root(path):
+    """测试侧独立解析：容忍 XML 声明前的空白（GD32F3x0 SVD 有此问题），不依赖 etk_core。"""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    idx = 0
+    while idx < len(data) and data[idx] in b" \t\r\n":
+        idx += 1
+    return ET.fromstring(data[idx:])
+
+
 def _independent_walk(path):
-    root = ET.parse(path).getroot()
+    root = _parse_root(path)
     dev_size = _num(_text(root, "width")) if _text(root, "width") else 32
     dev_reset = _num(_text(root, "resetValue")) if _text(root, "resetValue") else 0
     out = {}
@@ -112,11 +122,11 @@ def test_stm32g431_known_facts():
 MIN_COMPARED_PERIPHERALS = 10
 
 
-def _assert_matches_walk(path):
+def _assert_matches_walk(path, min_count=MIN_COMPARED_PERIPHERALS):
     expected = _independent_walk(path)
     got = _parser_view(load_device(path))
     checked = [name for name in expected if name in got]
-    assert len(checked) >= MIN_COMPARED_PERIPHERALS, "对照外设仅 %d 个，检查测试条件" % len(checked)
+    assert len(checked) >= min_count, "对照外设仅 %d 个，检查测试条件" % len(checked)
     for name in checked:
         assert got[name] == expected[name], "外设 %s 与独立遍历结果不一致" % name
     return len(checked)
@@ -131,7 +141,7 @@ def test_nrf52840_matches_independent_walk():
 
 
 def _assert_derived_mirror_base(path):
-    root = ET.parse(path).getroot()
+    root = _parse_root(path)
     dev = load_device(path)
     checked = 0
     for p in root.iter("peripheral"):
@@ -169,3 +179,19 @@ def test_large_svd_loads_within_budget():
     started = time.time()
     load_device(path)
     assert time.time() - started < 5.0
+
+
+def test_gd32f3x0_known_facts():
+    dev = load_device(_find("GD32F3x0.svd"))
+    assert dev.name == "GD32F3x0"
+    gpioa = dev.peripheral("GPIOA")
+    assert gpioa.base_address == 0x48000000
+    assert gpioa.address_span >= 0x400
+
+
+def test_gd32f3x0_matches_independent_walk():
+    _assert_matches_walk(_find("GD32F3x0.svd"), min_count=5)
+
+
+def test_gd32f3x0_derived_peripherals_mirror_base():
+    _assert_derived_mirror_base(_find("GD32F3x0.svd"))

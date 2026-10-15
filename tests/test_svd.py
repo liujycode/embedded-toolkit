@@ -252,3 +252,22 @@ def test_unknown_base_peripheral_warns_and_builds(tmp_path):
     dev = load_device(_svd(tmp_path, periphs))
     assert dev.peripheral("P").base_address == 0x10
     assert any("NOPE" in w for w in dev.warnings)
+
+
+def test_leading_whitespace_before_xml_declaration_is_tolerated(tmp_path):
+    content = ('<?xml version="1.0" encoding="utf-8"?>\n<device><name>T</name><peripherals>'
+               "<peripheral><name>P</name><baseAddress>0x100</baseAddress></peripheral>"
+               "</peripherals></device>")
+    path = tmp_path / "lead.svd"
+    path.write_bytes(b"  \r\n" + content.encode("utf-8"))
+    dev = load_device(str(path))
+    assert dev.peripheral("P").base_address == 0x100
+    assert any("自动忽略" in w for w in dev.warnings)
+
+
+def test_nonspace_prefix_before_declaration_still_fails(tmp_path):
+    path = tmp_path / "junk.svd"
+    path.write_bytes(b"GARBAGE " + b'<?xml version="1.0"?><device><name>T</name></device>')
+    with pytest.raises(EtkError) as info:
+        load_device(str(path))
+    assert info.value.code == E_SVD_PARSE

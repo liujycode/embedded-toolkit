@@ -24,7 +24,7 @@ from etk_core.svd import load_device  # noqa: E402
 from etk_core.values import parse_number  # noqa: E402
 
 TOOL = "embedded-register-lookup"
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 MAX_WARNINGS_SHOWN = 20
 
 

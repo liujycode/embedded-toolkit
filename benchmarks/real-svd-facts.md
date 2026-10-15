@@ -29,12 +29,22 @@
 | `cluster` 总数 | 59 |
 | `enumeratedValues` 总数 | 5488 |
 
-## GD32F3x0.svd（GigaDevice，本机 Keil/GigaDevice Pack）
+## GD32F3x0.svd（GigaDevice，GD32F3x0_DFP 3.0.2）
 
-路径形如 `<Packs>\GigaDevice\GD32F3x0_DFP\3.0.2\SVD\GD32F3x0.svd`。目前只用于 CMSIS-Pack 自动查找的测试，未做字段级对照。
+| 项目 | 核对结果 |
+|---|---|
+| device 名 | `GD32F3x0` |
+| GPIOA 基地址 | `0x48000000`，addressBlock `0x400` |
+| `derivedFrom` | 5 处 |
+| `dim` / `cluster` / `enumeratedValues` | 均为 0 |
+| 文件开头 | `<?xml` 声明前有 2 个空格（厂商文件瑕疵）。解析器已容错并给出警告；测试侧对照解析器同样容错 |
+
+对照测试：41 个外设，其中 36 个（非派生、非数组、非簇）与独立遍历逐项一致；5 个派生的由派生一致性规则覆盖。
 
 ## 对照测试结果
 
-- `tests/test_real_svd.py::test_stm32g431_matches_independent_walk`：对照非派生、非数组、非簇的外设，寄存器名、偏移、位宽、复位值、位域位置逐项一致。
-- `tests/test_real_svd.py::test_nrf52840_matches_independent_walk`：同上。
-- 运行方法：`ETK_TEST_SVD_DIR=<目录1><路径分隔符><目录2> python -m pytest tests/test_real_svd.py`
+- `tests/test_real_svd.py::test_stm32g431_matches_independent_walk`：对照非派生、非数组、非簇的外设，寄存器名、偏移、位宽、复位值、位域位置逐项一致（50 个外设）。
+- `tests/test_real_svd.py::test_nrf52840_matches_independent_walk`：同上（13 个外设）。
+- `tests/test_real_svd.py::test_gd32f3x0_matches_independent_walk`：同上（36 个外设）。
+- 派生外设由 `*_derived_peripherals_mirror_base` 系列覆盖：没有自有寄存器声明的派生外设，其寄存器列表与基础外设一致。
+- 运行方法：`ETK_TEST_SVD_DIR=<G431目录><分隔符><nRF目录><分隔符><GD32目录> python -m pytest tests/test_real_svd.py`
