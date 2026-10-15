@@ -16,7 +16,7 @@
 
 ## 安装
 
-> 状态：GitHub 源码已公开。各技能市场收录与五个必测 Agent 的真机触发评测尚在进行中。
+> 状态：GitHub 源码已公开。真机触发评测首轮完成：Claude Code 12/12、OpenCode 11/12（抽样，见 `benchmarks/trigger-results.md`）；Trae CN / WorkBuddy / Codex / Cursor 待测。
 
 **Claude Code（插件市场）**
 
