@@ -50,33 +50,33 @@ def load_events(path):
     return events
 
 
-def looks_like_run(text, script):
+def looks_like_run(text, script, subs=SUBCOMMANDS):
     """命令行文本里脚本名后紧跟子命令，才算"真实执行"，避免目录列表里的裸文件名误报。"""
-    pattern = re.escape(script) + r".{0,4}(" + "|".join(SUBCOMMANDS) + r")\b"
+    pattern = re.escape(script) + r".{0,4}(" + "|".join(subs) + r")\b"
     return bool(re.search(pattern, text))
 
 
-def looks_like_installed_run(text, skill, script):
+def looks_like_installed_run(text, skill, script, subs=SUBCOMMANDS):
     """文本中带安装目录限定的执行证据：skills/<skill>/[scripts/]<script> <子命令>。
 
     Claude Code 的流里会混入技能文档内容（含示例命令 python scripts/lookup.py ...），
     只认带技能安装路径的调用，避免把文档示例误当成真实执行。
     """
     pattern = (r"skills[\\/]+" + re.escape(skill) + r"[\\/]+(?:scripts[\\/]+)?" + re.escape(script)
-               + r".{0,4}(" + "|".join(SUBCOMMANDS) + r")\b")
+               + r".{0,4}(" + "|".join(subs) + r")\b")
     return bool(re.search(pattern, text, re.IGNORECASE))
 
 
-def detect_claude(path, skill, script):
+def detect_claude(path, skill, script, subs=SUBCOMMANDS):
     with open(path, encoding="utf-8-sig", errors="replace") as fh:
         text = fh.read()
     launch = bool(re.search(r"Launching skill:\s*" + re.escape(skill), text))
     command = bool(re.search(r'"commandName"\s*:\s*"' + re.escape(skill) + r'"', text))
-    ran = looks_like_installed_run(text, skill, script)
+    ran = looks_like_installed_run(text, skill, script, subs)
     return {"launch": launch, "command": command, "script": ran}, (launch or command or ran)
 
 
-def detect_opencode(path, skill, script):
+def detect_opencode(path, skill, script, subs=SUBCOMMANDS):
     loads = 0
     runs = 0
     for ev in load_events(path):
@@ -84,7 +84,7 @@ def detect_opencode(path, skill, script):
             raw = ev["_raw"]
             if '"tool":"skill"' in raw and skill in raw:
                 loads += 1
-            if '"tool":"bash"' in raw and looks_like_run(raw, script):
+            if '"tool":"bash"' in raw and looks_like_run(raw, script, subs):
                 runs += 1
             continue
         if ev.get("type") != "tool_use":
@@ -96,19 +96,19 @@ def detect_opencode(path, skill, script):
             if skill in str(inp.get("name") or ""):
                 loads += 1
         elif tool == "bash":
-            if looks_like_run(str(inp.get("command") or ""), script):
+            if looks_like_run(str(inp.get("command") or ""), script, subs):
                 runs += 1
     return {"skill_loads": loads, "script_runs": runs}, (loads > 0 or runs > 0)
 
 
-def evaluate(directory, agent, skill=DEFAULT_SKILL, script=DEFAULT_SCRIPT):
+def evaluate(directory, agent, skill=DEFAULT_SKILL, script=DEFAULT_SCRIPT, subs=SUBCOMMANDS):
     detector = detect_claude if agent == "claude" else detect_opencode
     rows = []
     for path in sorted(glob.glob(os.path.join(directory, "*.jsonl"))):
         case_id = os.path.basename(path).split(".")[0]
         if not (case_id.startswith("p") or case_id.startswith("n")):
             continue
-        signals, triggered = detector(path, skill, script)
+        signals, triggered = detector(path, skill, script, subs)
         expect = "positive" if case_id.startswith("p") else "negative"
         rows.append({
             "id": case_id,
@@ -145,9 +145,13 @@ def main(argv=None):
     parser.add_argument("--skill", default=DEFAULT_SKILL, help="技能名（默认 %s）" % DEFAULT_SKILL)
     parser.add_argument("--script", default=DEFAULT_SCRIPT, help="技能内脚本文件名（默认 %s）" % DEFAULT_SCRIPT)
     parser.add_argument("--threshold", type=float, default=0.9, help="低于该准确率时退出码 1（默认 0.9）")
+    parser.add_argument("--subcommands", help="脚本子命令列表（逗号分隔；默认按 lookup 的 lookup/addr/search/decode/list）")
     args = parser.parse_args(argv)
 
-    rows = evaluate(args.dir, args.agent, args.skill, args.script)
+    subs = SUBCOMMANDS
+    if args.subcommands:
+        subs = tuple(item.strip() for item in args.subcommands.split(",") if item.strip())
+    rows = evaluate(args.dir, args.agent, args.skill, args.script, subs)
     if not rows:
         print("目录中没有找到 p*/n* 命名的 .jsonl 输出：%s" % args.dir)
         return 2
