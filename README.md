@@ -30,7 +30,7 @@
 
 ## 安装
 
-> 状态：GitHub 源码已公开。两个 P0 技能就位（查询 + 核验）。触发评测：寄存器百事通两轮完成（全量 20 正 + 10 反，Claude Code 30/30、OpenCode 30/30，见 `benchmarks/trigger-results.md`）；核验器触发用例已扩充就绪（22 正 + 10 反），触发评测待跑；Trae CN / WorkBuddy / Codex / Cursor 待测。
+> 状态：GitHub 源码已公开。两个 P0 技能就位（查询 + 核验）。触发评测第三轮完成：核验器首轮全量 22 正 + 10 反（Claude Code 29/32、OpenCode 31/32）、百事通扩量 35 正 + 10 反（Claude Code 39/45、OpenCode 41/45）；首跑合计 140/154 = 90.9%，漏报与边界如实记录，见 `benchmarks/trigger-results.md`。Trae CN / WorkBuddy / Codex / Cursor 待人工。
 
 **Claude Code（插件市场）**
 
