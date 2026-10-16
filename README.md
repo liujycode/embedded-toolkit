@@ -6,7 +6,7 @@
 [![python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
 [![dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](#设计约束)
 
-> Evidence-first embedded dev skills for AI coding agents — register lookup from CMSIS-SVD, offline, every answer cites its source.
+> Evidence-first embedded dev skills for AI coding agents — register lookup & code verification from CMSIS-SVD, offline, every answer cites its source.
 
 给 AI 编程助手用的嵌入式技能包。原则：**AI 负责写得快，工具箱负责验得对**。所有结论离线计算，并带上出处和证据标签，不靠模型凭记忆回答寄存器细节。
 
@@ -14,13 +14,14 @@
 
 | 技能 | 版本 | 状态 | 说明 |
 |---|---|---|---|
-| `embedded-register-lookup`（寄存器百事通） | 1.4.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号与 NVIC 使能位；寄存器值解码与写入值计算（含读-改-写陷阱提示）；位域速查与位图；CMSIS 风格宏生成；寄存器/外设级双芯片对比；地址区间、SVD 元信息与质量检查；本机芯片清单与环境体检；Markdown 输出；解析缓存加速 |
+| `embedded-register-lookup`（寄存器百事通） | 1.4.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号与 NVIC 使能位；解码 / 写值计算 / 读改写陷阱提示；宏生成；双芯片与外设级对比；SVD 质量检查；环境体检；Markdown 输出；解析缓存 |
+| `embedded-register-verify`（寄存器核验器） | 1.0.0 | 本地测试通过（触发评测待跑） | 核验 C 代码里的寄存器写入：外设/寄存器/位域存在性、值超宽、枚举合法性、只读位、时钟使能、硬编码地址、中断分组；报/未判定/通过分桶 + 复查清单；目录与 git diff 模式；不执行代码 |
 
-计划中（按阶段门推进，见总方案）：寄存器核验器、接线排障、时序计算器、原理图审查官。
+计划中（按阶段门推进，见总方案）：接线排障、时序计算器、原理图审查官。
 
 ## 安装
 
-> 状态：GitHub 源码已公开。真机触发评测第二轮完成：全量 20 正 + 10 反，Claude Code 30/30、OpenCode 30/30（见 `benchmarks/trigger-results.md`）；Trae CN / WorkBuddy / Codex / Cursor 待测。
+> 状态：GitHub 源码已公开。两个 P0 技能就位（查询 + 核验）。触发评测：寄存器百事通两轮完成（全量 20 正 + 10 反，Claude Code 30/30、OpenCode 30/30，见 `benchmarks/trigger-results.md`）；核验器触发用例已扩充就绪（22 正 + 10 反），触发评测待跑；Trae CN / WorkBuddy / Codex / Cursor 待测。
 
 **Claude Code（插件市场）**
 
@@ -67,6 +68,16 @@ python skills/embedded-register-lookup/scripts/lookup.py diff USART1 --chip-a ST
 python skills/embedded-register-lookup/scripts/lookup.py lint --chip STM32G431
 ```
 
+```bash
+# 寄存器核验器：查 C 代码里的寄存器写入对不对（AI 生成代码 / 新驱动 / git diff）
+python skills/embedded-register-verify/scripts/verify.py check Core/Src --chip STM32G431
+python skills/embedded-register-verify/scripts/verify.py check main.c --chip STM32G431 --checklist
+python skills/embedded-register-verify/scripts/verify.py check --patch changes.diff --chip STM32G431
+python skills/embedded-register-verify/scripts/verify.py check examples/verify_demo.c --demo   # 零配置试用
+```
+
+核验输出分三桶：**报**（E01–E10，附行号/类别/建议）、**未判定**（HAL 调用、内核外设等范围外内容，如实说明）、**通过**；退出码 1 表示检出问题。
+
 解析结果会缓存在本机（`%LOCALAPPDATA%\etk\cache` 或 `~/.cache/etk`），重复查询更快，
 SVD 文件改动后自动失效；`ETK_NO_CACHE=1` 可关闭。
 
@@ -85,6 +96,7 @@ SVD 文件改动后自动失效；`ETK_NO_CACHE=1` 可关闭。
 - **零运行时依赖**：只使用 Python 3.9+ 标准库，无需 `pip install`。
 - **离线**：不联网，不调用任何外部 API。
 - **只读**：不修改用户项目文件，写出只发生在 `--out` 指定的路径。
+- **不执行被检查的代码**：核验器只做词法分析，不 `eval`、不运行用户代码（仓库质量门会检查）。
 - **解析缓存**：解析结果缓存在本机（按文件大小与纳秒级修改时间失效），缓存故障静默降级；`ETK_NO_CACHE=1` 关闭。
 - **不内置厂商文件**：SVD 由用户本机的 CMSIS-Pack 或自备文件提供；另附一份自行编写的合成演示数据（`--demo`，不是真实芯片），仅用于零配置试用。
 - **每条结论有出处**：`source` 字段给出文件、设备、版本；`label` 给出证据等级。

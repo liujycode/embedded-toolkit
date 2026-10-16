@@ -4,15 +4,15 @@
     "name": "liujycode"
   },
   "metadata": {
-    "description": "嵌入式开发工具箱：离线、带出处的 Agent 技能（寄存器查询，后续加入核验、排障、时序计算）"
+    "description": "嵌入式开发工具箱：离线、带出处的 Agent 技能（寄存器查询与核验，后续加入排障、时序计算）"
   },
   "plugins": [
     {
       "name": "embedded-toolkit",
       "source": ".",
-      "description": "寄存器百事通：基于 CMSIS SVD 查询外设、寄存器、位域、复位值，支持地址反查与寄存器值解码",
+      "description": "寄存器百事通 + 寄存器核验器：基于 CMSIS SVD 查询外设、寄存器、位域、复位值，并核验 C 代码里的寄存器写入（报/未判定/通过分桶，可生成复查清单）",
       "category": "development",
-      "tags": ["embedded", "mcu", "stm32", "svd", "register"]
+      "tags": ["embedded", "mcu", "stm32", "svd", "register", "verify"]
     }
   ]
 }

@@ -1,0 +1,10 @@
+diff --git a/uart.c b/uart.c
+index 0000000..1111111 100644
+--- a/uart.c
++++ b/uart.c
+@@ -10,4 +12,5 @@ void init(void)
+     USART1->CR1 |= USART_CR1_UE;
++    USART1->CR1 |= USART_CR1_XXX;
++    USART1->SR = 0x00000001;
+     done();
+ }

@@ -1,10 +1,10 @@
 {
   "name": "embedded-toolkit",
-  "version": "1.4.0",
-  "description": "嵌入式开发工具箱：基于 CMSIS SVD 的寄存器查询（离线、带出处与证据标签）",
+  "version": "1.5.0",
+  "description": "嵌入式开发工具箱：寄存器查询与核验（离线、带出处与证据标签）",
   "author": {
     "name": "liujycode"
   },
   "license": "MIT",
-  "keywords": ["embedded", "mcu", "stm32", "cmsis-svd", "register", "firmware"]
+  "keywords": ["embedded", "mcu", "stm32", "cmsis-svd", "register", "firmware", "verify"]
 }

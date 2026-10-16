@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import ast
+import filecmp
 import json
 import os
 import re
@@ -31,6 +32,7 @@ STDLIB_ALLOWED = {
     "hashlib", "json", "os", "re", "sys", "tempfile", "time", "typing", "xml",
 }
 LOCAL_PACKAGES = {"etk_core"}  # 随技能分发的本地核心库，不是第三方依赖
+LOCAL_SKILL_MODULES = {"cscan", "crules"}  # 核验器技能内的本地模块
 NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 VERSION_RE = re.compile(r'^__version__\s*=\s*"([^"]+)"', re.MULTILINE)
 MIN_POSITIVE = 20
@@ -173,13 +175,48 @@ def check_stdlib():
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 names = [node.module.split(".")[0]]
             for name in names:
-                if name not in STDLIB_ALLOWED and name not in LOCAL_PACKAGES:
+                if name not in STDLIB_ALLOWED and name not in LOCAL_PACKAGES \
+                        and name not in LOCAL_SKILL_MODULES:
                     issues.append("%s：运行时引入了非标准库模块 %s" % (os.path.relpath(path, ROOT), name))
     return issues
 
 
+def check_demo_assets():
+    """内置演示数据（assets/demo.svd）在各技能里的副本必须一致（以 lookup 技能为源）。"""
+    canonical = os.path.join(ROOT, "skills", "embedded-register-lookup", "assets", "demo.svd")
+    if not os.path.isfile(canonical):
+        return ["缺少 skills/embedded-register-lookup/assets/demo.svd"]
+    issues = []
+    base = os.path.join(ROOT, "skills")
+    for name in sorted(os.listdir(base)):
+        if name == "embedded-register-lookup":
+            continue
+        cand = os.path.join(base, name, "assets", "demo.svd")
+        if os.path.isfile(cand) and not filecmp.cmp(canonical, cand, shallow=False):
+            issues.append("skills/%s/assets/demo.svd 与 embedded-register-lookup 的副本不一致" % name)
+    return issues
+
+
+FORBIDDEN_CALLS = {"eval", "exec", "compile"}
+
+
+def check_no_dynamic_exec():
+    """规格 0.7：运行时代码不执行用户代码（不 eval/exec/compile）。"""
+    issues = []
+    for path in _runtime_files():
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename=path)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                    and node.func.id in FORBIDDEN_CALLS:
+                issues.append("%s：运行时不允许调用 %s()（规格 0.7：不执行用户代码）" % (
+                    os.path.relpath(path, ROOT), node.func.id))
+    return issues
+
+
 def run_all():
-    return check_sync() + check_skills() + check_py39() + check_stdlib()
+    return (check_sync() + check_skills() + check_py39() + check_stdlib()
+            + check_demo_assets() + check_no_dynamic_exec())
 
 
 def main():

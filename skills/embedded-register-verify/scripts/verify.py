@@ -1,0 +1,331 @@
+#!/usr/bin/env python3
+"""embedded-register-verify：核验 C 代码里的寄存器写入是否与芯片 SVD 一致。
+
+只做词法分析（规格 0.7：不执行用户代码、不 eval）；判定不确定时进"未判定"。
+退出码：0 = 没有"报"；1 = 检出问题或工具出错（errors 为空时表示检出问题）。
+
+示例：
+  python scripts/verify.py check main.c --chip STM32G431
+  python scripts/verify.py check src/ --demo --checklist
+  python scripts/verify.py check --patch changes.diff --chip STM32G431
+  python scripts/verify.py rules
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
+
+import crules  # noqa: E402
+from etk_core.cache import load_device_cached  # noqa: E402
+from etk_core.discovery import find_svd  # noqa: E402
+from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkError  # noqa: E402
+from etk_core.output import envelope  # noqa: E402
+
+TOOL = "embedded-register-verify"
+__version__ = "1.0.0"
+DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
+MAX_FILES = 200
+MAX_WARNINGS_SHOWN = 20
+SKIP_DIRS = frozenset({"node_modules", "__pycache__", "site-packages"})
+
+
+def build_parser():
+    io = argparse.ArgumentParser(add_help=False)
+    io.add_argument("--project-dir", metavar="DIR", help="从此目录向上查找 .etk/config.json（默认当前目录）")
+    io.add_argument("--format", choices=("text", "json"), default="text", help="输出格式（默认 text）")
+    io.add_argument("--out", metavar="FILE", help="把输出写入文件，而不是标准输出")
+
+    common = argparse.ArgumentParser(add_help=False, parents=[io])
+    common.add_argument("--svd", metavar="PATH", help="SVD 文件路径（优先级最高）")
+    common.add_argument("--chip", metavar="NAME", help="芯片名，如 STM32G431，用于在本机 CMSIS-Pack 中查找")
+    common.add_argument("--demo", action="store_true", help="使用内置演示芯片（合成数据）核验")
+
+    parser = argparse.ArgumentParser(
+        prog="verify.py",
+        description="核验 C 代码中的寄存器写入是否与芯片 SVD 一致（只做词法分析，不执行代码）。",
+        epilog=(
+            "示例：\n"
+            "  verify.py check main.c --chip STM32G431\n"
+            "  verify.py check src/ --demo --checklist\n"
+            "  verify.py check --patch changes.diff --chip STM32G431\n"
+            "  verify.py rules\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("check", parents=[common], help="核验文件、目录或补丁中的寄存器写入")
+    p.add_argument("paths", nargs="*", metavar="路径", help="C 源文件、头文件或目录（用 --patch 时可省略）")
+    p.add_argument("--define", action="append", default=[], metavar="NAME=VALUE", help="补充宏定义（可多次）")
+    p.add_argument("--patch", metavar="FILE", help="核验 unified diff / git diff 文件中新增的行")
+    p.add_argument("--no-clock-check", action="store_true", help="关闭 E07（时钟使能）检查")
+    p.add_argument("--checklist", action="store_true", help="输出复查清单（按复查要求分组）")
+    p.add_argument("--limit", type=int, default=200, help="每个文件最多列出条数（默认 200）")
+
+    sub.add_parser("rules", parents=[io], help="列出核验规则 E01–E10")
+    return parser
+
+
+# ---------- 输入收集 ----------
+
+def _collect_sources(paths):
+    files = []
+    for item in paths:
+        if os.path.isdir(item):
+            for root, dirs, names in os.walk(item):
+                dirs[:] = [d for d in dirs if not d.startswith(".") and d not in SKIP_DIRS]
+                for name in sorted(names):
+                    if name.lower().endswith((".c", ".h")):
+                        files.append(os.path.join(root, name))
+        elif os.path.isfile(item):
+            files.append(item)
+        else:
+            raise EtkError(E_INPUT_INVALID, "路径不存在：%s" % item)
+    files = sorted(dict.fromkeys(os.path.abspath(f) for f in files))
+    truncated = len(files) > MAX_FILES
+    sources = []
+    for path in files[:MAX_FILES]:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError as exc:
+            raise EtkError(E_INPUT_INVALID, "无法读取文件：%s（%s）" % (path, exc))
+        sources.append((os.path.basename(path), text, path))
+    return sources, truncated
+
+
+def _patch_sources(text):
+    """把 unified diff 还原成"只含新增行、行号对齐新文件"的合成文本。"""
+    files = {}
+    current = None
+    new_line = 0
+    for raw in text.split("\n"):
+        if raw.startswith("+++ "):
+            name = raw[4:].strip()
+            if name.startswith(("b/", "a/")):
+                name = name[2:]
+            current = files.setdefault(name, {})
+            continue
+        if raw.startswith("@@ "):
+            m = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw)
+            if m:
+                new_line = int(m.group(1))
+            continue
+        if current is None:
+            continue
+        if raw.startswith("+"):
+            current[new_line] = raw[1:]
+            new_line += 1
+        elif raw.startswith(("-", "\\")):
+            continue
+        else:
+            new_line += 1
+    out = []
+    for name, lines in sorted(files.items()):
+        if not lines:
+            continue
+        buf = [""] * max(lines)
+        for no, content in lines.items():
+            buf[no - 1] = content
+        out.append(("%s (patch)" % name, "\n".join(buf), name))
+    return out
+
+
+# ---------- 运行 ----------
+
+def _run(args):
+    if args.command == "rules":
+        return [crules.rule_table()], [], []
+    if args.limit < 1:
+        raise EtkError(E_INPUT_INVALID, "--limit 必须大于 0")
+    if args.patch and not os.path.isfile(args.patch):
+        raise EtkError(E_INPUT_INVALID, "--patch 指定的文件不存在：%s" % args.patch)
+    if args.demo:
+        if args.svd:
+            raise EtkError(
+                E_INPUT_INVALID,
+                "--demo 与 --svd 不能同时使用",
+                hint="二选一：用 --svd 核验真实芯片，或用 --demo 试用内置演示芯片。",
+            )
+        if not os.path.isfile(DEMO_SVD):
+            raise EtkError(E_SVD_NOT_FOUND, "内置演示数据缺失：%s" % DEMO_SVD,
+                           hint="安装不完整，请重新安装技能包。")
+        path, selected_by = DEMO_SVD, "内置演示数据（--demo）"
+        notes = ["当前使用内置演示芯片 ETK-DEMO（合成数据，非真实芯片）；真实核验请用 --svd 或 --chip。"]
+    else:
+        path, selected_by, notes = find_svd(args.svd, args.chip, args.project_dir)
+    device = load_device_cached(path)
+    warnings = list(notes) + list(device.warnings)
+
+    defines = {}
+    for item in args.define:
+        name, sep, value = item.partition("=")
+        if not sep or not name.strip():
+            raise EtkError(E_INPUT_INVALID, "--define 需要 NAME=VALUE 形式：%r" % item)
+        defines[name.strip()] = value.strip()
+
+    verifier = crules.Verifier(device, extra_defines=defines,
+                               clock_check=not args.no_clock_check, limit=args.limit)
+    verifier.checklist = bool(args.checklist)
+
+    if args.patch:
+        with open(args.patch, encoding="utf-8", errors="replace") as fh:
+            sources = _patch_sources(fh.read())
+        if not sources:
+            raise EtkError(E_INPUT_INVALID, "补丁里没有可核验的新增行：%s" % args.patch)
+    else:
+        if not args.paths:
+            raise EtkError(E_INPUT_INVALID, "请给出要核验的文件、目录，或用 --patch 指定补丁文件。")
+        sources, truncated = _collect_sources(args.paths)
+        if truncated:
+            warnings.append("文件数超过 %d，只核验了前 %d 个。" % (MAX_FILES, MAX_FILES))
+        if not sources:
+            raise EtkError(E_INPUT_INVALID, "没有找到可核验的 .c/.h 文件。")
+
+    results = []
+    errors = []
+    for name, text, path_hint in sources:
+        try:
+            res = verifier.check_file(name, text)
+        except EtkError as exc:
+            errors.append(exc.to_dict())
+            continue
+        res["path"] = path_hint
+        res["source"]["selected_by"] = selected_by
+        results.append(res)
+    return results, warnings, errors
+
+
+# ---------- 渲染 ----------
+
+def _render_rules(res):
+    lines = ["核验规则（E01–E10）："]
+    for item in res["rules"]:
+        lines.append("  %s %s（%s）｜桶：%s｜标签：%s｜严重度：%s" % (
+            item["class"], item["name"], item["verdict"], item["bucket"], item["label"], item["severity"]))
+    lines.append("  " + res["note"])
+    return lines
+
+
+def _render_checklist(res):
+    cl = res["checklist"]
+    lines = ["复查清单："]
+    if cl["chip_default"]:
+        lines.append("  芯片默认（写入等于复位值，确认可删或有意为之）：")
+        for item in cl["chip_default"][:20]:
+            lines.append("    第 %d 行 %s" % (item["line"], item["code"]))
+    lines.append("  已核验（无需复查）：%d 处" % cl["verified"])
+    if cl["manual"]:
+        lines.append("  需查手册（%d 条）：" % len(cl["manual"]))
+        for item in cl["manual"][:20]:
+            if "class" in item:
+                lines.append("    第 %d 行（%s）%s" % (item["line"], item["class"], item["message"]))
+            else:
+                lines.append("    第 %d 行（未判定）%s" % (item["line"], item["reason"]))
+    if cl["measured"]:
+        lines.append("  需实测（%d 条，涉及 DMA/NVIC/SysTick 等，建议上板验证）：" % len(cl["measured"]))
+        for item in cl["measured"][:20]:
+            lines.append("    第 %d 行 %s" % (item["line"], item["code"]))
+    return lines
+
+
+def _render_verify(res):
+    c = res["counts"]
+    lines = ["%s：%d 处寄存器写入（报 %d、未判定 %d、通过 %d）" % (
+        res["file"], c["writes"], c["report"], c["undetermined"], c["passed"])]
+    for item in res["findings"]:
+        lines.append("  [报] %s 第 %d 行：%s" % (item["class"], item["line"], item["message"]))
+        lines.append("      代码：%s" % item["code"])
+        if item.get("suggestion"):
+            lines.append("      建议：%s" % item["suggestion"])
+    if res["findings_truncated"]:
+        lines.append("  （问题过多，仅显示前 %d 条；用 --format json 获取全部）" % len(res["findings"]))
+    for item in res["undetermined"]:
+        lines.append("  [未判定] 第 %d 行：%s" % (item["line"], item["reason"]))
+        lines.append("      代码：%s" % item["code"])
+    if res["undetermined_truncated"]:
+        lines.append("  （未判定条目过多，仅显示前 %d 条）" % len(res["undetermined"]))
+    if res.get("checklist"):
+        lines.extend(_render_checklist(res))
+    src = res.get("source") or {}
+    lines.append("[核验] 依据：%s（设备 %s，版本 %s）" % (
+        src.get("file"), src.get("device"), src.get("version")))
+    return lines
+
+
+def render_text(env):
+    lines = []
+    for err in env["errors"]:
+        lines.append("错误 [%s] %s" % (err["code"], err["message"]))
+        if err.get("hint"):
+            lines.append("  提示：%s" % err["hint"])
+        for item in (err.get("details") or {}).get("tried", []):
+            lines.append("  已尝试：%s" % item)
+    for w in env["warnings"][:MAX_WARNINGS_SHOWN]:
+        lines.append("注意：%s" % w)
+    if len(env["warnings"]) > MAX_WARNINGS_SHOWN:
+        lines.append("注意：另有 %d 条警告，用 --format json 查看全部" % (
+            len(env["warnings"]) - MAX_WARNINGS_SHOWN))
+    for res in env["results"]:
+        if res["kind"] == "verify":
+            lines.extend(_render_verify(res))
+        elif res["kind"] == "rules":
+            lines.extend(_render_rules(res))
+        else:
+            lines.append(json.dumps(res, ensure_ascii=False))
+    files = [r for r in env["results"] if r["kind"] == "verify"]
+    if len(files) > 1:
+        keys = ("writes", "report", "undetermined", "passed", "findings")
+        total = {k: sum(r["counts"][k] for r in files) for k in keys}
+        lines.append("合计：%d 个文件、%d 处写入（报 %d、未判定 %d、通过 %d）" % (
+            len(files), total["writes"], total["report"], total["undetermined"], total["passed"]))
+    return "\n".join(lines)
+
+
+def _emit(text, out_path):
+    if out_path:
+        with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text + "\n")
+        print("已写入 %s" % out_path)
+    else:
+        sys.stdout.write(text + "\n")
+
+
+def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+    args = build_parser().parse_args(argv)
+    try:
+        results, warnings, errors = _run(args)
+        env = envelope(TOOL, __version__, results=results, warnings=warnings, errors=errors)
+    except EtkError as exc:
+        env = envelope(TOOL, __version__, errors=[exc.to_dict()])
+    except Exception as exc:  # 兜底：避免向用户抛出裸 traceback
+        env = envelope(TOOL, __version__, errors=[{
+            "code": E_INTERNAL,
+            "message": "内部错误：%s: %s" % (exc.__class__.__name__, exc),
+            "hint": "请加 --format json 复现，并把输出附在 issue 中。",
+            "details": {},
+        }])
+    text = json.dumps(env, ensure_ascii=False, indent=2) if args.format == "json" else render_text(env)
+    _emit(text, args.out)
+    if not env["ok"]:
+        return 1
+    if args.command == "check":
+        report = sum(res.get("counts", {}).get("report", 0) for res in env["results"])
+        if report:
+            return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

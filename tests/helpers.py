@@ -19,16 +19,20 @@ LOOKUP = os.path.join(ROOT, "skills", "embedded-register-lookup", "scripts", "lo
 TEST_CACHE_DIR = os.path.join(tempfile.gettempdir(), "etk-test-cache")
 
 
-def run_cli(*args, env=None):
+def run_py(script, *args, env=None):
     merged = dict(os.environ)
     merged.setdefault("ETK_CACHE_DIR", TEST_CACHE_DIR)
     if env:
         merged.update(env)
     return subprocess.run(
-        [sys.executable, LOOKUP] + list(args),
+        [sys.executable, script] + list(args),
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
         env=merged,
     )
+
+
+def run_cli(*args, env=None):
+    return run_py(LOOKUP, *args, env=env)

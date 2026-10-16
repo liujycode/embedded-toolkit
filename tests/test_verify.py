@@ -1,0 +1,339 @@
+"""核验器测试：词法层（cscan）、规则（crules）与 CLI。"""
+
+import json
+import os
+import sys
+
+import pytest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+VERIFY_SCRIPTS = os.path.join(ROOT, "skills", "embedded-register-verify", "scripts")
+if VERIFY_SCRIPTS not in sys.path:
+    sys.path.insert(0, VERIFY_SCRIPTS)
+
+import cscan  # noqa: E402
+import crules  # noqa: E402
+from etk_core.svd import load_device  # noqa: E402
+from helpers import FIXTURES, SYNTH, run_py  # noqa: E402
+
+VERIFY_BAD = os.path.join(FIXTURES, "verify_bad.c")
+VERIFY_OK = os.path.join(FIXTURES, "verify_ok.c")
+VERIFY_PATCH = os.path.join(FIXTURES, "verify_patch.diff")
+VERIFY_CLI = os.path.join(VERIFY_SCRIPTS, "verify.py")
+DEMO_SVD = os.path.join(ROOT, "skills", "embedded-register-verify", "assets", "demo.svd")
+DEMO_C = os.path.join(ROOT, "skills", "embedded-register-verify", "examples", "verify_demo.c")
+
+
+@pytest.fixture(scope="module")
+def device():
+    return load_device(SYNTH)
+
+
+def _read(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _check(device, text, **kwargs):
+    return crules.Verifier(device, **kwargs).check_file("t.c", text)
+
+
+# ---------- cscan：词法层 ----------
+
+def test_strip_comments_and_strings_is_length_preserving():
+    text = 'int a = 1; // c->x = 1\nchar *s = "a\\"b"; /* c->y=2\ncontinued */ int b = 2;'
+    clean = cscan.strip_comments_and_strings(text)
+    assert len(clean) == len(text)
+    assert "c->x" not in clean
+    assert "c->y" not in clean
+    assert clean.count("\n") == text.count("\n")
+    assert "int a = 1;" in clean and "int b = 2;" in clean
+
+
+def test_join_continuations_keeps_original_line_numbers():
+    joined, line_map = cscan.join_continuations("a \\\n  b;\nc;\n")
+    assert joined.split("\n")[0].strip() == "a  b;"
+    assert line_map[:2] == [1, 3]
+
+
+def test_split_statements_handles_parens_and_braces():
+    clean = "void f(void) { for (i=0; i<2; i++) { USART1->CR1 = 1; } }"
+    got = [clean[a:b].strip() for a, b in cscan.split_statements(clean)]
+    assert got == ["USART1->CR1 = 1;"]
+    clean2 = "for (i=0; i<3; i++) USART1->CR1 |= 1;"
+    got2 = [clean2[a:b].strip() for a, b in cscan.split_statements(clean2)]
+    assert got2 == ["for (i=0; i<3; i++) USART1->CR1 |= 1;"]
+
+
+def test_extract_member_write_and_line():
+    parsed = cscan.extract_all("x = 1;\nUSART1->CR1 |= A | B;\n")
+    write = parsed["writes"][0]
+    assert (write["kind"], write["peripheral"], write["register"], write["op"]) == (
+        "member", "USART1", "CR1", "|=")
+    assert write["rhs"] == "A | B"
+    assert write["line"] == 2
+
+
+def test_extract_ignores_reads_and_comparisons():
+    parsed = cscan.extract_all("if (USART1->SR == 0) { }\nint y = P->X;\n")
+    assert parsed["writes"] == []
+
+
+def test_extract_addr_and_macro_writes():
+    parsed = cscan.extract_all(
+        "*(volatile uint32_t *)0x40013800 = 1;\n"
+        "SET_BIT(USART1->CR1, USART_CR1_UE);\n"
+        "MODIFY_REG(USART1->CR1, M_Msk, 2);\n")
+    kinds = [(w["kind"], w["op"]) for w in parsed["writes"]]
+    assert kinds == [("addr", "="), ("macro", "set_bit"), ("macro", "modify_reg")]
+    assert parsed["writes"][0]["address"] == 0x40013800
+    assert parsed["writes"][2]["args"] == ["USART1->CR1", "M_Msk", "2"]
+
+
+def test_extract_hal_clock_enable():
+    parsed = cscan.extract_all("__HAL_RCC_USART2_CLK_ENABLE();\n")
+    assert parsed["enables"] == ["USART2"]
+
+
+def test_eval_int_basics():
+    defines = {"A": "1 << 3", "B": "A | 0x4", "C": "B"}
+    assert cscan.eval_int("0x10 + 2", {}) == 18
+    assert cscan.eval_int("0b101 << 2", {}) == 20
+    assert cscan.eval_int("B", defines) == 12
+    assert cscan.eval_int("C", defines) == 12
+    assert cscan.eval_int("(uint32_t)(1) | 2", {}) == 3
+    assert cscan.eval_int("~0xFF & 0xFFFF", {}) == 0xFF00
+    assert cscan.eval_int("foo + 1", {}) is None
+    assert cscan.eval_int("1 / 0", {}) is None
+    assert cscan.eval_int("1 +", {}) is None
+    assert cscan.eval_int("X", {"X": "Y + 1", "Y": "X + 1"}) is None
+
+
+# ---------- crules：规则引擎 ----------
+
+def test_bad_fixture_full_expectations(device):
+    res = crules.Verifier(device).check_file("verify_bad.c", _read(VERIFY_BAD))
+    assert res["counts"] == {"writes": 20, "report": 12, "undetermined": 3, "passed": 5, "findings": 13}
+    codes = sorted({f["class"] for f in res["findings"]})
+    assert codes == ["E01", "E02", "E03", "E04", "E05", "E06", "E07", "E08", "E09", "E10"]
+    by_line = {f["line"]: f["class"] for f in res["findings"]}
+    assert by_line[10] == "E03" and by_line[11] == "E03" and by_line[12] == "E03"
+    assert by_line[15] == "E10" and by_line[16] == "E04" and by_line[17] == "E01"
+    assert by_line[18] == "E02" and by_line[19] == "E08" and by_line[20] == "E07"
+    assert by_line[21] == "E06" and by_line[22] == "E05" and by_line[23] == "E10"
+    reasons = [u["reason"] for u in res["undetermined"]]
+    assert len(reasons) == 3
+    assert any("Cortex-M" in r for r in reasons)
+    assert any("簇寄存器" in r for r in reasons)
+    assert any("无法映射" in r for r in reasons)
+
+
+def test_ok_fixture_passes(device):
+    res = crules.Verifier(device).check_file("verify_ok.c", _read(VERIFY_OK))
+    assert res["counts"]["report"] == 0
+    assert res["findings"] == []
+    assert res["counts"]["passed"] == 5
+
+
+def test_clock_check_reports_and_can_be_disabled(device):
+    text = "void f(void)\n{\n    USART2->CR1 |= USART_CR1_UE;\n}\n"
+    res = _check(device, text)
+    assert any(f["class"] == "E07" for f in res["findings"])
+    res2 = _check(device, text, clock_check=False)
+    assert res2["findings"] == []
+
+
+def test_clock_enabled_via_hal_macro(device):
+    text = "__HAL_RCC_USART2_CLK_ENABLE();\nUSART2->CR1 |= USART_CR1_UE;\n"
+    assert _check(device, text)["counts"]["report"] == 0
+
+
+def test_clock_enabled_via_rcc_macro_write(device):
+    text = "RCC->APB1ENR |= RCC_APB1ENR_USART2EN;\nUSART2->CR1 |= USART_CR1_UE;\n"
+    assert _check(device, text)["counts"]["report"] == 0
+
+
+def test_clock_enabled_via_numeric_rcc_write(device):
+    text = "RCC->APB1ENR = 0x00020000;\nUSART2->CR1 |= USART_CR1_UE;\n"
+    assert _check(device, text)["counts"]["report"] == 0
+
+
+def test_define_resolves_value_macro(device):
+    text = "USART1->BRR = BAUD_VAL;\n"
+    res = _check(device, text, extra_defines={"BAUD_VAL": "0x683"})
+    assert res["counts"] == {"writes": 1, "report": 0, "undetermined": 0, "passed": 1, "findings": 0}
+
+
+def test_read_only_hit_by_numeric_value(device):
+    res = _check(device, "RCC->CR = 0x400;\n")  # bit10 = HSIRDY，只读
+    assert [f["class"] for f in res["findings"]] == ["E10"]
+
+
+def test_modify_reg_enum_invalid(device):
+    res = _check(device, "MODIFY_REG(TIM1->CR2, TIM_CR2_MMS_Msk, 0x2);\n")
+    assert [f["class"] for f in res["findings"]] == ["E05"]
+
+
+def test_modify_reg_value_out_of_width(device):
+    res = _check(device, "MODIFY_REG(USART1->CR1, USART_CR1_PS_Msk, 0x4);\n")
+    assert [f["class"] for f in res["findings"]] == ["E04"]
+
+
+def test_field_macro_belongs_to_other_register(device):
+    res = _check(device, "USART1->CR1 |= USART_BRR_DIV;\n")
+    assert res["findings"][0]["class"] == "E03"
+    assert "BRR" in res["findings"][0]["message"]
+
+
+def test_e06_not_reported_when_field_set_elsewhere(device):
+    text = "CLEAR_BIT(USART1->CR1, USART_CR1_M0);\nUSART1->CR1 |= USART_CR1_M0;\n"
+    res = _check(device, text)
+    assert not any(f["class"] == "E06" for f in res["findings"])
+
+
+def test_e06_not_reported_for_modify_reg_clear(device):
+    res = _check(device, "MODIFY_REG(TIM1->CR2, TIM_CR2_MMS_Msk, TIM_CR2_MMS_ENABLE);\n")
+    assert res["findings"] == []
+
+
+def test_limit_truncates_findings(device):
+    res = crules.Verifier(device, limit=3).check_file("verify_bad.c", _read(VERIFY_BAD))
+    assert len(res["findings"]) == 3
+    assert res["findings_truncated"] is True
+    assert res["counts"]["findings"] == 13
+
+
+def test_checklist_groups(device):
+    verifier = crules.Verifier(device)
+    verifier.checklist = True
+    res = verifier.check_file("t.c", "USART1->CR1 = 0;\nDMA1->ISR = 0x1;\nUSART2->CR1 |= USART_CR1_UE;\n")
+    assert len(res["checklist"]["chip_default"]) == 1
+    assert res["checklist"]["verified"] == 1
+    assert res["checklist"]["measured"]
+    assert any("USART2" in item.get("message", "") for item in res["checklist"]["manual"])
+
+
+def test_core_peripheral_goes_undetermined(device):
+    res = _check(device, "SysTick->CTRL = 0x5;\n")
+    assert res["counts"] == {"writes": 1, "report": 0, "undetermined": 1, "passed": 0, "findings": 0}
+    assert "内核外设" in res["undetermined"][0]["reason"]
+
+
+def test_cluster_naming_goes_undetermined(device):
+    res = _check(device, "DMA1_Channel1->CCR |= 0x1;\n")
+    assert res["counts"]["undetermined"] == 1
+    assert "簇寄存器" in res["undetermined"][0]["reason"]
+
+
+def test_demo_example_reports_expected():
+    device = load_device(DEMO_SVD)
+    res = crules.Verifier(device).check_file("verify_demo.c", _read(DEMO_C))
+    assert [f["class"] for f in res["findings"]] == ["E03", "E10", "E10"]
+    assert res["counts"]["passed"] == 5
+
+
+# ---------- CLI ----------
+
+def test_cli_json_report_and_exit_code():
+    r = run_py(VERIFY_CLI, "check", VERIFY_BAD, "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1
+    env = json.loads(r.stdout)
+    assert env["ok"] is True
+    assert env["errors"] == []
+    assert env["results"][0]["counts"]["report"] == 12
+
+
+def test_cli_ok_file_exits_zero():
+    r = run_py(VERIFY_CLI, "check", VERIFY_OK, "--svd", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "报 0" in r.stdout
+
+
+def test_cli_directory_scan(tmp_path):
+    (tmp_path / "a.c").write_text("USART1->CR1 |= USART_CR1_XXX;\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(tmp_path), "--svd", SYNTH, "--format", "json")
+    assert json.loads(r.stdout)["results"][0]["counts"]["report"] == 1
+
+
+def test_cli_patch_mode():
+    r = run_py(VERIFY_CLI, "check", "--patch", VERIFY_PATCH, "--svd", SYNTH)
+    assert r.returncode == 1
+    assert "uart.c (patch)" in r.stdout
+    assert "第 13 行" in r.stdout and "第 14 行" in r.stdout
+
+
+def test_cli_rules_subcommand():
+    r = run_py(VERIFY_CLI, "rules", "--format", "json")
+    assert r.returncode == 0
+    env = json.loads(r.stdout)
+    assert env["results"][0]["rules"][0]["class"] == "E01"
+    assert len(env["results"][0]["rules"]) == 10
+
+
+def test_cli_demo_example():
+    r = run_py(VERIFY_CLI, "check", DEMO_C, "--demo")
+    assert r.returncode == 1
+    assert "ETK-DEMO" in r.stdout
+    assert "合成数据" in r.stdout
+
+
+def test_cli_missing_svd_is_error(tmp_path):
+    r = run_py(VERIFY_CLI, "check", VERIFY_OK, "--project-dir", str(tmp_path), "--format", "json")
+    assert r.returncode == 1
+    assert json.loads(r.stdout)["errors"][0]["code"] == "E_SVD_NOT_FOUND"
+
+
+def test_cli_demo_conflicts_with_svd():
+    r = run_py(VERIFY_CLI, "check", VERIFY_OK, "--demo", "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1
+    assert json.loads(r.stdout)["errors"][0]["code"] == "E_INPUT_INVALID"
+
+
+# ---------- 真实厂商 SVD（需要 ETK_TEST_SVD_DIR） ----------
+
+def _find_real(name):
+    import glob
+
+    from test_real_svd import SVD_DIRS
+
+    for root in SVD_DIRS:
+        hits = glob.glob(os.path.join(root, "**", name), recursive=True)
+        if hits:
+            return hits[0]
+    pytest.skip("%s 不在 ETK_TEST_SVD_DIR 中" % name)
+
+
+def test_real_f103_snippet_checks():
+    device = load_device(_find_real("STM32F103xx.svd"))
+    text = (
+        "void init(void)\n"
+        "{\n"
+        "    RCC->APB2ENR |= RCC_APB2ENR_USART1EN | RCC_APB2ENR_IOPAEN;\n"
+        "    RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;\n"
+        "    USART1->CR1 |= USART_CR1_UE | USART_CR1_TE;\n"
+        "    GPIOA->CRL = 0x44444444;\n"
+        "    GPIOA->IDR = 0x1;\n"        # F103 的 IDR 是只读 → E10
+        "    TIM2->CR1 = 0x1FFFF;\n"     # TIM2.CR1 是 32 位 → 不超宽
+        "}\n"
+    )
+    res = crules.Verifier(device).check_file("real.c", text)
+    classes = [f["class"] for f in res["findings"]]
+    assert classes == ["E10"]
+    assert res["counts"]["undetermined"] == 0
+    assert res["counts"]["passed"] == 5
+
+
+def test_real_f103_missing_clock_is_reported():
+    device = load_device(_find_real("STM32F103xx.svd"))
+    res = crules.Verifier(device).check_file("real.c", "USART1->CR1 |= USART_CR1_UE;\n")
+    assert [f["class"] for f in res["findings"]] == ["E07"]
+
+
+def test_real_g431_hardcoded_address_and_field_macro():
+    device = load_device(_find_real("STM32G431xx.svd"))
+    res = crules.Verifier(device).check_file(
+        "real.c",
+        "RCC->APB2ENR |= RCC_APB2ENR_USART1EN;\n"
+        "*(volatile uint32_t *)0x40013800 = 1;\n"
+        "USART1->CR1 |= USART_CR1_UE;\n")
+    assert [f["class"] for f in res["findings"]] == ["E08"]
