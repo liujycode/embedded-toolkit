@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件（查找规则同 embedded-register-lookup）；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.8.0"
+  version: "1.9.0"
 ---
 
 # 寄存器核验器
@@ -76,10 +76,14 @@ python scripts/verify.py rules
 | CMSIS 宏 | `SET_BIT`、`CLEAR_BIT`、`MODIFY_REG`、`WRITE_REG`（`READ_REG` 跳过） |
 | 字段宏（CMSIS 命名） | `USART_CR1_UE`、`GPIO_MODER_MODE0`、`TIM_CR2_MMS_Msk`、枚举名后缀（`USART_CR1_PS_ODD`） |
 | 直接地址（报 E08 并反查寄存器名） | `*(volatile uint32_t *)0x40013800 = v;`、`*reinterpret_cast<volatile uint32_t *>(0x40013800) = v;`、`HWREG(0x40013800) = v;`（纯字面量才报 E08） |
-| TI TivaWare 风格 | `HWREG(外设_BASE + 寄存器_O_XXX)`（宏组合出的具名地址按具名寄存器核验，**不报 E08**）、`HWREGH/HWREGB` |
-| 地址别名宏 | `#define REG (*(volatile uint32_t *)0xADDR)` 后的 `REG = v;`（按该寄存器正常核验） |
+| 地址访问宏 | `HWREG/HWREGH/HWREGB`（TI）、位带 `HWREGBITW/H/B(x, bit)`、`MMIO8/16/32`（libopencm3）、`REG8/16/32`（GD32）、`_SFR_MEM8/16/32`（AVR）：宏组合出的具名地址按具名寄存器核验，**不报 E08** |
+| 地址别名宏 | `#define REG (*(volatile uint32_t *)0xADDR)` 或 `#define REG MMIO32(基址 + 偏移)`（头文件里的 `--headers` 也算）后的 `REG = v;`（按该寄存器正常核验） |
+| 指针表达式写入 | `*(volatile uint32_t *)(外设_BASE + 偏移) = v;`（具名表达式不报 E08；纯字面量表达式报 E08；运行时基址记未判定） |
+| 函数宏作左值 | `GPIO_ODR(GPIOA) \|= v`（libopencm3）、`GPIO_OCTL(GPIOA) = v`（GD32）——单/多参数函数宏在调用点代入求值 |
+| CMSIS union/数组风格 | `PORT->Group[0].DIRSET.reg = v`、`SERCOM0->USART.CTRLA.reg = v`、`EIC->CONFIG[0].reg \|= v`（Microchip SAMD；组/通道号为运行时表达式时记"未判定"） |
+| 裸寄存器名 | `PORTB = 0xFF;`、`P1OUT \|= BIT0;`、`UCSR0B = (1 << RXEN0)`（AVR/MSP430/8051；与 SVD 中唯一寄存器名匹配才核验） |
 | 通道名同义写法 | `DMA1_Channel3->CCR` ↔ `DMA1_CH3->CCR`；SVD 若把通道号放在寄存器后缀（G4 的 `CCR3`），也能对上并做字段级核验 |
-| ESP-IDF 风格寄存器宏 | `REG_WRITE/REG_SET_BIT/REG_CLR_BIT/REG_SET_FIELD/REG_CLR_FIELD(...)`：用 `--headers` 提供寄存器常量宏后按具名寄存器核验（`REG_SET_FIELD` 做到**字段级**：存在性/只读/位宽/枚举）；地址求值支持 `BIT(n)` 与单参数函数宏（`TIMG_RTCCALICFG_REG(0)` 这类）；未提供时记"未判定" |
+| ESP-IDF 风格寄存器宏 | `REG_WRITE/REG_SET_BIT/REG_CLR_BIT/REG_SET_FIELD/REG_CLR_FIELD(...)`：用 `--headers` 提供寄存器常量宏后按具名寄存器核验（`REG_SET_FIELD` 做到**字段级**：存在性/只读/位宽/枚举）；地址求值支持 `BIT(n)` 与函数宏（`TIMG_RTCCALICFG_REG(0)`、`GPIO_ODR(port)`）；`#include` 自动跟随；未提供时记"未判定" |
 | 语言/工程 | C 与 C++（`.c/.h/.cpp/.cc/.hpp/.ino` 等），Arduino 工程里的直接寄存器写同样适用 |
 
 **不支持（一律进"未判定"，不当作错误）**：HAL/LL 调用、结构体成员赋值（`hi2c1.Init.X`）、运行时计算的地址、无法映射的字段宏、簇寄存器命名（如 `DMA1_Channel1->CCR` 对应 SVD 里 `DMA1` 的 `CH1` 簇）、内核外设（SysTick/NVIC 等在设备 SVD 之外）。

@@ -32,6 +32,35 @@ def test_lookup_field_with_arrow_and_lowercase(device):
     assert res["register"]["address"] == "0x40013800"
 
 
+def test_lookup_bare_register_name(device):
+    """裸寄存器名（AVR/MSP430 风格）：APB1ENR → RCC.APB1ENR。"""
+    res = query.lookup(device, "APB1ENR")
+    assert res["kind"] == "register"
+    assert res["peripheral"] == "RCC"
+    assert res["register"]["name"] == "APB1ENR"
+    assert res["resolved_by"] == "bare-name"
+
+
+def test_lookup_bare_register_with_field(device):
+    res = query.lookup(device, "CNT.CNT")
+    assert res["kind"] == "field"
+    assert res["peripheral"] == "TIM1"
+    assert res["field"]["name"] == "CNT"
+
+
+def test_lookup_bare_register_ambiguous(device):
+    with pytest.raises(EtkError) as info:
+        query.lookup(device, "SR")
+    assert info.value.code == E_INPUT_INVALID
+    assert "匹配多个寄存器" in info.value.message
+
+
+def test_resolve_register_bare_name(device):
+    periph, reg = query.resolve_register(device, "APB1ENR")
+    assert periph.name == "RCC"
+    assert reg.name == "APB1ENR"
+
+
 def test_field_reset_and_enum_patterns(device):
     res = query.lookup(device, "GPIOB.MODER.MODE0")
     assert res["field"]["reset"] == 1

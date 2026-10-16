@@ -297,6 +297,10 @@ class Verifier:
         else:
             periph_name, reg_name = write["peripheral"], write["register"]
         periph = self._periph(periph_name)
+        group_index = write.get("group_index")
+        if periph is None and group_index and group_index.isdigit():
+            # PORT->Group[0]：SVD 把组建模为独立外设（PORTA/PORTB）时按字母映射
+            periph = self._periph(periph_name + chr(ord("A") + int(group_index)))
         if periph is None:
             # 通道号游走在"外设名 / 寄存器名"两端的写法：
             #   DMA1_Channel3->CCR（ST 函数/头文件风格）或 DMA1_CH3->CCR（G4 SVD 风格）
@@ -316,23 +320,92 @@ class Verifier:
             if EXT_NAME_RE.match(periph_name):
                 return None, None, {"unknown": periph_name}
             return None, None, None
-        reg = periph.register(reg_name)
+        reg = self._member_register(periph, write) if write["kind"] != "macro" \
+            else periph.register(reg_name)
         if reg is None:
             if periph.name.upper() in CORE_PERIPHERALS:
                 return None, None, {"core_reg": "%s.%s" % (periph.name, reg_name)}
             prefix = reg_name.upper() + "."
             if any(r.name.upper().startswith(prefix) for r in periph.registers):
                 return None, None, {"cluster_reg": "%s.%s" % (periph_name, reg_name)}
+            if self._has_suffix_variants(periph, write):
+                return None, None, {"suffix_reg": "%s.%s" % (periph.name, reg_name)}
             return periph, None, None
         return periph, reg, None
+
+    def _member_register(self, periph, write):
+        """成员写法的寄存器名解析：精确 → 组/引脚数字后缀（DIRSET0、PINCFG0_4、CONFIG0）
+        → 点/下划线变体（USART.CTRLA ↔ USART_CTRLA）。"""
+        reg_name = write.get("register") or ""
+        segments = write.get("segments")
+        indices = write.get("indices") or []
+        group = write.get("group_index")
+        pin = indices[-1] if (segments and indices and indices[-1]) else None
+        candidates = [reg_name]
+        if segments:
+            # 段内下标（DMAC->CH[0].CTRLA → CH0.CTRLA）
+            joined = ".".join(
+                seg + (idx.strip() if idx and idx.strip().isdigit() else "")
+                for seg, idx in zip(segments, indices + [None] * (len(segments) - len(indices))))
+            if joined != reg_name:
+                candidates.append(joined)
+        base = reg_name
+        if group and group.isdigit() and pin and pin.isdigit():
+            candidates.append(base + group + "_" + pin)
+        if pin and pin.isdigit():
+            candidates.append(base + pin)
+        if group and group.isdigit():
+            candidates.append(base + group)
+        for cand in candidates:
+            reg = periph.register(cand)
+            if reg is not None:
+                return reg
+        for cand in list(candidates):
+            if "." in cand:
+                reg = periph.register(cand.replace(".", "_"))
+                if reg is not None:
+                    return reg
+        for cand in list(candidates):
+            if "_" in cand:
+                reg = periph.register(cand.replace("_", "."))
+                if reg is not None:
+                    return reg
+        return None
+
+    @staticmethod
+    def _has_suffix_variants(periph, write):
+        """寄存器名是否有"数字后缀变体"（DIRSET→DIRSET0、PINCFG→PINCFG0_4、CH.CTRLA→CH0.CTRLA）。
+
+        用于把"组/通道号无法静态确定"的写法记未判定，而不是误报 E02。
+        """
+        reg_name = (write.get("register") or "").upper()
+        if not reg_name or re.search(r"\d+$", reg_name):
+            return False
+        segments = write.get("segments") or [write.get("register") or ""]
+        pattern = ""
+        for i, seg in enumerate(segments):
+            if i:
+                pattern += r"\d*\.?"
+            pattern += re.escape(seg)
+        pattern += r"(?:\d+(?:_\d+)?)?$"
+        try:
+            rx = re.compile(pattern, re.IGNORECASE)
+        except re.error:
+            return False
+        return any(r.name.upper() != reg_name and rx.fullmatch(r.name) for r in periph.registers)
 
     # ---------- 位域触碰分析（用于 E06/E07） ----------
 
     def _fields_for_expr(self, expr, periph, context_reg, defines):
-        """表达式里出现的位域宏 → (mapped_fields, missing_list, unmapped_macros, value)。"""
+        """表达式里出现的位域宏 → (mapped_fields, missing_list, unmapped_macros, dim_macros, value)。
+
+        dim_macros：带编号的位域组宏（如 EIC_INTENSET_EXTINT(inMask) → 位域 EXTINT0…15）——
+        编号来自函数宏实参/运行时表达式时无法静态定位，记未判定而不是误报 E03。
+        """
         mapped = []
         missing = []
         unmapped = []
+        dim = []
         for name in macro_words(expr):
             if name.upper() in cscan.BIT_FUNCS:
                 continue  # BIT(n)/BIT_MASK(n) 等位函数：按整体表达式求值，不当作宏映射
@@ -342,11 +415,25 @@ class Verifier:
             if result and result.get("field") is not None:
                 mapped.append((name, result["field"], result))
             elif result and result.get("missing"):
+                seg = result["missing"]
+                reg = result.get("register")
+                if reg is not None:
+                    # 带编号位域组：函数宏实参是字面量 → 直接映射（EXTINT(3) → EXTINT3）
+                    m = re.search(r"\b%s\s*\(\s*(\d+)\s*\)" % re.escape(name), expr or "", re.IGNORECASE)
+                    if m is not None:
+                        inst = reg.field(seg + m.group(1))
+                        if inst is not None:
+                            mapped.append((name, inst, result))
+                            continue
+                    if any(re.fullmatch(re.escape(seg) + r"\d+", f.name, re.IGNORECASE)
+                           for f in reg.fields):
+                        dim.append(name)
+                        continue
                 missing.append((name, result))
             else:
                 unmapped.append(name)
         value = cscan.eval_int(expr, defines) if expr else None
-        return mapped, missing, unmapped, value
+        return mapped, missing, unmapped, dim, value
 
     # ---------- 主流程 ----------
 
@@ -397,7 +484,7 @@ class Verifier:
             if write["kind"] == "macro":
                 args = write.get("args") or []
                 if write["op"] == "set_bit" and len(args) >= 2:
-                    mapped, _missing, _unmapped, _value = self._fields_for_expr(args[1], periph, reg, defines)
+                    mapped, _missing, _unmapped, _dim, _value = self._fields_for_expr(args[1], periph, reg, defines)
                     for _macro, field, _info in mapped:
                         sets.add((periph.name.upper(), reg.name.upper(), field.name.upper()))
                     if periph.name.upper() == "RCC":
@@ -405,7 +492,7 @@ class Verifier:
                             rcc_enabled.add(field.name.upper())
                 elif write["op"] in ("write_reg", "modify_reg") and len(args) >= 2:
                     expr = args[2] if write["op"] == "modify_reg" and len(args) >= 3 else args[1]
-                    mapped, _missing, _unmapped, value = self._fields_for_expr(expr, periph, reg, defines)
+                    mapped, _missing, _unmapped, _dim, value = self._fields_for_expr(expr, periph, reg, defines)
                     for _macro, field, _info in mapped:
                         sets.add((periph.name.upper(), reg.name.upper(), field.name.upper()))
                         if periph.name.upper() == "RCC":
@@ -419,7 +506,7 @@ class Verifier:
             else:
                 rhs = write.get("rhs") or ""
                 if write["op"] == "|=":
-                    mapped, _missing, _unmapped, value = self._fields_for_expr(rhs, periph, reg, defines)
+                    mapped, _missing, _unmapped, _dim, value = self._fields_for_expr(rhs, periph, reg, defines)
                     for _macro, field, _info in mapped:
                         sets.add((periph.name.upper(), reg.name.upper(), field.name.upper()))
                         if periph.name.upper() == "RCC":
@@ -578,6 +665,11 @@ class Verifier:
             elif "cluster_reg" in problem:
                 add_undet(write, "%s 是簇寄存器（SVD 中命名为 %s.x），未检查" % (
                     problem["cluster_reg"], problem["cluster_reg"]))
+            elif "suffix_reg" in problem:
+                full = problem["suffix_reg"]
+                base = full.rsplit(".", 1)[-1]
+                add_undet(write, "%s 是数字后缀寄存器组（%s0/%s1…）：当前写法的组/通道号无法静态确定，未检查"
+                          % (full, base, base))
             elif "address" in problem:
                 add_finding(write, "E08", "硬编码地址 0x%08X（SVD 中未找到对应寄存器）" % problem["address"],
                             lookup=_lookup_hint("addr", address="0x%08X" % problem["address"],
@@ -640,9 +732,12 @@ class Verifier:
                         lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
                                             reason="查看该寄存器的完整定义"))
         rhs = write.get("rhs") or ""
-        mapped, missing, unmapped, value = self._fields_for_expr(rhs, periph, reg, defines)
+        mapped, missing, unmapped, dim, value = self._fields_for_expr(rhs, periph, reg, defines)
         for macro_name, info in missing:
             self._report_macro_mismatch(write, periph, reg, macro_name, info, add_finding)
+        if dim:
+            add_undet(write, "位域组宏（编号来自函数宏实参/运行时表达式，无法静态定位）：%s"
+                      % "、".join(sorted(set(dim))[:4]))
         for macro_name, field, info in mapped:
             if self._report_register_mismatch(write, periph, reg, macro_name, info, add_finding):
                 continue
@@ -866,9 +961,12 @@ class Verifier:
 
     def _check_macro_mask(self, write, periph, reg, expr, mode, defines,
                           add_finding, add_undet, sets, unknown_set_regs, reported):
-        mapped, missing, unmapped, value = self._fields_for_expr(expr, periph, reg, defines)
+        mapped, missing, unmapped, dim, value = self._fields_for_expr(expr, periph, reg, defines)
         for macro_name, _info in missing:
             self._report_macro_mismatch(write, periph, reg, macro_name, _info, add_finding)
+        if dim:
+            add_undet(write, "位域组宏（编号来自函数宏实参/运行时表达式，无法静态定位）：%s"
+                      % "、".join(sorted(set(dim))[:4]))
         mapped_names = set()
         for macro_name, field, _info in mapped:
             mapped_names.add(field.name.upper())
@@ -912,7 +1010,7 @@ class Verifier:
 
     def _check_modify_value(self, write, periph, reg, clear_expr, set_expr, defines,
                             add_finding, add_undet, reported):
-        mapped, _missing, _unmapped, _v = self._fields_for_expr(clear_expr, periph, reg, defines)
+        mapped, _missing, _unmapped, _dim, _v = self._fields_for_expr(clear_expr, periph, reg, defines)
         value = cscan.eval_int(set_expr, defines)
         if value is None:
             return

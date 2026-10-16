@@ -41,6 +41,14 @@ ACCESSOR_FUNCS = ("HWREG", "HWREGB", "HWREGH", "MMIO8", "MMIO16", "MMIO32",
 ACCESSOR_BIT_FUNCS = ("HWREGBITW", "HWREGBITH", "HWREGBITB")
 _ACCESSOR_RE = re.compile(
     r"\b(?:HWREG(?:B|H)?|HWREGBIT[WBH]|MMIO(?:8|16|32)|REG(?:8|16|32)|_SFR_MEM(?:8|16|32))\s*\(")
+# 指针表达式写入：*(volatile uint32_t *)(EXPR)、reinterpret_cast<...>(EXPR)
+# （纯字面量形式由 _ADDR_RE 先行处理并报 E08）
+_ADDR_CAST_RE = re.compile(
+    r"(?:\*\s*\(\s*\(?\s*" + _ADDR_TYPE + r"\s*\*\s*\)"
+    r"|reinterpret_cast\s*<\s*" + _ADDR_TYPE + r"\s*\*\s*>\s*)")
+# CMSIS union/数组风格成员链：PORT->Group[0].DIRSET.reg、SERCOM0->USART.CTRLA.reg、EIC->CONFIG[0].reg
+_CHAIN_HEAD_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_]\w*)\s*->\s*")
+_CHAIN_SEG_RE = re.compile(r"\s*([A-Za-z_]\w*)\s*(?:\[\s*((?:[^\[\]]|\[[^\[\]]*\])*?)\s*\])?")
 # 对象宏的值是"地址访问宏 / 指针解引用 / 函数宏调用"形式
 # （--headers 头文件里的寄存器宏，如 #define RCC_APB1ENR MMIO32(...)、
 #  #define SYSCTL_RCGC2_R (*((volatile uint32_t *)(...)))、#define ADC1_CR1 ADC_CR1(ADC1)）
@@ -263,6 +271,26 @@ def _op_after(stmt, pos):
     return m.group(1) if m else None
 
 
+def _parse_member_chain(stmt, pos):
+    """解析 `A[i].B[j]...` 成员链；返回 (segments, indices, end_pos) 或 None。
+
+    segments 为标识符列表，indices 为各段的下标文本（无下标为 None，可为任意表达式）。
+    """
+    segments = []
+    indices = []
+    while True:
+        m = _CHAIN_SEG_RE.match(stmt, pos)
+        if not m:
+            return None
+        segments.append(m.group(1))
+        indices.append(m.group(2))
+        pos = m.end()
+        if pos < len(stmt) and stmt[pos] == ".":
+            pos += 1
+            continue
+        return segments, indices, pos
+
+
 def collect_addr_aliases(clean):
     """收集"地址别名"对象宏（两种写法）。
 
@@ -390,6 +418,54 @@ def extract_all(text, extra_defines=None):
                     "rhs": stmt[addr.end():].lstrip().lstrip(op).rstrip().rstrip(";").strip(),
                 })
             continue
+        cast = _ADDR_CAST_RE.search(stmt)
+        if cast:
+            # 指针表达式写入：*(volatile uint32_t *)(外设_BASE + 偏移) = x
+            rest = stmt[cast.end():]
+            stripped = rest.lstrip()
+            lead = len(rest) - len(stripped)
+            inner = None
+            end_pos = None
+            if stripped.startswith("("):
+                depth = 0
+                for i, ch in enumerate(stripped):
+                    if ch == "(":
+                        depth += 1
+                    elif ch == ")":
+                        depth -= 1
+                        if depth == 0:
+                            inner = stripped[1:i]
+                            end_pos = cast.end() + lead + i + 1
+                            break
+            else:
+                m_op = re.search(r"(?<![=!<>])(\|=|\^=|&=|=)(?!=)", stripped)
+                if m_op:
+                    inner = stripped[:m_op.start()]
+                    end_pos = cast.end() + lead + m_op.start()
+            if inner is not None and end_pos is not None:
+                m_op = re.match(r"\s*(\|=|&=|\^=|=)(?!=)", stmt[end_pos:])
+                if m_op:
+                    expr = inner.strip()
+                    op = m_op.group(1)
+                    rhs = stmt[end_pos + m_op.end():].rstrip().rstrip(";").strip()
+                    value = eval_int(expr, defines)
+                    named = re.search(r"(?<![0-9A-Za-z_])[A-Za-z_]\w*", expr) is not None
+                    if value is None:
+                        writes.append({
+                            "kind": "addr_expr", "op": op, "line": line, "code": display,
+                            "expr": expr[:80],
+                        })
+                    elif named:
+                        writes.append({
+                            "kind": "alias", "op": op, "line": line, "code": display,
+                            "name": expr[:60], "address": value, "rhs": rhs,
+                        })
+                    else:
+                        writes.append({
+                            "kind": "addr", "op": op, "line": line, "code": display,
+                            "address": value, "rhs": rhs,
+                        })
+                    continue
         alias = _ALIAS_USE_RE.match(stmt)
         if alias and alias.group(1) in aliases:
             name = alias.group(1)
@@ -441,6 +517,35 @@ def extract_all(text, extra_defines=None):
                 "rhs": stmt[member.end():].rstrip().rstrip(";").strip(),
             })
             continue
+        chain = _CHAIN_HEAD_RE.search(stmt)
+        if chain:
+            # CMSIS union/数组风格：PORT->Group[0].DIRSET.reg = x、SERCOM0->USART.CTRLA.reg = x
+            parsed_chain = _parse_member_chain(stmt, chain.end())
+            if parsed_chain:
+                segments, indices, chain_pos = parsed_chain
+                m_op = re.match(r"\s*(\|=|&=|\^=|=)(?!=)", stmt[chain_pos:])
+                if m_op and segments:
+                    cut = len(segments)
+                    for idx, seg in enumerate(segments):
+                        if seg.lower() in ("reg", "bit"):
+                            cut = idx  # union/位域选择后缀：其后全部丢弃
+                            break
+                    segments, indices = segments[:cut], indices[:cut]
+                    group_index = None
+                    if segments and segments[0] == "Group" and indices and indices[0] is not None:
+                        group_index = indices[0].strip()
+                        segments, indices = segments[1:], indices[1:]
+                    if segments:
+                        entry = {
+                            "kind": "member", "op": m_op.group(1), "line": line, "code": display,
+                            "peripheral": chain.group(1), "register": ".".join(segments),
+                            "segments": segments, "indices": indices,
+                            "rhs": stmt[chain_pos + m_op.end():].rstrip().rstrip(";").strip(),
+                        }
+                        if group_index:
+                            entry["group_index"] = group_index
+                        writes.append(entry)
+                        continue
         bare = re.match(r"\s*([A-Z][A-Z0-9_]{1,})\s*(\|=|&=|\^=|=)(?!=)", stmt)
         if bare:
             # 裸寄存器名（AVR/MSP430/8051/PIC 风格）：PORTB = / P1OUT |= ...

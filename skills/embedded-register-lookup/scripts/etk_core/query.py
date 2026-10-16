@@ -151,9 +151,30 @@ def _field_dict(item, reg_reset, size):
     }
 
 
+def _bare_register_hits(device, name):
+    """按寄存器名直接匹配（AVR/MSP430 裸寄存器名风格）：返回 [(periph, reg), ...]。"""
+    key = (name or "").upper()
+    index = getattr(device, "_reg_name_index", None)
+    if index is None:
+        index = {}
+        for periph in device.peripherals:
+            for reg in periph.registers:
+                index.setdefault(reg.name.upper(), []).append((periph, reg))
+        try:
+            device._reg_name_index = index
+        except AttributeError:
+            pass
+    return index.get(key, [])
+
+
 def resolve_register(device, text):
     parts = split_query(text)
-    periph = _periph_or_raise(device, parts[0])
+    periph = device.peripheral(parts[0])
+    if periph is None:
+        hits = _bare_register_hits(device, parts[0])
+        if len(hits) == 1 and len(parts) == 1:
+            return hits[0]
+        _periph_or_raise(device, parts[0])
     if len(parts) < 2:
         raise EtkError(E_INPUT_INVALID, "需要指定寄存器，例如 RCC.CR", hint="格式为 外设.寄存器。")
     name = ".".join(parts[1:])
@@ -171,8 +192,41 @@ def resolve_register(device, text):
 
 def lookup(device, text):
     parts = split_query(text)
-    periph = _periph_or_raise(device, parts[0])
     source = source_meta(device)
+    periph = device.peripheral(parts[0])
+    if periph is None:
+        # 裸寄存器名（AVR/MSP430/8051 风格）：UCSR0B、P1OUT、TIMSK0
+        hits = _bare_register_hits(device, parts[0])
+        if len(hits) == 1:
+            hit_periph, hit_reg = hits[0]
+            rest = parts[1:]
+            if not rest:
+                res = _register_result(hit_periph, hit_reg, source)
+                res["resolved_by"] = "bare-name"
+                return res
+            fld = hit_reg.field(".".join(rest))
+            if fld is None:
+                sugg = suggest(rest[-1], [f.name for f in hit_reg.fields])
+                hint = "可用 lookup %s.%s 查看全部位域。" % (hit_periph.name, hit_reg.name)
+                if sugg:
+                    hint += "你可能要找：%s。" % "、".join(sugg)
+                raise EtkError(
+                    E_FIELD_NOT_FOUND,
+                    "%s 中没有位域 %s" % (hit_reg.name, ".".join(rest)),
+                    hint=hint,
+                    details={"suggestions": sugg},
+                )
+            res = _field_result(hit_periph, hit_reg, fld, source)
+            res["resolved_by"] = "bare-name"
+            return res
+        if len(hits) > 1:
+            options = "、".join("%s.%s" % (p.name, r.name) for p, r in hits[:6])
+            raise EtkError(
+                E_INPUT_INVALID,
+                "%s 匹配多个寄存器：%s" % (parts[0], options),
+                hint="请用 外设.寄存器 形式指定，例如 %s.%s。" % (hits[0][0].name, hits[0][1].name),
+            )
+        _periph_or_raise(device, parts[0])
     if len(parts) == 1:
         return _periph_result(periph, source)
     rest = parts[1:]

@@ -161,6 +161,29 @@ mbed-os K64F 的 `serial_api.c`、`fsl_clock_config.c`，SVD 为 `MK64F12.svd`�
   本工具能核验的直接寄存器写入很少；无任何误报。NXP/Renesas 的**直接寄存器**语料（KSDK 1.x 风格）
   仍待补充。
 
+## Microchip SAMD（Arduino SAMD 核心）真实源码试跑（v1.9.0）
+
+日期：2026-10-17 ｜ 语料：ArduinoCore-samd 的 `cores/arduino/` **5 个文件**（wiring_digital.c、
+WInterrupts.c、wiring_analog.c、delay.c、wiring_shift.c），SVD 为 `ATSAMD21G18A`（cmsis-svd-data）。
+
+| 指标 | 数值 |
+|---|---|
+| 写入处 | 49 |
+| 报 | **0** |
+| 未判定 | 22 |
+| 通过 | 27 |
+
+- 覆盖 Microchip SAMD 的 **CMSIS union/数组风格**（全新语法族）：
+  `PORT->Group[0].DIRSET.reg = v`、`PORT->Group[0].PINCFG[4].reg`、`SERCOM0->USART.CTRLA.reg`、
+  `EIC->CONFIG[0].reg |= v`、`ADC->CTRLB.bit.RESSEL = ...`（`.bit` 后缀按寄存器级核验）、
+  `GCLK->CLKCTRL.reg = GCLK_CLKCTRL_CLKEN | ...`（枚举名核验）、
+  `TCx->COUNT16.CTRLA.reg`（复合寄存器名）——SVD 中寄存器名带组/引脚后缀（`DIRSET0`、`PINCFG0_4`、
+  `CONFIG0`）与点号复合名（`USART.CTRLA`）都能对上。
+- 未判定构成（全部归因）：组/引脚号为运行时表达式（`PORT->Group[g_APinDescription[ulPin].ulPort]…`，
+  与 TI 运行时基址同类）；`EIC_INTENSET_EXTINT(inMask)` 这类**位域组宏**的编号来自运行参数
+  （本轮修掉 2 处 E03 误报——编号是字面量时直接映射 `EXTINT(3)`→`EXTINT3`，否则记未判定）。
+- `delay.c`/`wiring_shift.c` 无直接寄存器写入（SysTick 走 CMSIS 函数、移位用端口指针），如实计 0。
+
 ## 试跑中发现并修掉的问题
 
 1. **`SCB->CPACR` 误报 E02**（v1.0.0 试跑）：ST 的 SVD 里 `SCB` 只列了部分内核寄存器，
@@ -194,6 +217,11 @@ mbed-os K64F 的 `serial_api.c`、`fsl_clock_config.c`，SVD 为 `MK64F12.svd`�
    `rcc_periph_clock_enable(RCC_ADC1)`、`rcc_enable_rtc_clock()` 已识别为时钟使能来源。
 13. **局部变量访问计入"通过"**（NXP/libopencm3 试跑发现）：`p->len = 0`、`base->C1 = x`
    这类局部结构体访问原先被计入"通过"，虚增通过数。已修正为静默忽略、不进入统计（见文首口径）。
+14. **位域组宏误报 E03**（SAMD 试跑发现）：`EIC_INTENSET_EXTINT(inMask)` 的字段段 `EXTINT`
+   在 SVD 中是 `EXTINT0…15` 组，原先报"位域不存在"。已修正：编号为字面量时映射到实例
+   （`EXTINT(3)`→`EXTINT3`），编号来自运行参数时记"位域组宏"未判定。
+15. **`TCx->COUNT16.CC[tcChannel].reg` 类运行时下标**：链解析支持一层嵌套下标表达式
+   （`[g_APinDescription[pin].ulPort]`），无法静态确定组/通道号时记未判定并注明原因。
 
 ## 未完成事项（下一步）
 

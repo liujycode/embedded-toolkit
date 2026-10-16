@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件：厂商 CMSIS-Pack 或用户自备的 .svd；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.6.0"
+  version: "1.7.0"
 ---
 
 # 寄存器百事通
@@ -62,6 +62,8 @@ python scripts/lookup.py fields GPIOA.MODER --demo
 
 - 没有 SVD 时先 `doctor`（各来源与数量）和 `devices`（本机芯片清单）；想立刻体验用 `--demo`（内置合成芯片，不是真实数据）。
 - `lookup`、`fields`、`diagram`、`diff` 可一次给多个路径/寄存器（某个失败不影响其它）。
+- **裸寄存器名**（AVR/MSP430/8051 风格）也能直接查：`lookup UCSR0B` 自动定位到 `USART0.UCSR0B`
+  （整颗芯片重名时列出候选让你选外设）；`lookup UCSR0B.UDRIE0` 直接看位域；`decode UCSR0B 0x18` 同样可用。
 - `set` 的值可以是数字（0x/0b/十进制）或字段的枚举名；默认以复位值为基准，`--from 数字` 可换基准。
 - `decode --write` 与 `set` 会提示读-改-写陷阱：寄存器带写 1 清零等语义时，不要用 `reg |= x` 改其它位（回答时务必转告）。
 - `irq` 会自动带出 NVIC 使能/清挂起寄存器与位（SVD 里有 NVIC 数据时）；说"开中断"时把这条一起给用户。

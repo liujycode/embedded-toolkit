@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  CMSIS union/数组风格测试夹具（Microchip SAMD 风格）：
+  PORT->Group[0].DIRSET.reg、PORT->Group[0].PINCFG[4].reg、SERCOM0->USART.CTRLA.reg、EIC->CONFIG[0].reg
+  仅用于 tests/test_verify.py 的成员链用例。
+-->
+<device schemaVersion="1.1">
+  <name>UNIONSYNTH</name>
+  <version>1.0</version>
+  <description>CMSIS union/array style fixture</description>
+  <vendor>SYNTH-Corp</vendor>
+  <cpu>
+    <name>CM0</name>
+    <revision>r0p1</revision>
+    <endian>little</endian>
+  </cpu>
+  <width>32</width>
+  <resetValue>0x00000000</resetValue>
+  <resetMask>0xFFFFFFFF</resetMask>
+  <peripherals>
+    <peripheral>
+      <name>PORT</name>
+      <description>Port groups</description>
+      <baseAddress>0x41004400</baseAddress>
+      <addressBlock>
+        <offset>0</offset>
+        <size>0x100</size>
+        <usage>registers</usage>
+      </addressBlock>
+      <registers>
+        <register>
+          <name>DIR0</name>
+          <addressOffset>0x00</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>DIRSET0</name>
+          <description>Port A direction set</description>
+          <addressOffset>0x04</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>DIRSET1</name>
+          <description>Port B direction set</description>
+          <addressOffset>0x08</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>PINCFG0_4</name>
+          <description>Port A pin 4 config</description>
+          <addressOffset>0x10</addressOffset>
+          <size>8</size>
+          <fields>
+            <field>
+              <name>PMUXEN</name>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+            <field>
+              <name>PULLEN</name>
+              <bitOffset>3</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+          </fields>
+        </register>
+        <register>
+          <name>PINCFG1_4</name>
+          <description>Port B pin 4 config</description>
+          <addressOffset>0x14</addressOffset>
+          <size>8</size>
+        </register>
+      </registers>
+    </peripheral>
+    <peripheral>
+      <name>SERCOM0</name>
+      <description>Serial communication interface 0</description>
+      <baseAddress>0x42000800</baseAddress>
+      <addressBlock>
+        <offset>0</offset>
+        <size>0x100</size>
+        <usage>registers</usage>
+      </addressBlock>
+      <registers>
+        <register>
+          <name>USART.CTRLA</name>
+          <description>USART control A</description>
+          <addressOffset>0x00</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>USART.CTRLB</name>
+          <description>USART control B</description>
+          <addressOffset>0x04</addressOffset>
+          <size>32</size>
+        </register>
+      </registers>
+    </peripheral>
+    <peripheral>
+      <name>EIC</name>
+      <description>External interrupt controller</description>
+      <baseAddress>0x40001800</baseAddress>
+      <addressBlock>
+        <offset>0</offset>
+        <size>0x100</size>
+        <usage>registers</usage>
+      </addressBlock>
+      <registers>
+        <register>
+          <name>INTENSET</name>
+          <description>Interrupt enable set</description>
+          <addressOffset>0x00</addressOffset>
+          <size>32</size>
+          <fields>
+            <field>
+              <name>EXTINT0</name>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+            <field>
+              <name>EXTINT1</name>
+              <bitOffset>1</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+            <field>
+              <name>EXTINT2</name>
+              <bitOffset>2</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+            <field>
+              <name>EXTINT3</name>
+              <bitOffset>3</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+          </fields>
+        </register>
+        <register>
+          <name>CONFIG0</name>
+          <addressOffset>0x18</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>CONFIG1</name>
+          <addressOffset>0x1C</addressOffset>
+          <size>32</size>
+        </register>
+      </registers>
+    </peripheral>
+  </peripherals>
+</device>

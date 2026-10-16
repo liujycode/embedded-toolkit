@@ -14,7 +14,7 @@ if VERIFY_SCRIPTS not in sys.path:
 import cscan  # noqa: E402
 import crules  # noqa: E402
 from etk_core.svd import load_device  # noqa: E402
-from helpers import FIXTURES, SYNTH, WOSYNTH, run_py  # noqa: E402
+from helpers import FIXTURES, SYNTH, UNION_SVD, WOSYNTH, run_py  # noqa: E402
 
 VERIFY_BAD = os.path.join(FIXTURES, "verify_bad.c")
 VERIFY_OK = os.path.join(FIXTURES, "verify_ok.c")
@@ -279,6 +279,69 @@ def test_e12_writeonly_read_modify_write(tmp_path):
     assert res["counts"]["passed"] == 2
     assert [f["class"] for f in res["findings"]] == ["E12", "E12"]
     assert all(f["register"] == "BSRR" for f in res["findings"])
+
+
+def test_cmsis_union_chain_writes(tmp_path):
+    """Microchip SAMD 风格：PORT->Group[0].DIRSET.reg、SERCOM0->USART.CTRLA.reg、EIC->CONFIG[0].reg。"""
+    code = tmp_path / "samd.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "    PORT->Group[0].DIRSET.reg = 0x00000001;\n"     # DIRSET0
+        "    PORT->Group[1].DIRSET.reg |= 0x00000002;\n"    # DIRSET1
+        "    PORT->Group[0].PINCFG[4].reg = 0x01;\n"        # PINCFG0_4
+        "    PORT->Group[1].PINCFG[4].reg = 0x01;\n"        # PINCFG1_4
+        "    SERCOM0->USART.CTRLA.reg = 0x1;\n"             # USART.CTRLA
+        "    EIC->CONFIG[0].reg |= 0x1;\n"                  # CONFIG0
+        "    PORT->Group[ulPort].DIRSET.reg = 1;\n"         # 未判定：组号运行时
+        "    EIC->CONFIG[ulIdx].reg |= 0x1;\n"              # 未判定：索引运行时
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", UNION_SVD, "--format", "json")
+    assert r.returncode == 0, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["writes"] == 8
+    assert res["counts"]["passed"] == 6
+    assert res["counts"]["undetermined"] == 2
+    assert res["counts"]["report"] == 0
+    reasons = " ".join(u["reason"] for u in res["undetermined"])
+    assert "数字后缀" in reasons
+
+
+def test_dim_field_group_macros(tmp_path):
+    """带编号的位域组宏：编号为字面量时直接映射（EXTINT(3)→EXTINT3），运行时编号记未判定。"""
+    code = tmp_path / "dim.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "    EIC->INTENSET.reg = EIC_INTENSET_EXTINT(3);\n"
+        "    EIC->INTENSET.reg |= EIC_INTENSET_EXTINT(inMask);\n"
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", UNION_SVD, "--format", "json")
+    assert r.returncode == 0, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["writes"] == 2
+    assert res["counts"]["passed"] == 1
+    assert res["counts"]["undetermined"] == 1
+    assert "位域组宏" in res["undetermined"][0]["reason"]
+
+
+def test_pointer_cast_expression_writes(tmp_path):
+    """指针表达式写入：*(volatile uint32_t *)(表达式) = x（具名/字面量/运行时三种）。"""
+    code = tmp_path / "ptr.c"
+    code.write_text(
+        "#define PORT_BASE 0x41004400\n"
+        "void f(void)\n{\n"
+        "    *(volatile uint32_t *)(PORT_BASE + 0x04) = 0x1;\n"      # 通过（具名）
+        "    *(volatile uint32_t *)(0x41004400 + 0x04) = 0x1;\n"     # E08（纯字面量）
+        "    *(volatile uint32_t *)(base + 0x04) = 0x1;\n"           # 未判定（运行时基址）
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", UNION_SVD, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["writes"] == 3
+    assert res["counts"]["passed"] == 1
+    assert res["counts"]["report"] == 1
+    assert res["counts"]["undetermined"] == 1
+    assert res["findings"][0]["class"] == "E08"
+    assert "PORT.DIRSET0" in res["findings"][0]["message"]
 
 
 def test_fuzz_random_snippets_do_not_crash(device):

@@ -26,7 +26,7 @@ from etk_core.output import envelope  # noqa: E402
 from etk_core.values import parse_number  # noqa: E402
 
 TOOL = "embedded-register-lookup"
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 MAX_WARNINGS_SHOWN = 20
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 
@@ -309,6 +309,8 @@ def _render_register(res):
     if extras:
         head += "  " + "  ".join(extras)
     lines = [head]
+    if res.get("resolved_by") == "bare-name":
+        lines.append("（按裸寄存器名解析：%s.%s；AVR/MSP430 风格）" % (res["peripheral"], r["name"]))
     if r["description"]:
         lines.append("说明：%s" % r["description"])
     if res["fields"]:
