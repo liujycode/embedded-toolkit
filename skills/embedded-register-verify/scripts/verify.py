@@ -23,13 +23,14 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
 import crules  # noqa: E402
+from etk_core import query as etk_query  # noqa: E402
 from etk_core.cache import load_device_cached  # noqa: E402
 from etk_core.discovery import find_svd  # noqa: E402
 from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkError  # noqa: E402
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -68,6 +69,8 @@ def build_parser():
     p.add_argument("--patch", metavar="FILE", help="核验 unified diff / git diff 文件中新增的行")
     p.add_argument("--no-clock-check", action="store_true", help="关闭 E07（时钟使能）检查")
     p.add_argument("--checklist", action="store_true", help="输出复查清单（按复查要求分组）")
+    p.add_argument("--explain", action="store_true",
+                   help="在报告里内联对应寄存器的定义（来自寄存器百事通的同一份 SVD）")
     p.add_argument("--limit", type=int, default=200, help="每个文件最多列出条数（默认 200）")
 
     sub.add_parser("rules", parents=[io], help="列出核验规则 E01–E10")
@@ -192,6 +195,7 @@ def _run(args):
 
     results = []
     errors = []
+    selection = _selection_args(args)
     for name, text, path_hint in sources:
         try:
             res = verifier.check_file(name, text)
@@ -200,8 +204,119 @@ def _run(args):
             continue
         res["path"] = path_hint
         res["source"]["selected_by"] = selected_by
+        _attach_next(res, selection)
+        if args.explain:
+            _attach_explain(res, device)
         results.append(res)
     return results, warnings, errors
+
+
+# ---------- 与寄存器百事通的联动 ----------
+
+def _selection_args(args):
+    """复现本次 SVD 选择的参数，用于生成可直接运行的查证命令。"""
+    if args.demo:
+        return ["--demo"]
+    if args.svd:
+        return ["--svd", os.path.abspath(args.svd)]
+    if args.chip:
+        return ["--chip", args.chip]
+    if args.project_dir:
+        return ["--project-dir", os.path.abspath(args.project_dir)]
+    return []
+
+
+def _attach_next(res, selection):
+    """每条 finding 生成"下一步查证"命令（可在 embedded-register-lookup 技能里直接执行）。"""
+    for finding in res["findings"]:
+        hint = finding.get("lookup") or {}
+        action = hint.get("action")
+        if action == "lookup":
+            call = ["lookup", hint["path"]]
+        elif action == "addr":
+            call = ["addr", hint["address"]]
+        elif action == "search":
+            call = ["search", hint["keyword"]]
+        else:
+            call = []
+        finding["next"] = [{
+            "tool": "embedded-register-lookup",
+            "args": call + selection,
+            "reason": hint.get("reason") or "查看寄存器事实",
+        }] if call else []
+
+
+def _attach_explain(res, device):
+    """--explain：把对应寄存器的定义内联进报告（与百事通同一份 SVD、同一套查询）。"""
+    cache = {}
+    for finding in res["findings"]:
+        finding["explain"] = _explain_lines(device, finding.get("lookup") or {}, cache)
+
+
+def _explain_lines(device, hint, cache):
+    action = hint.get("action")
+    key = (action, hint.get("path") or hint.get("address") or hint.get("keyword"))
+    if key in cache:
+        return cache[key]
+    lines = []
+    try:
+        if action == "lookup":
+            lines = _format_lookup(etk_query.lookup(device, hint["path"]))
+        elif action == "addr":
+            lines = _format_addr(etk_query.find_address(device, int(hint["address"], 16)))
+    except EtkError:
+        lines = []
+    cache[key] = lines
+    return lines
+
+
+def _format_lookup(data):
+    kind = data.get("kind")
+    if kind == "register":
+        reg = data["register"]
+        lines = ["寄存器 %s.%s：地址 %s  宽 %d 位  访问 %s  复位 %s" % (
+            data["peripheral"], reg["name"], reg["address"], reg["size"], reg["access"], reg["reset"])]
+        shown = data["fields"][:8]
+        for f in shown:
+            desc = "（%s）" % f["description"] if f["description"] and f["description"] != f["name"] else ""
+            lines.append("  位 %-6s %-12s %s 复位 %d%s" % (
+                f["bits"], f["name"], f["access"], f["reset"], desc))
+        if len(data["fields"]) > len(shown):
+            lines.append("  …另有 %d 个位域（用 lookup 查看全部）" % (len(data["fields"]) - len(shown)))
+        return lines
+    if kind == "field":
+        f = data["field"]
+        reg = data["register"]
+        lines = ["位域 %s.%s.%s：位 %s（宽 %d） 访问 %s 复位 %d（寄存器复位 %s）" % (
+            data["peripheral"], reg["name"], f["name"], f["bits"], f["width"],
+            f["access"], f["reset"], reg["reset"])]
+        for e in f["enums"][:6]:
+            lines.append("  枚举 %s = %s%s" % (
+                e["pattern"], e["name"], "（%s）" % e["description"] if e["description"] else ""))
+        return lines
+    if kind == "peripheral":
+        shown = data["registers"][:8]
+        lines = ["外设 %s：基地址 %s，共 %d 个寄存器" % (
+            data["peripheral"], data["base_address"], len(data["registers"]))]
+        lines.append("  " + "、".join(r["name"] for r in shown)
+                     + ("……" if len(data["registers"]) > len(shown) else ""))
+        return lines
+    return []
+
+
+def _format_addr(data):
+    kind = data.get("kind")
+    if kind == "exact" and data.get("matches"):
+        m = data["matches"][0]
+        return ["%s 是寄存器 %s（访问 %s，复位 %s）" % (
+            data["address"], m["path"], m["access"], m["reset"])]
+    if kind == "inside_register":
+        n = data["nearest"]
+        return ["%s 位于寄存器 %s 内部（第 %d 字节）" % (
+            data["address"], n["path"], n["offset_in_register"])]
+    if kind == "gap":
+        return ["%s 不是寄存器地址（%s 内的保留区附近）" % (data["address"], data.get("peripheral") or "?")]
+    return ["%s 不在任何外设地址范围内" % data["address"]]
 
 
 # ---------- 渲染 ----------
@@ -246,6 +361,11 @@ def _render_verify(res):
         lines.append("      代码：%s" % item["code"])
         if item.get("suggestion"):
             lines.append("      建议：%s" % item["suggestion"])
+        for explain in item.get("explain") or []:
+            lines.append("      " + explain)
+        for nxt in item.get("next") or []:
+            lines.append("      下一步：%s %s  （%s）" % (
+                nxt["tool"], " ".join(nxt["args"]), nxt["reason"]))
     if res["findings_truncated"]:
         lines.append("  （问题过多，仅显示前 %d 条；用 --format json 获取全部）" % len(res["findings"]))
     for item in res["undetermined"]:

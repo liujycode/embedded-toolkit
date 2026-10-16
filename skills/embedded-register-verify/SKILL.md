@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件（查找规则同 embedded-register-lookup）；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # 寄存器核验器
@@ -43,8 +43,21 @@ python scripts/verify.py rules
 - `--define NAME=VALUE` 补充宏定义（可多次，常用于从工程配置里带入的常量）。
 - `--no-clock-check` 关闭 E07（跨文件使能时常需要）。
 - `--checklist` 按复查要求分组输出：芯片默认 / 已核验 / 需查手册 / 需实测。
+- `--explain` 把每条问题对应的**寄存器定义直接内联进报告**（与百事通同一份 SVD）。
 - `--format json` 给 Agent 解析；`--out 文件` 保存结果。
 - 退出码：0 = 无"报"；1 = 检出问题（`errors` 为空时表示"报告"而不是工具故障）。
+
+## 与寄存器百事通配合（查 → 写 → 验）
+
+两个技能共用同一份 SVD 与同一套查找/缓存规则，配合成闭环：
+
+1. **写代码前**：用 `embedded-register-lookup` 取事实（位域、掩码、复位值、枚举）。
+2. **写完 / AI 生成后**：用本技能 `check` 核验。
+3. **报告里的每条问题都带 `next`**：给出可直接执行的百事通命令（如 `lookup USART1.CR1`、
+   `addr 0x40013800`、`search TIM2`），已经带上本次的 `--svd/--chip/--demo` 选择参数，
+   打开就能看寄存器实况。
+4. **`--explain`**：不想再跑一条命令时，直接把寄存器定义内联进报告。
+5. **修复后**：用同一条 `check` 命令复验。
 
 ## 支持与不支持
 
@@ -80,6 +93,8 @@ python scripts/verify.py rules
 
 - 先给结论："共 N 处写入，报 X、未判定 Y、通过 Z"，再列"报"的每条：行号、类别、原因、建议。
 - 引用结果里的 `message`/`suggestion`；每条的问题都对应 SVD 中的事实或明确的约定。
+- **每条"报"都带 `next`**：把"下一步查证"的百事通命令一并告诉用户（或直接执行），
+  需要展开细节时用 `--explain` 内联寄存器定义；不要凭记忆补寄存器事实。
 - "未判定"要如实说明为什么没判定（如 HAL 调用不在范围内、簇命名无法对应），不要猜。
 - 依据来自哪份 SVD（`source`）要说明。
 - 用户要"复查清单"时用 `--checklist`，并说明"需实测"组建议上板验证。

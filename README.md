@@ -15,7 +15,7 @@
 | 技能 | 版本 | 状态 | 说明 |
 |---|---|---|---|
 | `embedded-register-lookup`（寄存器百事通） | 1.4.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号与 NVIC 使能位；解码 / 写值计算 / 读改写陷阱提示；宏生成；双芯片与外设级对比；SVD 质量检查；环境体检；Markdown 输出；解析缓存 |
-| `embedded-register-verify`（寄存器核验器） | 1.0.0 | 本地测试通过（触发评测待跑） | 核验 C 代码里的寄存器写入：外设/寄存器/位域存在性、值超宽、枚举合法性、只读位、时钟使能、硬编码地址、中断分组；报/未判定/通过分桶 + 复查清单；目录与 git diff 模式；不执行代码 |
+| `embedded-register-verify`（寄存器核验器） | 1.1.0 | 本地测试通过（触发评测待跑） | 核验 C 代码里的寄存器写入：外设/寄存器/位域存在性、值超宽、枚举合法性、只读位、时钟使能、硬编码地址、中断分组；报/未判定/通过分桶 + 复查清单；**每条问题带 `next` 查证命令与 `--explain` 内联寄存器定义（与百事通闭环）**；目录与 git diff 模式；不执行代码 |
 
 计划中（按阶段门推进，见总方案）：接线排障、时序计算器、原理图审查官。
 
@@ -77,6 +77,26 @@ python skills/embedded-register-verify/scripts/verify.py check examples/verify_d
 ```
 
 核验输出分三桶：**报**（E01–E10，附行号/类别/建议）、**未判定**（HAL 调用、内核外设等范围外内容，如实说明）、**通过**；退出码 1 表示检出问题。
+
+## 两个技能怎么配合（查 → 写 → 验）
+
+两个技能共用同一份 SVD 与查找/缓存规则，一次安装、一套数据，跑成闭环：
+
+1. **查**：写代码前用 `embedded-register-lookup` 拿事实（位域、掩码、复位值、枚举、写读语义）。
+2. **验**：写完（尤其 AI 生成）用 `embedded-register-verify` 核验；报告分"报/未判定/通过"。
+3. **闭环**：每条"报"都带 `next` 字段——可直接执行的百事通命令（如 `lookup USART1.CR1`、
+   `addr 0x40013800`，已带本次 `--svd/--chip/--demo` 参数）；`--explain` 还能把寄存器定义直接内联进报告。
+4. 修复后用同一条命令复验。
+
+```bash
+# 验：发现 USART1.CR1 的位域宏写错，报告里直接给出下一步
+python skills/embedded-register-verify/scripts/verify.py check main.c --chip STM32G431
+#   [报] E03 第 42 行：宏 USART_CR1_XXX 对应的位域 XXX 在 USART1.CR1 中不存在
+#       下一步：embedded-register-lookup lookup USART1.CR1 --chip STM32G431
+
+# 查：按 next 里的提示打开寄存器实况（或直接用 verify --explain 内联）
+python skills/embedded-register-lookup/scripts/lookup.py lookup USART1.CR1 --chip STM32G431
+```
 
 解析结果会缓存在本机（`%LOCALAPPDATA%\etk\cache` 或 `~/.cache/etk`），重复查询更快，
 SVD 文件改动后自动失效；`ETK_NO_CACHE=1` 可关闭。

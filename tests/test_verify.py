@@ -289,6 +289,36 @@ def test_cli_demo_conflicts_with_svd():
     assert json.loads(r.stdout)["errors"][0]["code"] == "E_INPUT_INVALID"
 
 
+def test_finding_carries_lookup_hint(device):
+    res = crules.Verifier(device).check_file("t.c", "USART1->CR1 |= USART_CR1_XXX;\n")
+    hint = res["findings"][0]["lookup"]
+    assert hint["action"] == "lookup" and hint["path"] == "USART1.CR1"
+
+
+def test_cli_attaches_next_commands():
+    r = run_py(VERIFY_CLI, "check", VERIFY_BAD, "--svd", SYNTH, "--format", "json")
+    findings = json.loads(r.stdout)["results"][0]["findings"]
+    e03 = next(f for f in findings if f["class"] == "E03" and "USART1.CR1" in f["message"])
+    assert e03["next"][0]["tool"] == "embedded-register-lookup"
+    assert e03["next"][0]["args"][:2] == ["lookup", "USART1.CR1"]
+    assert "--svd" in e03["next"][0]["args"]
+    e08 = next(f for f in findings if f["class"] == "E08")
+    assert e08["next"][0]["args"][:2] == ["addr", "0x40013800"]
+    e07 = next(f for f in findings if f["class"] == "E07")
+    assert e07["next"][0]["args"][:2] == ["lookup", "RCC.APB1ENR"]
+
+
+def test_cli_explain_inlines_register_facts():
+    r = run_py(VERIFY_CLI, "check", VERIFY_BAD, "--svd", SYNTH, "--explain")
+    assert "寄存器 USART1.CR1：地址 0x40013800" in r.stdout
+
+
+def test_cli_without_explain_has_no_explain_field():
+    r = run_py(VERIFY_CLI, "check", VERIFY_BAD, "--svd", SYNTH, "--format", "json")
+    findings = json.loads(r.stdout)["results"][0]["findings"]
+    assert all("explain" not in f for f in findings)
+
+
 # ---------- 真实厂商 SVD（需要 ETK_TEST_SVD_DIR） ----------
 
 def _find_real(name):

@@ -55,6 +55,11 @@ RULES = [
 ]
 
 
+def _lookup_hint(action, **kwargs):
+    """核验结果 → 寄存器百事通 的查证提示（CLI 会把它物化成可直接执行的 next 命令）。"""
+    return dict(action=action, **kwargs)
+
+
 def rule_table():
     return {
         "kind": "rules",
@@ -243,13 +248,15 @@ class Verifier:
             })
             state["undet"] = True
 
-        def add_finding(write, cls, message, suggestion=None, periph=None, register=None, field=None):
+        def add_finding(write, cls, message, suggestion=None, periph=None, register=None,
+                        field=None, lookup=None):
             findings.append({
                 "class": cls, "bucket": "报",
                 "severity": _SEVERITY[cls], "label": _LABELS[cls],
                 "line": write["line"], "code": write["code"], "message": message,
                 "suggestion": suggestion,
                 "peripheral": periph, "register": register, "field": field,
+                "lookup": lookup,
             })
             state["report"] = True
 
@@ -320,6 +327,7 @@ class Verifier:
                     "line": item["line"], "code": item["code"],
                     "message": item["message"], "suggestion": item["suggestion"],
                     "peripheral": item["peripheral"], "register": None, "field": None,
+                    "lookup": item.get("lookup"),
                 })
                 clock_lines.add(item["line"])
 
@@ -352,6 +360,7 @@ class Verifier:
                     len(parsed["grouping_lines"]), lines_text),
                 "suggestion": "保留一处分组设置；多处设置会互相覆盖，需确认哪一处生效。",
                 "peripheral": None, "register": None, "field": None,
+                "lookup": None,
             })
 
         findings.sort(key=lambda f: (f["line"], f["class"]))
@@ -414,12 +423,16 @@ class Verifier:
                 add_finding(write, "E01",
                             "外设 %s 在设备 %s 的 SVD 中不存在" % (problem["unknown"], self.device.name),
                             suggestion=("你可能要找：" + "、".join(suggestion)) if suggestion else None,
-                            periph=problem["unknown"])
+                            periph=problem["unknown"],
+                            lookup=_lookup_hint("search", keyword=problem["unknown"],
+                                                reason="按名字搜索相近外设"))
             elif "cluster_reg" in problem:
                 add_undet(write, "%s 是簇寄存器（SVD 中命名为 %s.x），未检查" % (
                     problem["cluster_reg"], problem["cluster_reg"]))
             elif "address" in problem:
-                add_finding(write, "E08", "硬编码地址 0x%08X（SVD 中未找到对应寄存器）" % problem["address"])
+                add_finding(write, "E08", "硬编码地址 0x%08X（SVD 中未找到对应寄存器）" % problem["address"],
+                            lookup=_lookup_hint("addr", address="0x%08X" % problem["address"],
+                                                reason="用地址反查寄存器"))
             elif "bad_arg" in problem:
                 add_undet(write, "宏的第一个参数不是 外设->寄存器 形式：%r" % problem["bad_arg"])
             return
@@ -432,14 +445,18 @@ class Verifier:
             add_finding(write, "E02",
                         "%s 中不存在寄存器 %s" % (periph.name, reg_label or "?"),
                         suggestion=("同外设寄存器：" + "、".join(suggestion)) if suggestion else None,
-                        periph=periph.name, register=reg_label)
+                        periph=periph.name, register=reg_label,
+                        lookup=_lookup_hint("lookup", path=periph.name,
+                                            reason="查看该外设的寄存器清单"))
             return
         if write["kind"] == "addr":
             hit = self._by_address()[write["address"]]
             add_finding(write, "E08",
                         "硬编码地址 0x%08X（= %s.%s），建议改用外设结构体或宏" % (
                             write["address"], hit[0].name, hit[1].name),
-                        periph=hit[0].name, register=hit[1].name)
+                        periph=hit[0].name, register=hit[1].name,
+                        lookup=_lookup_hint("addr", address="0x%08X" % write["address"],
+                                            reason="用地址反查寄存器（= %s.%s）" % (hit[0].name, hit[1].name)))
         if write["kind"] == "macro":
             self._check_macro(write, periph, reg, defines, add_finding, add_undet, sets, unknown_set_regs)
             return
@@ -448,7 +465,9 @@ class Verifier:
         if register_read_only:
             add_finding(write, "E10",
                         "%s.%s 是只读寄存器，写入不会生效" % (periph.name, reg.name),
-                        periph=periph.name, register=reg.name)
+                        periph=periph.name, register=reg.name,
+                        lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                            reason="查看该寄存器的完整定义"))
         rhs = write.get("rhs") or ""
         mapped, missing, unmapped, value = self._fields_for_expr(rhs, periph, reg, defines)
         for macro_name, info in missing:
@@ -459,7 +478,9 @@ class Verifier:
             if field.access == "read-only" and not register_read_only and op in ("=", "|=", "^="):
                 add_finding(write, "E10",
                             "位域 %s.%s.%s 是只读，写入不会生效" % (periph.name, reg.name, field.name),
-                            periph=periph.name, register=reg.name, field=field.name)
+                            periph=periph.name, register=reg.name, field=field.name,
+                            lookup=_lookup_hint("lookup", path="%s.%s.%s" % (periph.name, reg.name, field.name),
+                                                reason="查看该位域的访问属性"))
         if unmapped:
             add_undet(write, "无法映射的标识符（按 CMSIS 命名约定找不到位域）：%s" % "、".join(sorted(set(unmapped))[:6]))
         if value is not None and value >= 0:
@@ -468,7 +489,9 @@ class Verifier:
                 add_finding(write, "E04",
                             "值 0x%X 超出 %s.%s 的 %d 位宽度（最大 0x%X）" % (
                                 value, periph.name, reg.name, reg.size, limit_value),
-                            periph=periph.name, register=reg.name)
+                            periph=periph.name, register=reg.name,
+                            lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                                reason="查看该寄存器宽度与位域"))
             if not register_read_only:
                 for field in reg.fields:
                     field_bits = value & (field.mask << field.lsb)
@@ -476,7 +499,10 @@ class Verifier:
                         add_finding(write, "E10",
                                     "%s.%s 中的只读位域 %s 被写入（值 0x%X）" % (
                                         periph.name, reg.name, field.name, value),
-                                    periph=periph.name, register=reg.name, field=field.name)
+                                    periph=periph.name, register=reg.name, field=field.name,
+                                    lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                                        periph.name, reg.name, field.name),
+                                        reason="查看该位域的访问属性"))
             if op == "=" and value == reg.reset_value:
                 defaults.append({"line": write["line"], "code": write["code"],
                                  "note": "写入值与复位值相同，可能等于没写"})
@@ -492,7 +518,10 @@ class Verifier:
                         add_finding(write, "E06",
                                     "清除位域 %s.%s.%s，但其复位值为 0 且本文件未见置位，可能是无效清位" % (
                                         periph.name, reg.name, field.name),
-                                    periph=periph.name, register=reg.name, field=field.name)
+                                    periph=periph.name, register=reg.name, field=field.name,
+                                    lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                                        periph.name, reg.name, field.name),
+                                        reason="查看该位域的复位值"))
 
     def _measured_write(self, write):
         text = " ".join([
@@ -525,7 +554,9 @@ class Verifier:
         add_finding(write, "E03",
                     "宏 %s 属于 %s.%s，而此处写入的是 %s" % (
                         macro_name, periph.name, target.name, reg.name),
-                    periph=periph.name, register=reg.name)
+                    periph=periph.name, register=reg.name,
+                    lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                        reason="查看此处写入的寄存器与宏所属寄存器"))
         return True
 
     def _report_macro_mismatch(self, write, periph, reg, macro_name, info, add_finding):
@@ -546,7 +577,9 @@ class Verifier:
                 macro_name, info.get("missing") or "?", periph.name, reg.name)
         add_finding(write, "E03", message,
                     suggestion=("同寄存器位域：" + "、".join(suggestion)) if suggestion else None,
-                    periph=periph.name, register=reg.name)
+                    periph=periph.name, register=reg.name,
+                    lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                        reason="查看该寄存器的全部位域"))
 
     def _check_macro(self, write, periph, reg, defines, add_finding, add_undet, sets, unknown_set_regs):
         op = write["op"]
@@ -585,7 +618,9 @@ class Verifier:
             if field.access == "read-only" and reg.access != "read-only":
                 add_finding(write, "E10",
                             "位域 %s.%s.%s 是只读，写入不会生效" % (periph.name, reg.name, field.name),
-                            periph=periph.name, register=reg.name, field=field.name)
+                            periph=periph.name, register=reg.name, field=field.name,
+                            lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                                periph.name, reg.name, field.name), reason="查看该位域的访问属性"))
         if unmapped:
             add_undet(write, "无法映射的标识符（%s 参数）：%s" % (
                 mode, "、".join(sorted(set(unmapped))[:6])))
@@ -593,7 +628,9 @@ class Verifier:
             if value > (1 << reg.size) - 1:
                 add_finding(write, "E04",
                             "掩码/值 0x%X 超出 %s.%s 的 %d 位宽度" % (value, periph.name, reg.name, reg.size),
-                            periph=periph.name, register=reg.name)
+                            periph=periph.name, register=reg.name,
+                            lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                                reason="查看该寄存器宽度"))
             if mode in ("clear_bit", "modify_clear") and value and not any(
                     field.mask << field.lsb & value for field in reg.fields):
                 add_undet(write, "清位掩码 0x%X 不覆盖任何 SVD 位域" % value)
@@ -605,7 +642,9 @@ class Verifier:
                     add_finding(write, "E06",
                                 "清除位域 %s.%s.%s，但其复位值为 0 且本文件未见置位，可能是无效清位" % (
                                     periph.name, reg.name, field.name),
-                                periph=periph.name, register=reg.name, field=field.name)
+                                periph=periph.name, register=reg.name, field=field.name,
+                                lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                                    periph.name, reg.name, field.name), reason="查看该位域的复位值"))
 
     def _check_modify_value(self, write, periph, reg, clear_expr, set_expr, defines, add_finding, add_undet):
         mapped, _missing, _unmapped, _v = self._fields_for_expr(clear_expr, periph, reg, defines)
@@ -621,16 +660,22 @@ class Verifier:
                 add_finding(write, "E04",
                             "置位值 0x%X 超出位域 %s 的 %d 位宽度（最大 0x%X）" % (
                                 value, field.name, field.width, field.mask),
-                            periph=periph.name, register=reg.name, field=field.name)
+                            periph=periph.name, register=reg.name, field=field.name,
+                            lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                                periph.name, reg.name, field.name), reason="查看该位域宽度与枚举"))
             elif field.enums and not any((value & e.mask) == e.value for e in field.enums):
                 options = "、".join(e.name for e in field.enums if e.name)
                 add_finding(write, "E05",
                             "值 0x%X 不是位域 %s 的合法枚举（可选：%s）" % (value, field.name, options),
-                            periph=periph.name, register=reg.name, field=field.name)
+                            periph=periph.name, register=reg.name, field=field.name,
+                            lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                                periph.name, reg.name, field.name), reason="查看该位域的枚举取值"))
         elif value > (1 << reg.size) - 1:
             add_finding(write, "E04",
                         "置位值 0x%X 超出 %s.%s 的 %d 位宽度" % (value, periph.name, reg.name, reg.size),
-                        periph=periph.name, register=reg.name)
+                        periph=periph.name, register=reg.name,
+                        lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                            reason="查看该寄存器宽度"))
 
     # ---------- E07 ----------
 
@@ -663,5 +708,7 @@ class Verifier:
                     periph_name, enable_reg.name, enable_field.name),
                 "suggestion": "用 --no-clock-check 可关闭本项检查。",
                 "peripheral": periph_name,
+                "lookup": _lookup_hint("lookup", path="RCC.%s" % enable_reg.name,
+                                       reason="查看时钟使能位 %s" % enable_field.name),
             })
         return out
