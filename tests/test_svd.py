@@ -26,7 +26,7 @@ def test_device_metadata(device):
 
 def test_peripheral_instances_in_document_order(device):
     assert [p.name for p in device.peripherals] == [
-        "USART1", "USART2", "USART3", "GPIOA", "GPIOB", "GPIOC", "DMA1", "TIM1", "RCC", "EXTI"]
+        "USART1", "USART2", "USART3", "GPIOA", "GPIOB", "GPIOC", "DMA1", "TIM1", "RCC", "EXTI", "NVIC"]
 
 
 def test_register_offsets_sizes_and_resets(device):

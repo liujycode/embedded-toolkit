@@ -310,12 +310,13 @@ def _rank(keyword, name, description):
     return None
 
 
-def search(device, keyword, limit=50, kind=None):
+def search(device, keyword, limit=50, kind=None, peripheral=None):
     kw = (keyword or "").strip().lower()
     if not kw:
         raise EtkError(E_INPUT_INVALID, "搜索关键词不能为空", hint="例如 search baud 或 search DMA。")
+    periphs = [_periph_or_raise(device, peripheral)] if peripheral else device.peripherals
     hits = []
-    for periph in device.peripherals:
+    for periph in periphs:
         rank = _rank(kw, periph.name, periph.description)
         if rank is not None and kind in (None, "peripheral"):
             hits.append((rank, periph.name, "peripheral", periph.name, periph.description))
@@ -337,12 +338,37 @@ def search(device, keyword, limit=50, kind=None):
     return {
         "kind": "search",
         "keyword": keyword,
+        "peripheral": peripheral or None,
         "total": len(hits),
         "truncated": len(hits) > limit,
         "matches": matches,
         "label": LABEL_VERIFIED,
         "source": source_meta(device),
     }
+
+
+_RMW_SEMANTICS = (
+    "oneToClear", "oneToSet", "oneToToggle",
+    "zeroToClear", "zeroToSet", "zeroToToggle", "clear", "set", "modify",
+)
+
+
+def _effective_write_semantics(reg):
+    if reg.modified_write_values:
+        return reg.modified_write_values
+    for fld in reg.fields:
+        if fld.modified_write_values:
+            return fld.modified_write_values
+    return ""
+
+
+def _rmw_note(reg):
+    """读-改-写（reg |= x）陷阱提示：寄存器带 clear/set 类写语义时会误改其它位。"""
+    semantic = _effective_write_semantics(reg)
+    if semantic not in _RMW_SEMANTICS:
+        return None
+    return ("寄存器含 %s（modifiedWriteValues=%s）语义：用 reg |= x 改其它位可能误改状态位，"
+            "建议直接写完整目标值。" % (write_semantics(semantic) or semantic, semantic))
 
 
 def decode(device, text, value, as_write=False):
@@ -372,6 +398,9 @@ def decode(device, text, value, as_write=False):
     undefined = [i for i in range(reg.size) if (value >> i) & 1 and not (covered >> i) & 1]
     write_notes = []
     if as_write:
+        hazard = _rmw_note(reg)
+        if hazard:
+            write_notes.append(hazard)
         for fld, row in zip(reg.fields, rows):
             fv = row["value"]
             reset_fv = (reg.reset_value >> fld.lsb) & fld.mask
@@ -583,6 +612,9 @@ def set_fields(device, text, assignments, source_value=None):
         })
     covered = _covered_mask(reg)
     undefined_set = [i for i in range(reg.size) if (value >> i) & 1 and not (covered >> i) & 1]
+    hazard = _rmw_note(reg)
+    if hazard:
+        notes.append(hazard)
     return {
         "kind": "set",
         "peripheral": periph.name,
@@ -629,10 +661,8 @@ def _enum_diff(a_enums, b_enums):
     return out
 
 
-def diff_registers(device_a, device_b, text):
-    """对比两份 SVD 中同一路径寄存器的定义差异。"""
-    periph_a, reg_a = _side_resolve(device_a, text, "A")
-    periph_b, reg_b = _side_resolve(device_b, text, "B")
+def _diff_register_core(periph_a, reg_a, periph_b, reg_b):
+    """对比两个寄存器定义，返回 {register_differences, fields, identical}，不依赖 Device。"""
     reg_diffs = []
     if periph_a.base_address != periph_b.base_address:
         reg_diffs.append("外设基地址 %s → %s" % (
@@ -701,6 +731,14 @@ def diff_registers(device_a, device_b, text):
             "differences": diffs,
         })
     identical = not reg_diffs and all(r["status"] == "same" for r in rows)
+    return {"register_differences": reg_diffs, "fields": rows, "identical": identical}
+
+
+def diff_registers(device_a, device_b, text):
+    """对比两份 SVD 中同一路径寄存器的定义差异。"""
+    periph_a, reg_a = _side_resolve(device_a, text, "A")
+    periph_b, reg_b = _side_resolve(device_b, text, "B")
+    core = _diff_register_core(periph_a, reg_a, periph_b, reg_b)
     return {
         "kind": "diff",
         "path": "%s.%s" % (periph_a.name, reg_a.name),
@@ -716,8 +754,85 @@ def diff_registers(device_a, device_b, text):
             "register": _reg_dict(periph_b, reg_b),
             "source": source_meta(device_b),
         },
-        "register_differences": reg_diffs,
-        "fields": rows,
+        "register_differences": core["register_differences"],
+        "fields": core["fields"],
+        "identical": core["identical"],
+        "label": LABEL_VERIFIED,
+    }
+
+
+def _side_periph(device, name, side):
+    try:
+        return _periph_or_raise(device, name)
+    except EtkError as exc:
+        raise EtkError(
+            exc.code,
+            "%s 侧：%s" % (side, exc.message),
+            hint=exc.hint,
+            details=exc.details,
+        ) from None
+
+
+def diff_peripherals(device_a, device_b, name):
+    """对比两份 SVD 中同一外设的全部寄存器（升级 Pack / 移植代码时看变了什么）。"""
+    periph_a = _side_periph(device_a, name, "A")
+    periph_b = _side_periph(device_b, name, "B")
+    by_a = {r.name.upper(): r for r in periph_a.registers}
+    by_b = {r.name.upper(): r for r in periph_b.registers}
+    order = [r.name for r in periph_a.registers]
+    order += [r.name for r in periph_b.registers if r.name.upper() not in by_a]
+    rows = []
+    counts = {"total": len(order), "same": 0, "diff": 0, "only_a": 0, "only_b": 0}
+    for reg_name in order:
+        key = reg_name.upper()
+        reg_a, reg_b = by_a.get(key), by_b.get(key)
+        row = {
+            "name": reg_a.name if reg_a is not None else reg_b.name,
+            "status": "",
+            "register_differences": [],
+            "fields_changed": [],
+            "fields_same": 0,
+            "fields_only_a": [],
+            "fields_only_b": [],
+        }
+        if reg_a is not None and reg_b is None:
+            row["status"] = "only_a"
+        elif reg_b is not None and reg_a is None:
+            row["status"] = "only_b"
+        else:
+            core = _diff_register_core(periph_a, reg_a, periph_b, reg_b)
+            row["register_differences"] = core["register_differences"]
+            row["fields_changed"] = [
+                {"name": f["name"], "differences": f["differences"]}
+                for f in core["fields"] if f["status"] == "diff"
+            ]
+            row["fields_same"] = sum(1 for f in core["fields"] if f["status"] == "same")
+            row["fields_only_a"] = [f["name"] for f in core["fields"] if f["status"] == "only_a"]
+            row["fields_only_b"] = [f["name"] for f in core["fields"] if f["status"] == "only_b"]
+            row["status"] = "same" if core["identical"] else "diff"
+        counts[row["status"]] += 1
+        rows.append(row)
+    base_changed = periph_a.base_address != periph_b.base_address
+    identical = (not base_changed and counts["diff"] == 0
+                 and counts["only_a"] == 0 and counts["only_b"] == 0)
+    return {
+        "kind": "diff_peripheral",
+        "path": periph_a.name,
+        "a": {
+            "name": periph_a.name,
+            "base_address": hex_addr(periph_a.base_address),
+            "register_count": len(periph_a.registers),
+            "source": source_meta(device_a),
+        },
+        "b": {
+            "name": periph_b.name,
+            "base_address": hex_addr(periph_b.base_address),
+            "register_count": len(periph_b.registers),
+            "source": source_meta(device_b),
+        },
+        "base_address_changed": base_changed,
+        "counts": counts,
+        "registers": rows,
         "identical": identical,
         "label": LABEL_VERIFIED,
     }
@@ -831,16 +946,55 @@ def _macro_sanitize(name):
     return "".join(out).upper()
 
 
+def _nvic_register(nvic, stem, index):
+    names = ["%s%d" % (stem, index)]
+    if index == 0:
+        names.append(stem)  # 部分 SVD（如 GD32）不分段，只有 ISER
+    for name in names:
+        reg = nvic.register(name)
+        if reg is not None:
+            return reg
+    return None
+
+
+def _nvic_slot(device, value):
+    """中断号的 NVIC 使能/清挂起寄存器（SVD 里有 NVIC 时），否则 None。"""
+    nvic = device.peripheral("NVIC")
+    if nvic is None:
+        return None
+    index, bit = value // 32, value % 32
+    hint = {}
+    enable = _nvic_register(nvic, "ISER", index)
+    if enable is not None:
+        hint["enable"] = {
+            "register": "NVIC.%s" % enable.name,
+            "bit": bit,
+            "address": hex_addr(nvic.base_address + enable.offset),
+        }
+    clear = _nvic_register(nvic, "ICPR", index)
+    if clear is not None:
+        hint["clear_pending"] = {
+            "register": "NVIC.%s" % clear.name,
+            "bit": bit,
+            "address": hex_addr(nvic.base_address + clear.offset),
+        }
+    return hint or None
+
+
 def find_interrupts(device, query=None, limit=100):
     """查中断号：给数字按号精确匹配，给文字按名称/外设/描述子串匹配；不给则列出全部。"""
     entries = []
+    nvic_cache = {}
     for periph in device.peripherals:
         for item in periph.interrupts:
+            if item.value not in nvic_cache:
+                nvic_cache[item.value] = _nvic_slot(device, item.value)
             entries.append({
                 "value": item.value,
                 "peripheral": periph.name,
                 "name": item.name,
                 "description": item.description,
+                "nvic": nvic_cache[item.value],
             })
     entries.sort(key=lambda e: (e["value"], e["peripheral"], e["name"]))
     text = (query or "").strip()

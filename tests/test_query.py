@@ -226,7 +226,7 @@ def test_decode_rejects_field_path(device):
 
 def test_list_peripherals(device):
     res = query.list_peripherals(device)
-    assert res["count"] == 10
+    assert res["count"] == 11
     by_name = {p["name"]: p for p in res["peripherals"]}
     assert by_name["USART2"]["derived_from"] == "USART1"
     assert by_name["USART1"]["register_count"] == 3
@@ -415,9 +415,9 @@ def test_device_info_counts_vendor_and_hash(device):
     res = query.device_info(device)
     assert res["kind"] == "info"
     assert (res["device"], res["vendor"], res["cpu"]) == ("SYNTH32", "SYNTH-Corp", "CM4")
-    assert res["counts"]["peripherals"] == 10
+    assert res["counts"]["peripherals"] == 11
     assert res["counts"]["derived_peripherals"] == 2
-    assert res["counts"]["registers"] == 31
+    assert res["counts"]["registers"] == 35
     assert res["counts"]["fields"] == 52
     assert res["counts"]["enums"] == 25
     assert res["counts"]["interrupts"] == 5
@@ -507,3 +507,73 @@ def test_decode_write_mode_reports_write_semantics(device):
 def test_decode_without_write_mode_has_no_notes(device):
     res = query.decode(device, "USART1.CR1", 0)
     assert res["write_notes"] == []
+
+
+def test_set_warns_about_read_modify_write_hazard(device):
+    res = query.set_fields(device, "EXTI.PR", ["P1=1"])
+    assert any("reg |=" in note for note in res["notes"])
+
+
+def test_set_without_clear_set_semantics_has_no_hazard_note(device):
+    res = query.set_fields(device, "USART1.CR1", ["UE=1"])
+    assert not any("reg |=" in note for note in res["notes"])
+
+
+def test_decode_write_mode_includes_read_modify_write_hazard(device):
+    res = query.decode(device, "EXTI.PR", 0x1, as_write=True)
+    assert any("reg |=" in note for note in res["write_notes"])
+
+
+def test_irq_reports_nvic_enable_slot(device):
+    res = query.find_interrupts(device, "USART1")
+    match = res["matches"][0]
+    assert match["value"] == 37
+    assert match["nvic"]["enable"]["register"] == "NVIC.ISER1"
+    assert match["nvic"]["enable"]["bit"] == 5
+    assert match["nvic"]["enable"]["address"] == "0xE000E104"
+    assert match["nvic"]["clear_pending"]["register"] == "NVIC.ICPR1"
+
+
+def test_irq_for_low_number_uses_first_iser(device):
+    res = query.find_interrupts(device, "DMA1_Channel1")
+    assert res["matches"][0]["nvic"]["enable"]["register"] == "NVIC.ISER0"
+    assert res["matches"][0]["nvic"]["enable"]["bit"] == 11
+
+
+def test_search_scoped_to_peripheral(device):
+    res = query.search(device, "MODE", peripheral="GPIOA")
+    assert res["peripheral"] == "GPIOA"
+    assert res["total"] >= 1
+    assert all(m["path"].startswith("GPIOA") for m in res["matches"])
+
+
+def test_search_unknown_peripheral_is_reported(device):
+    with pytest.raises(EtkError) as info:
+        query.search(device, "MODE", peripheral="NOPE")
+    assert info.value.code == E_PERIPH_NOT_FOUND
+
+
+def test_diff_peripherals_reports_status_and_counts(device, device_b):
+    res = query.diff_peripherals(device, device_b, "USART1")
+    assert res["kind"] == "diff_peripheral"
+    assert res["counts"] == {"total": 3, "same": 0, "diff": 1, "only_a": 2, "only_b": 0}
+    assert res["base_address_changed"] is True
+    by_name = {r["name"]: r for r in res["registers"]}
+    assert by_name["CR1"]["status"] == "diff"
+    assert by_name["CR1"]["register_differences"]
+    assert [f["name"] for f in by_name["CR1"]["fields_changed"]] == ["TE", "PS"]
+    assert by_name["BRR"]["status"] == "only_a"
+    assert res["identical"] is False
+
+
+def test_diff_peripherals_self_compare_is_identical(device):
+    res = query.diff_peripherals(device, device, "USART1")
+    assert res["identical"] is True
+    assert res["counts"]["diff"] == 0
+    assert all(row["status"] == "same" for row in res["registers"])
+
+
+def test_diff_peripherals_unknown_side_is_labeled(device, device_b):
+    with pytest.raises(EtkError) as info:
+        query.diff_peripherals(device, device_b, "NOPE")
+    assert "A 侧" in info.value.message

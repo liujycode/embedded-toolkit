@@ -1,11 +1,11 @@
 ---
 name: embedded-register-lookup
-description: 查询 MCU 外设寄存器、位域、复位值和地址（基于 CMSIS SVD），每条结论带出处与证据标签；支持地址反查、寄存器值解码与写入值计算、位域速查与位图、中断号查询、CMSIS 风格宏生成、跨芯片寄存器对比、地址区间查询、SVD 质量检查、本机芯片清单与环境体检、Markdown 表格输出。Use when the user asks about a register, bit field, reset value, peripheral base address, interrupt number, wants to decode or compute a register value to write, generate register macros, compare register definitions between devices, or find/verify SVD files on the machine. 关键词：寄存器、位域、复位值、SVD、外设地址、寄存器值、掩码、位图、中断号、IRQn、宏定义、对比、质量检查、SVD 位置、芯片清单、USART1->CR1、register、bitfield、mask、reset value、decode、interrupt。不用于：引脚复用、手册章节检索、勘误查询、核对代码中的寄存器写入（用 embedded-register-verify）。
+description: 查询 MCU 外设寄存器、位域、复位值和地址（基于 CMSIS SVD），每条结论带出处与证据标签；支持地址反查、寄存器值解码与写入值计算、位域速查与位图、中断号与 NVIC 使能提示、CMSIS 风格宏生成、跨芯片与外设级整体对比、地址区间查询、SVD 质量检查、本机芯片清单与环境体检、Markdown 表格输出、解析结果缓存。Use when the user asks about a register, bit field, reset value, peripheral base address, interrupt number, wants to decode or compute a register value to write, generate register macros, compare register definitions between devices, or find/verify SVD files on the machine. 关键词：寄存器、位域、复位值、SVD、外设地址、寄存器值、掩码、位图、中断号、IRQn、NVIC、宏定义、对比、整体对比、质量检查、SVD 位置、芯片清单、读改写、USART1->CR1、register、bitfield、mask、reset value、decode、interrupt。不用于：引脚复用、手册章节检索、勘误查询、核对代码中的寄存器写入（用 embedded-register-verify）。
 license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件：厂商 CMSIS-Pack 或用户自备的 .svd；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.3.0"
+  version: "1.4.0"
 ---
 
 # 寄存器百事通
@@ -18,10 +18,10 @@ metadata:
 - 给一个地址，问它是哪个寄存器
 - 给一个寄存器值，按位解码成各字段；或给位域赋值，算要写入的寄存器值
 - 要位域掩码、位图布局或写读语义（如写 1 清零），方便写代码
-- 问外设的中断号（如 USART1_IRQn / 中断向量 37）
+- 问外设的中断号（如 USART1_IRQn / 中断向量 37），以及该开哪个 NVIC 使能位
 - 要寄存器或位域的 C 宏定义（CMSIS 风格参考）
-- 对比两颗芯片（或两份 SVD 文件）的同一寄存器
-- 按关键词查找，例如 "baud"、"DMA 通道"
+- 对比两颗芯片（或两份 SVD 文件）的同一寄存器；或整体对比一个外设变了什么（升级 Pack、移植代码）
+- 按关键词查找，例如 "baud"、"DMA 通道"；可限定在某个外设内搜索
 - 找不到 SVD 文件、不知道本机有哪些芯片可用（用 doctor / devices / --demo）
 - 核对 SVD 文件本身：厂商、统计、文件哈希、质量问题（lint）
 - 要把查询结果整理成文档或聊天里的表格（--format md）
@@ -50,6 +50,7 @@ python scripts/lookup.py diagram TIM1.CR1 --chip STM32G431
 python scripts/lookup.py set TIM1.CR1 CEN=1 DIR=UP --chip STM32G431
 python scripts/lookup.py macros USART1.CR1 --chip STM32G431
 python scripts/lookup.py diff USART1.CR1 --chip-a STM32F103C8 --chip-b STM32G431
+python scripts/lookup.py diff USART1 --chip-a STM32F103C8 --chip-b STM32G431
 python scripts/lookup.py range 0x40013800 0x40013FFF --chip STM32G431
 python scripts/lookup.py lint --chip STM32G431
 python scripts/lookup.py info --chip STM32G431
@@ -62,11 +63,14 @@ python scripts/lookup.py fields GPIOA.MODER --demo
 - 没有 SVD 时先 `doctor`（各来源与数量）和 `devices`（本机芯片清单）；想立刻体验用 `--demo`（内置合成芯片，不是真实数据）。
 - `lookup`、`fields`、`diagram`、`diff` 可一次给多个路径/寄存器（某个失败不影响其它）。
 - `set` 的值可以是数字（0x/0b/十进制）或字段的枚举名；默认以复位值为基准，`--from 数字` 可换基准。
-- `decode --write` 从写入方视角给提示：只读位域、未定义位、写 1 清零等写读语义。
+- `decode --write` 与 `set` 会提示读-改-写陷阱：寄存器带写 1 清零等语义时，不要用 `reg |= x` 改其它位（回答时务必转告）。
+- `irq` 会自动带出 NVIC 使能/清挂起寄存器与位（SVD 里有 NVIC 数据时）；说"开中断"时把这条一起给用户。
+- `diff` 给"外设.寄存器"做全字段对比；只给"外设名"做整体对比（默认只显示差异，`--all` 看全部）——升级 Pack、移植代码时用。
 - `lint` 检查 SVD 质量问题（重叠、越界、重复名、复位值超宽、中断号冲突），可用 `--peripheral` 限定范围。
-- `diff` 两侧分别用 `--svd-a/--chip-a`、`--svd-b/--chip-b` 指定。
+- `search` 可用 `--peripheral` 限定在某个外设内。
 - 需要解析结果时加 `--format json`；要粘贴进文档或聊天时加 `--format md`（Markdown 表格）。
 - 需要保存给用户时加 `--out 文件名`。
+- 解析结果会缓存在本机（重复查询更快，SVD 改动自动失效；`ETK_NO_CACHE=1` 关闭）。
 - 查询语法和各子命令的输出字段见 `references/query-syntax.md`。
 
 ## SVD 查找顺序
@@ -86,8 +90,10 @@ python scripts/lookup.py fields GPIOA.MODER --demo
 - 带上 `source` 中的文件名和设备名，让用户知道依据是哪份 SVD。
 - 标签为"已核验"时说明依据是 SVD 本身。
 - 地址落在保留区或没有寄存器定义时，直接说明"SVD 中未定义"，不要推测用途。
-- `set` 结果里有 `notes`（如只读位域）时，把提醒转告用户。
-- `diff` 结论要说明两侧各来自哪份 SVD 文件。
+- `set` 结果里有 `notes`（如只读位域、读-改-写陷阱）时，把提醒转告用户。
+- `irq` 结果带 `nvic` 时，连同"使能位/清挂起位"一起告诉用户，方便直接写 NVIC 代码。
+- `diff` 结论要说明两侧各来自哪份 SVD 文件；外设整体对比（diff_peripheral）要概括"新增/改名/位位置迁移"。
+- 英文描述里的常见术语（如 prescaler、pending、preload）可用 `references/glossary.md` 对照后用中文解释。
 - 结果中有 `warnings` 时，简要告诉用户哪些内容被跳过（如某个位域位置缺失）。
 
 ## 限制

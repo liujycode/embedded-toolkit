@@ -57,5 +57,6 @@
 - 合成夹具 `tests/fixtures/synthetic.svd`（含衍生的 `synthetic_b.svd`）覆盖以上全部特性，期望值人工计算。
 - `tests/fixtures/synthetic_lint.svd` 是 lint 专用夹具（故意含各类问题）；内置演示数据 `assets/demo.svd`（合成芯片 ETK-DEMO）lint 必须为 0 条。
 - 真实样本：STM32G431xx（ST）、STM32F103xx（ST Keil Pack）、nRF52840（Nordic）、GD32F3x0（GigaDevice，本机 Pack）。各样本均做独立遍历对照（见 `tests/test_real_svd.py`；GD32F3x0 为 41 个外设中 36 个逐项一致）。
-- 新能力也在真实样本上核对：位域掩码、写入值计算（F103 的 `USART1.CR1.UE` 是 bit13，G431 是 bit0）、跨芯片 diff、`info` 哈希、`lint`（四份真实 SVD 均 0 error，仅有同偏移别名 info）。
+- 新能力也在真实样本上核对：位域掩码、写入值计算（F103 的 `USART1.CR1.UE` 是 bit13，G431 是 bit0）、跨芯片 diff、`info` 哈希、`lint`（四份真实 SVD 均 0 error，仅有同偏移别名 info）、外设级整体对比（F103↔G431 的 USART1：SR/DR 改名 ISR/RDR、UE 位迁移、FIFO 位域新增）、NVIC 使能位提示、解析缓存往返一致性（F103 的 dim/簇/别名结构完整保留）。
+- 解析缓存实测：F103 端到端 171→99 ms、G431 227→103 ms、nRF52840 306→113 ms（本机 Windows，含解释器启动）。
 - 尚未覆盖：NXP、Microchip、Espressif 的真实 SVD，待补。

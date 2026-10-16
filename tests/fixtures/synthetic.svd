@@ -428,5 +428,33 @@
         </register>
       </registers>
     </peripheral>
+    <peripheral>
+      <name>NVIC</name>
+      <description>嵌套向量中断控制器（Synthetic）</description>
+      <groupName>NVIC</groupName>
+      <baseAddress>0xE000E100</baseAddress>
+      <registers>
+        <register>
+          <name>ISER0</name>
+          <description>中断使能寄存器 0（中断 0-31）</description>
+          <addressOffset>0x00</addressOffset>
+        </register>
+        <register>
+          <name>ISER1</name>
+          <description>中断使能寄存器 1（中断 32-63）</description>
+          <addressOffset>0x04</addressOffset>
+        </register>
+        <register>
+          <name>ICPR0</name>
+          <description>中断清挂起寄存器 0</description>
+          <addressOffset>0x280</addressOffset>
+        </register>
+        <register>
+          <name>ICPR1</name>
+          <description>中断清挂起寄存器 1</description>
+          <addressOffset>0x284</addressOffset>
+        </register>
+      </registers>
+    </peripheral>
   </peripherals>
 </device>

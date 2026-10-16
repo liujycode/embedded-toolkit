@@ -189,7 +189,7 @@ def test_info_command_reports_hash_and_counts():
     res = json.loads(r.stdout)["results"][0]
     assert res["kind"] == "info"
     assert res["vendor"] == "SYNTH-Corp"
-    assert res["counts"]["registers"] == 31
+    assert res["counts"]["registers"] == 35
     assert len(res["sha256"]) == 64
 
 
@@ -330,3 +330,54 @@ def test_demo_cli_quickstart():
     r = run_cli("set", "GPIOA.MODER", "MODE0=OUTPUT", "MODE1=ALTERNATE", "--demo")
     assert r.returncode == 0, r.stderr
     assert "结果：0x00000009" in r.stdout
+
+
+def test_diff_peripheral_cli_hides_identical_by_default():
+    r = run_cli("diff", "USART1", "--svd-a", SYNTH, "--svd-b", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "外设整体对比" in r.stdout
+    assert "[相同]" not in r.stdout
+    assert "已省略" in r.stdout
+    assert "两侧外设定义一致" in r.stdout
+
+
+def test_diff_peripheral_cli_all_flag_shows_identical():
+    r = run_cli("diff", "USART1", "--svd-a", SYNTH, "--svd-b", SYNTH, "--all")
+    assert r.returncode == 0, r.stderr
+    assert "[相同] CR1" in r.stdout
+
+
+def test_diff_peripheral_cli_reports_differences():
+    r = run_cli("diff", "USART1", "--svd-a", SYNTH, "--svd-b", SYNTH_B)
+    assert r.returncode == 0, r.stderr
+    assert "[有差异] CR1" in r.stdout
+    assert "[仅 A 侧有] BRR" in r.stdout
+    assert "外设基地址已变化" in r.stdout
+
+
+def test_diff_peripheral_cli_json():
+    r = run_cli("diff", "USART1", "--svd-a", SYNTH, "--svd-b", SYNTH_B, "--format", "json")
+    res = json.loads(r.stdout)["results"][0]
+    assert res["kind"] == "diff_peripheral"
+    assert res["counts"]["only_a"] == 2
+    assert res["show_all"] is False
+
+
+def test_search_cli_peripheral_scope():
+    r = run_cli("search", "MODE", "--peripheral", "GPIOA", "--svd", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "GPIOA." in r.stdout
+    assert "USART" not in r.stdout
+
+
+def test_irq_cli_shows_nvic_hint():
+    r = run_cli("irq", "37", "--svd", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "NVIC：使能 NVIC.ISER1 bit 5" in r.stdout
+    assert "清挂起 NVIC.ICPR1 bit 5" in r.stdout
+
+
+def test_set_cli_shows_rmw_hazard():
+    r = run_cli("set", "EXTI.PR", "P1=1", "--svd", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "reg |=" in r.stdout

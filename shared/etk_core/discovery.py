@@ -16,6 +16,7 @@ import os
 import re
 import sys
 
+from .cache import cache_stats
 from .errors import E_INPUT_INVALID, E_SVD_NOT_FOUND, EtkError
 from .svd import device_name_fast
 
@@ -438,6 +439,13 @@ def doctor_report(start=None, demo_path=None):
     demo_exists = bool(demo_path) and os.path.isfile(demo_path)
     add("内置演示数据（--demo）", demo_path, demo_exists, None,
         demo_path if demo_exists else "缺失（安装不完整）")
+
+    stats = cache_stats()
+    if stats["enabled"]:
+        cache_note = "已启用，当前 %d 条；ETK_NO_CACHE=1 可关闭" % stats["count"]
+    else:
+        cache_note = "已通过 ETK_NO_CACHE 关闭"
+    add("解析缓存（重复查询加速）", stats["dir"], os.path.isdir(stats["dir"]), None, cache_note)
 
     total = len(_dedup(all_files))
     advice = []

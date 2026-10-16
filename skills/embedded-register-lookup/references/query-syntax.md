@@ -24,14 +24,14 @@
 |---|---|---|
 | `lookup <路径>...` | 查外设、寄存器、位域（可给多个） | `lookup USART1.CR1.UE USART1.BRR` |
 | `addr <地址>` | 地址反查 | `addr 0x4001380C` |
-| `search <关键词>` | 按名称或描述搜索；`--kind` 限定层级；`--limit` 控制条数 | `search baud --kind register --limit 20` |
-| `irq [关键词或编号]` | 中断号查询；不给参数列出全部 | `irq USART1`、`irq 37` |
+| `search <关键词>` | 按名称或描述搜索；`--kind` 限定层级；`--peripheral` 限定外设；`--limit` 控制条数 | `search baud --peripheral USART1` |
+| `irq [关键词或编号]` | 中断号查询（含 NVIC 使能/清挂起位，SVD 有 NVIC 数据时）；不给参数列出全部 | `irq USART1`、`irq 37` |
 | `decode <寄存器> <值>...` | 按位域解码寄存器值，可给多个值；`--write` 给写入视角提示 | `decode RCC.CR 0x00040002 --write` |
 | `fields <寄存器>...` | 位域速查表：位范围、宽度、掩码、访问、复位、未定义位 | `fields TIM1.CR1` |
 | `diagram <寄存器>...` | 寄存器位图（符号图 + 图例 + 复位位） | `diagram TIM1.CR1` |
 | `set <寄存器> <字段=值>...` | 按位域赋值计算写入值；值可为数字或枚举名；`--from reset\|数字` | `set TIM1.CR1 CEN=1 DIR=UP` |
 | `macros <路径>` | 生成 CMSIS 风格参考宏（`_OFFSET`/`_ADDR`/`_Pos`/`_Msk`/枚举值） | `macros USART1.CR1` |
-| `diff <寄存器>...` | 对比两份 SVD 中同一寄存器的定义 | `diff USART1.CR1 --chip-a STM32F103C8 --chip-b STM32G431` |
+| `diff <寄存器或外设>...` | 对比两份 SVD：`外设.寄存器` 全字段对比；只给外设名做整体对比（`--all` 显示全部寄存器） | `diff USART1 --chip-a STM32F103C8 --chip-b STM32G431` |
 | `range <起始> <结束>` | 列出地址区间内的寄存器；`--limit` | `range 0x40013800 0x40013FFF` |
 | `lint` | SVD 质量检查：重叠、越界、重复名、复位值超宽、中断号冲突；`--peripheral`、`--limit` | `lint --peripheral TIM1` |
 | `info` | SVD 元信息：厂商、CPU、统计、文件大小/SHA-256/修改时间 | `info` |
@@ -43,9 +43,16 @@
 - `decode` 的参数必须是寄存器，给位域会返回 `E_INPUT_INVALID`；多个值会输出多条结果。
 - `set` 的位域不存在时返回 `E_FIELD_NOT_FOUND`（含拼写建议）；值超宽或无法解析返回 `E_INPUT_INVALID`。
 - `range` 判定标准：寄存器**起始地址**落在 `[起始, 结束]` 内（闭区间）。
-- `diff` 输出中没有顶层 `source`，两侧的出处分别在 `a.source`、`b.source`。
-- `macros` 的宏名含外设实例名（`USART1_CR1_UE_Pos`）；含任意位的枚举（如 `1xx`）只出注释、不生成宏。
+- `diff` 输出中没有顶层 `source`（外设整体对比是两个 `a`/`b` 对象）；寄存器对比的两侧出处分别在 `a.source`、`b.source`。
+- `macros` 的宏名含外设实例名（`USART1_CR1_Pos` 风格）；含任意位的枚举（如 `1xx`）只出注释、不生成宏。
 - `lint` 三级：`error`（重叠、越界、重复名、复位值超宽）、`warning`（同一中断名向量号冲突）、`info`（同一寄存器的不同视图/别名共用同一偏移，属常见写法）。
+
+## 解析缓存与环境变量
+
+- 解析结果默认缓存在本机（Windows：`%LOCALAPPDATA%\etk\cache`，其他：`~/.cache/etk`），
+  按 SVD 文件路径 + 字节数 + 修改时间自动失效；任何缓存故障都会静默降级为直接解析。
+- `ETK_NO_CACHE=1` 关闭缓存；`ETK_CACHE_DIR` 自定义缓存目录；`ETK_SVD_DIR` 追加自备 SVD 目录；
+  `ETK_PACKS_DIR` 覆盖 Pack 缓存目录（测试用）。`doctor` 会显示缓存目录与条目数。
 
 ## 地址反查的四种结果
 
@@ -98,8 +105,9 @@
 | `diagram` | `cells`（按位升序，含 `bit`/`char`/`field`）、`legend`（符号到字段）、`reset_bits`（复位为 1 的位号） |
 | `set` | `from`（基准：`label`/`value`/`value_hex`）、`value`/`value_hex`、`assignments`（每项含 `field`/`given`/`before`/`value`/`changed`/`via_enum`）、`undefined_bits_set`、`notes` |
 | `diff` | `a`/`b`（各含 `peripheral`/`base_address`/`register`/`source`）、`register_differences`、`fields`（每项 `status`：`same`/`diff`/`only_a`/`only_b`，`differences` 为文字说明数组）、`identical` |
+| `diff_peripheral` | `path`、`a`/`b`（各含 `name`/`base_address`/`register_count`/`source`）、`base_address_changed`、`counts`（`total`/`same`/`diff`/`only_a`/`only_b`）、`registers`（每项 `status` 与 `register_differences`/`fields_changed`/`fields_same`/`fields_only_a`/`fields_only_b`）、`show_all`（命令行 `--all`）、`identical` |
 | `range` | `start`/`end`、`count`、`truncated`、`registers`（`path`/`address`/`size`/`access`/`reset`/`description`） |
-| `irq` | `query`、`total`、`truncated`、`matches`（`value`/`peripheral`/`name`/`description`，按中断号排序） |
+| `irq` | `query`、`total`、`truncated`、`matches`（`value`/`peripheral`/`name`/`description`/`nvic`；`nvic` 为 `{enable, clear_pending}` 或 `null`，各含 `register`/`bit`/`address`，按中断号排序） |
 | `macros` | `path`、`registers`（每项含 `offset`/`address`/`macros`/`fields`）、`code`（完整的 C 文本，带出处头注释） |
 | `lint` | `scope`、`counts`（`error`/`warning`/`info`/`total`）、`findings`（每项 `severity`/`code`/`peripheral`/`register`/`field`/`message`） |
 | `info` | `device`/`vendor`/`cpu`/`description`、`file_size`/`mtime`/`sha256`、`counts`（各层级数量、中断数与警告数） |
@@ -109,7 +117,9 @@
 其他要点：
 
 - 外设结果（`kind=peripheral`）含 `interrupts` 数组（`name`/`value`/`description`）。
-- `decode` 结果含 `write_notes`：没加 `--write` 时为空数组；加了则给出只读位域、未定义位、写读语义等提示。
+- `decode` 结果含 `write_notes`：没加 `--write` 时为空数组；加了则给出只读位域、未定义位、写读语义与读-改-写陷阱提示。
+- `set` 结果的 `notes` 也会包含读-改-写陷阱提示（寄存器含 `oneToClear` 等写语义时）。
+- `search` 结果含 `peripheral`（限定外设时非 null）。
 - `macros` 的 `code` 可直接复制；`fields[].macros` 给出宏名（`pos`/`msk`）。
 
 ## 证据标签

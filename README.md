@@ -14,7 +14,7 @@
 
 | 技能 | 版本 | 状态 | 说明 |
 |---|---|---|---|
-| `embedded-register-lookup`（寄存器百事通） | 1.3.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号；地址反查；寄存器值解码与写入值计算；位域速查与位图；CMSIS 风格宏生成；双芯片寄存器对比；地址区间、SVD 元信息与质量检查；本机芯片清单与环境体检；Markdown 表格输出 |
+| `embedded-register-lookup`（寄存器百事通） | 1.4.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号与 NVIC 使能位；寄存器值解码与写入值计算（含读-改-写陷阱提示）；位域速查与位图；CMSIS 风格宏生成；寄存器/外设级双芯片对比；地址区间、SVD 元信息与质量检查；本机芯片清单与环境体检；Markdown 输出；解析缓存加速 |
 
 计划中（按阶段门推进，见总方案）：寄存器核验器、接线排障、时序计算器、原理图审查官。
 
@@ -55,14 +55,20 @@ python skills/embedded-register-lookup/scripts/lookup.py diagram TIM1.CR1 --chip
 # 算寄存器写入值（值可以用枚举名）
 python skills/embedded-register-lookup/scripts/lookup.py set TIM1.CR1 CEN=1 DIR=UP --chip STM32G431
 
-# 中断号与 C 宏
+# 中断号与 C 宏（自动带 NVIC 使能位）
 python skills/embedded-register-lookup/scripts/lookup.py irq USART1 --chip STM32G431
 python skills/embedded-register-lookup/scripts/lookup.py macros USART1.CR1 --chip STM32G431
 
-# 对比两颗芯片的同一寄存器；体检 SVD 质量
+# 对比两颗芯片：单个寄存器全字段，或整个外设（升级 Pack、移植代码）
 python skills/embedded-register-lookup/scripts/lookup.py diff USART1.CR1 --chip-a STM32F103C8 --chip-b STM32G431
+python skills/embedded-register-lookup/scripts/lookup.py diff USART1 --chip-a STM32F103C8 --chip-b STM32G431
+
+# 体检 SVD 质量
 python skills/embedded-register-lookup/scripts/lookup.py lint --chip STM32G431
 ```
+
+解析结果会缓存在本机（`%LOCALAPPDATA%\etk\cache` 或 `~/.cache/etk`），重复查询更快，
+SVD 文件改动后自动失效；`ETK_NO_CACHE=1` 可关闭。
 
 每个项目可在根目录放 `.etk/config.json`，省去重复参数：
 
@@ -79,6 +85,7 @@ python skills/embedded-register-lookup/scripts/lookup.py lint --chip STM32G431
 - **零运行时依赖**：只使用 Python 3.9+ 标准库，无需 `pip install`。
 - **离线**：不联网，不调用任何外部 API。
 - **只读**：不修改用户项目文件，写出只发生在 `--out` 指定的路径。
+- **解析缓存**：解析结果缓存在本机（按文件大小与纳秒级修改时间失效），缓存故障静默降级；`ETK_NO_CACHE=1` 关闭。
 - **不内置厂商文件**：SVD 由用户本机的 CMSIS-Pack 或自备文件提供；另附一份自行编写的合成演示数据（`--demo`，不是真实芯片），仅用于零配置试用。
 - **每条结论有出处**：`source` 字段给出文件、设备、版本；`label` 给出证据等级。
 

@@ -19,14 +19,14 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
 from etk_core import query  # noqa: E402
+from etk_core.cache import load_device_cached  # noqa: E402
 from etk_core.discovery import doctor_report, find_svd, list_devices  # noqa: E402
 from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkError  # noqa: E402
 from etk_core.output import envelope  # noqa: E402
-from etk_core.svd import load_device  # noqa: E402
 from etk_core.values import parse_number  # noqa: E402
 
 TOOL = "embedded-register-lookup"
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 MAX_WARNINGS_SHOWN = 20
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 
@@ -68,6 +68,7 @@ def build_parser():
     p = sub.add_parser("search", parents=[common], help="按名称或描述搜索，如 baud")
     p.add_argument("keyword")
     p.add_argument("--kind", choices=("peripheral", "register", "field"), help="只搜索某一层级")
+    p.add_argument("--peripheral", metavar="外设", help="只在该外设内搜索")
     p.add_argument("--limit", type=int, default=50, help="最多显示条数（默认 50）")
 
     p = sub.add_parser("irq", parents=[common], help="查中断号：irq USART1 或 irq 37（不给参数则列出全部）")
@@ -94,12 +95,13 @@ def build_parser():
     p = sub.add_parser("macros", parents=[common], help="生成 CMSIS 风格参考宏（_Pos/_Msk/枚举值），带出处注释")
     p.add_argument("path", help="外设、外设.寄存器 或 外设.寄存器.位域")
 
-    p = sub.add_parser("diff", parents=[io], help="对比两份 SVD 中同一寄存器的差异（可给多个寄存器）")
-    p.add_argument("registers", nargs="+", metavar="寄存器", help="外设.寄存器")
+    p = sub.add_parser("diff", parents=[io], help="对比两份 SVD：给寄存器（全字段对比）或外设（全部寄存器）")
+    p.add_argument("registers", nargs="+", metavar="寄存器或外设", help="外设.寄存器，或只给外设名做整体对比")
     p.add_argument("--svd-a", metavar="PATH", help="A 侧 SVD 文件路径")
     p.add_argument("--chip-a", metavar="NAME", help="A 侧芯片名（在本机 CMSIS-Pack 中查找）")
     p.add_argument("--svd-b", metavar="PATH", help="B 侧 SVD 文件路径")
     p.add_argument("--chip-b", metavar="NAME", help="B 侧芯片名（在本机 CMSIS-Pack 中查找）")
+    p.add_argument("--all", action="store_true", help="外设整体对比时显示全部寄存器（默认只显示差异）")
 
     p = sub.add_parser("range", parents=[common], help="列出地址区间内的寄存器，如 range 0x40013800 0x40013FFF")
     p.add_argument("start", help="起始地址（含）")
@@ -155,7 +157,7 @@ def _run(args):
             notes.append("--demo 已生效，--chip 参数被忽略。")
     else:
         path, selected_by, notes = find_svd(args.svd, args.chip, args.project_dir)
-    device = load_device(path)
+    device = load_device_cached(path)
     warnings = list(notes) + list(device.warnings)
     if args.command in _PATH_COMMANDS:
         fn = _PATH_FUNCS[args.command]
@@ -173,7 +175,7 @@ def _run(args):
     if args.command == "addr":
         result = query.find_address(device, _parse(args.address, "地址"))
     elif args.command == "search":
-        result = query.search(device, args.keyword, args.limit, args.kind)
+        result = query.search(device, args.keyword, args.limit, args.kind, args.peripheral)
     elif args.command == "irq":
         result = query.find_interrupts(device, args.query, args.limit)
     elif args.command == "lint":
@@ -209,8 +211,8 @@ def _run(args):
 def _run_diff(args):
     path_a, by_a, notes_a = find_svd(args.svd_a, args.chip_a, args.project_dir)
     path_b, by_b, notes_b = find_svd(args.svd_b, args.chip_b, args.project_dir)
-    device_a = load_device(path_a)
-    device_b = load_device(path_b)
+    device_a = load_device_cached(path_a)
+    device_b = load_device_cached(path_b)
     warnings = []
     warnings.extend("A 侧：%s" % item for item in list(notes_a) + list(device_a.warnings))
     warnings.extend("B 侧：%s" % item for item in list(notes_b) + list(device_b.warnings))
@@ -220,7 +222,11 @@ def _run_diff(args):
     errors = []
     for text in args.registers:
         try:
-            result = query.diff_registers(device_a, device_b, text)
+            if "." in text:
+                result = query.diff_registers(device_a, device_b, text)
+            else:
+                result = query.diff_peripherals(device_a, device_b, text)
+                result["show_all"] = bool(args.all)
         except EtkError as exc:
             errors.append(exc.to_dict())
             continue
@@ -404,6 +410,17 @@ def _render_decode(res):
     return lines
 
 
+def _nvic_text(item):
+    hint = item.get("nvic") or {}
+    if not hint.get("enable"):
+        return ""
+    text = "使能 %s bit %d" % (hint["enable"]["register"], hint["enable"]["bit"])
+    if hint.get("clear_pending"):
+        text += "；清挂起 %s bit %d" % (
+            hint["clear_pending"]["register"], hint["clear_pending"]["bit"])
+    return text
+
+
 def _render_irq(res):
     head = "中断列表" if not res["query"] else "中断筛选 %s" % res["query"]
     head += "：共 %d 条" % res["total"]
@@ -413,6 +430,9 @@ def _render_irq(res):
     for m in res["matches"]:
         desc = "  " + m["description"] if m["description"] else ""
         lines.append("  %-3d  %-10s %-26s%s" % (m["value"], m["peripheral"], m["name"], desc))
+        nvic = _nvic_text(m)
+        if nvic:
+            lines.append("        NVIC：%s" % nvic)
     if not res["matches"]:
         lines.append("没有匹配项。可用外设名或中断名的一部分再试。")
     lines.append(_footer(res))
@@ -500,6 +520,45 @@ def _render_diff(res):
             for item in row["differences"]:
                 lines.append("  %-9s %s" % (row["name"], item))
     lines.append("结论：" + ("两侧寄存器定义一致。" if res["identical"]
+                             else "存在上述差异；跨芯片移植代码时注意位位置与访问类型。"))
+    return lines
+
+
+def _render_diff_peripheral(res):
+    a, b = res["a"], res["b"]
+    c = res["counts"]
+    lines = ["%s 外设整体对比：共 %d 个寄存器（相同 %d、有差异 %d、仅 A %d、仅 B %d）" % (
+        res["path"], c["total"], c["same"], c["diff"], c["only_a"], c["only_b"])]
+    lines.append("  A：设备 %s（%s）基地址 %s，%d 个寄存器" % (
+        a["source"]["device"], a["source"]["file"], a["base_address"], a["register_count"]))
+    lines.append("  B：设备 %s（%s）基地址 %s，%d 个寄存器" % (
+        b["source"]["device"], b["source"]["file"], b["base_address"], b["register_count"]))
+    if res["base_address_changed"]:
+        lines.append("注意：外设基地址已变化 %s → %s，移植时注意地址引用。" % (
+            a["base_address"], b["base_address"]))
+    for row in res["registers"]:
+        if row["status"] == "same" and not res.get("show_all"):
+            continue
+        if row["status"] == "only_a":
+            lines.append("  [仅 A 侧有] %s" % row["name"])
+        elif row["status"] == "only_b":
+            lines.append("  [仅 B 侧有] %s" % row["name"])
+        elif row["status"] == "same":
+            lines.append("  [相同] %s" % row["name"])
+        else:
+            lines.append("  [有差异] %s：" % row["name"])
+            for item in row["register_differences"]:
+                lines.append("      寄存器级：%s" % item)
+            for item in row["fields_changed"]:
+                lines.append("      位域 %s：%s" % (item["name"], "；".join(item["differences"])))
+            if row["fields_only_a"]:
+                lines.append("      仅 A 侧位域：%s" % "、".join(row["fields_only_a"]))
+            if row["fields_only_b"]:
+                lines.append("      仅 B 侧位域：%s" % "、".join(row["fields_only_b"]))
+            lines.append("      其余 %d 个位域相同" % row["fields_same"])
+    if not res.get("show_all") and c["same"]:
+        lines.append("（%d 个完全相同的寄存器已省略；加 --all 显示全部）" % c["same"])
+    lines.append("结论：" + ("两侧外设定义一致。" if res["identical"]
                              else "存在上述差异；跨芯片移植代码时注意位位置与访问类型。"))
     return lines
 
@@ -850,6 +909,39 @@ def _md_diff(res):
     return _md_finish(lines, res)
 
 
+def _md_diff_peripheral(res):
+    a, b = res["a"], res["b"]
+    c = res["counts"]
+    lines = ["## %s 外设整体对比" % res["path"], "",
+             "- A：设备 %s（%s）基地址 %s｜%d 个寄存器" % (
+                 a["source"]["device"], a["source"]["file"], a["base_address"], a["register_count"]),
+             "- B：设备 %s（%s）基地址 %s｜%d 个寄存器" % (
+                 b["source"]["device"], b["source"]["file"], b["base_address"], b["register_count"]),
+             "- 统计：共 %d；相同 %d｜有差异 %d｜仅 A %d｜仅 B %d" % (
+                 c["total"], c["same"], c["diff"], c["only_a"], c["only_b"])]
+    if res["base_address_changed"]:
+        lines.append("- 注意：外设基地址已变化 %s → %s" % (a["base_address"], b["base_address"]))
+    status_text = {"same": "相同", "only_a": "仅 A 侧有", "only_b": "仅 B 侧有", "diff": "有差异"}
+    rows = []
+    for row in res["registers"]:
+        if row["status"] == "same" and not res.get("show_all"):
+            continue
+        detail = ""
+        if row["status"] == "diff":
+            bits = list(row["register_differences"])
+            bits += ["位域 %s：%s" % (f["name"], "；".join(f["differences"])) for f in row["fields_changed"]]
+            if row["fields_only_a"]:
+                bits.append("仅 A 侧位域：%s" % "、".join(row["fields_only_a"]))
+            if row["fields_only_b"]:
+                bits.append("仅 B 侧位域：%s" % "、".join(row["fields_only_b"]))
+            detail = "；".join(bits)
+        rows.append(["`%s`" % row["name"], status_text.get(row["status"], row["status"]), detail])
+    lines += _md_table(["寄存器", "状态", "说明"], rows)
+    lines += ["", "**结论**：" + ("两侧外设定义一致。" if res["identical"]
+                                  else "存在上述差异；跨芯片移植代码时注意位位置与访问类型。")]
+    return lines
+
+
 def _md_range(res):
     head = "%s – %s 区间内的寄存器：共 %d 个" % (res["start"], res["end"], res["count"])
     if res["truncated"]:
@@ -870,8 +962,12 @@ def _md_irq(res):
     if res["truncated"]:
         head += "（显示前 %d 条）" % len(res["matches"])
     lines = [head, ""]
-    lines += _md_table(["向量号", "外设", "名称", "说明"],
-                       [[m["value"], m["peripheral"], m["name"], m["description"]] for m in res["matches"]])
+    rows = []
+    for m in res["matches"]:
+        nvic = _nvic_text(m)
+        desc = m["description"] + ("；NVIC %s" % nvic if nvic else "")
+        rows.append([m["value"], m["peripheral"], m["name"], desc])
+    lines += _md_table(["向量号", "外设", "名称", "说明"], rows)
     if not res["matches"]:
         lines.append("没有匹配项。")
     return _md_finish(lines, res)
@@ -974,6 +1070,7 @@ _RENDERERS = {
     "diagram": _render_diagram,
     "set": _render_set,
     "diff": _render_diff,
+    "diff_peripheral": _render_diff_peripheral,
     "range": _render_range,
     "irq": _render_irq,
     "macros": _render_macros,
@@ -999,6 +1096,7 @@ _MD_RENDERERS = {
     "diagram": _md_diagram,
     "set": _md_set,
     "diff": _md_diff,
+    "diff_peripheral": _md_diff_peripheral,
     "range": _md_range,
     "irq": _md_irq,
     "macros": _md_macros,

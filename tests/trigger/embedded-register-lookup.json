@@ -33,7 +33,11 @@
     "这份 SVD 里有寄存器地址重叠吗",
     "STM32F103 的 GPIOA_IDR 是只读吗",
     "nRF52840 的中断向量表里 UARTE0 是几号",
-    "把 TIM1 的寄存器定义转成 Markdown 表格"
+    "把 TIM1 的寄存器定义转成 Markdown 表格",
+    "升级了芯片包，USART1 的寄存器都有什么变化",
+    "中断 37 对应 NVIC 的哪个使能位",
+    "用 reg |= 改这个寄存器会不会误清标志位",
+    "在 GPIOA 里搜一下 MODE 相关的位域"
   ],
   "negative": [
     "STM32 怎么配置 UART 收发",

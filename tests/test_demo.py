@@ -66,6 +66,11 @@ def test_demo_cli_markdown_quickstart():
     assert "| 位 | 位域 | 访问 | 复位 | 掩码 | 说明 |" in r.stdout
 
 
+def test_demo_irq_has_no_nvic_hint():
+    res = query.find_interrupts(load_device(DEMO), "USART1")
+    assert res["matches"][0]["nvic"] is None
+
+
 def test_demo_conflicts_with_svd_argument():
     r = run_cli("lookup", "USART1.CR1", "--demo", "--svd", DEMO)
     assert r.returncode == 1

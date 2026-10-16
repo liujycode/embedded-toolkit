@@ -291,3 +291,41 @@ def test_real_f103_devices_listing_finds_devices():
     res = list_devices(root, keyword="STM32F103")
     assert res["total"] >= 1
     assert all(e["device"] for e in res["entries"])
+
+
+def test_real_f103_irq_reports_nvic_slot():
+    dev = load_device(_find("STM32F103xx.svd"))
+    match = query.find_interrupts(dev, "USART1")["matches"][0]
+    assert match["value"] == 37
+    assert match["nvic"]["enable"]["register"] == "NVIC.ISER1"
+    assert match["nvic"]["enable"]["bit"] == 5
+    assert match["nvic"]["enable"]["address"] == "0xE000E104"
+
+
+def test_real_diff_peripherals_f103_vs_g431():
+    """F103 与 G431 的 USART1 一次看全：新增寄存器、改名与 UE 位迁移。"""
+    dev_a = load_device(_find("STM32F103xx.svd"))
+    dev_b = load_device(_find("STM32G431xx.svd"))
+    res = query.diff_peripherals(dev_a, dev_b, "USART1")
+    assert res["kind"] == "diff_peripheral"
+    assert res["counts"]["total"] >= 10
+    assert res["counts"]["diff"] >= 3
+    assert res["counts"]["only_b"] >= 1
+    by_name = {r["name"]: r for r in res["registers"]}
+    assert by_name["CR1"]["status"] == "diff"
+    assert "UE" in [f["name"] for f in by_name["CR1"]["fields_changed"]]
+    assert res["identical"] is False
+
+
+def test_real_cache_roundtrip_matches_parse(tmp_path, monkeypatch):
+    from dataclasses import asdict
+
+    from etk_core import cache
+
+    monkeypatch.setenv(cache.ENV_CACHE_DIR, str(tmp_path))
+    monkeypatch.delenv(cache.ENV_NO_CACHE, raising=False)
+    path = _find("STM32F103xx.svd")
+    direct = load_device(path)
+    first = cache.load_device_cached(path)
+    second = cache.load_device_cached(path)
+    assert asdict(direct) == asdict(first) == asdict(second)
