@@ -12,6 +12,7 @@
 | G431 FOC 工程 4 个项目 `Core/Src`（CubeMX/HAL 风格） | 60 文件 | **0** | 8 | 8 | 未判定均为 `SCB->CPACR`/`SCB->VTOR`（内核寄存器，SVD 不完整） |
 | 同上手写驱动（`foc/bsp`、`foc_20k/bsp`、`test/User`） | 33 文件 | **0** | 0 | 127 | 直接寄存器写为主 |
 | Nordic `nrfx/hal`（SDK 内嵌头文件，对照 nrf52840.svd） | 38 文件 | 12（2.88%） | 17 | 388 | 归类见下 |
+| Nordic `nrfx/drivers/src`（SDK 驱动源码） | 36 文件 | 10（4.12%） | 4 | 229 | 全部为 E08 硬编码地址（厂商写未文档化寄存器的合法用法） |
 | 合成夹具 `tests/fixtures/verify_bad.c` | 1 文件 | 12 | 3 | 5 | 覆盖 E01–E10 全部规则 |
 | 合成夹具 `tests/fixtures/verify_ok.c` | 1 文件 | 0 | 0 | 5 | 正样本 |
 
@@ -20,6 +21,8 @@
   1. 5 条来自 `nrf_adc.h`：该头文件是 nRF51 的 ADC 外设，nRF52840 无此外设 → E01 正确检出“跨芯片使用”；
   2. 4 条来自 SVD 与头文件版本差：`QDEC.PSELA/PSELB/PSELLED`、`COMP.ISOURCE`（头文件有、旧版 SVD 未收录）；
   3. 3 条为硬编码地址（E08，规则设计如此）：`0x4000C504`（TEMP 未文档化寄存器）、`0x400005F0/F4`。
+- Nordic SDK 驱动源码 10 条“报”全部是 E08 硬编码地址（`CLOCK`/`NFCT`/`SAADC`/`SPIM` 的
+  未文档化寄存器地址，SDK 内部合法用法）——按规则设计提示“建议改用外设结构体或宏”，属预期行为。
 
 ## 试跑中发现并修掉的问题
 
@@ -44,6 +47,7 @@
 
 ## 未完成事项（下一步）
 
-- 触发评测：`tests/trigger/embedded-register-verify.json`（22 正 + 10 反）待跑；
+- 触发评测：`tests/trigger/embedded-register-verify.json`（22 正 + 10 反）全量进行中，结果记入 `benchmarks/trigger-results.md`；
 - Trae CN / WorkBuddy：IDE 内人工触发验证（用例已就绪）；
-- 其它厂商真实 SVD（NXP/Microchip/Espressif）的语料试跑与正样本补充。
+- 其它厂商真实语料：本机暂无可用工程（ESP 目录为空、无 GD32F4/NXP SVD），待补；
+  公共示例语料（≥50 个真实文件）与更多厂商 SVD 的正样本集建设。

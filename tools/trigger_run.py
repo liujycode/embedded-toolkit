@@ -9,7 +9,8 @@
       --script verify.py --subcommands check,rules
 
 说明：
-- 每条用例一次独立无头会话；工作目录为空临时目录，避免用例句/仓库文件污染（第一轮教训）；
+- 每条用例一次独立无头会话；**每例新建独立空工作目录**并跑完即清理（第一轮教训：目录污染；
+  agent 会把片段写成文件再核验，共用目录会污染后续用例）；--keep 可保留目录用于取证；
 - 输出逐例 <out>/<id>.jsonl（p 开头正例、n 开头反例）；失败写 <id>.error.txt 并继续；
 - --only p01,n02 只跑指定用例；--timeout 每例超时秒数（默认 300）。
 """
@@ -59,6 +60,7 @@ def main(argv=None):
     parser.add_argument("--out", required=True, help="输出目录（逐例 .jsonl）")
     parser.add_argument("--only", help="只跑指定用例（逗号分隔，如 p01,n02）")
     parser.add_argument("--timeout", type=int, default=300, help="每例超时秒数（默认 300）")
+    parser.add_argument("--keep", action="store_true", help="保留每例的工作目录（默认跑完即清理）")
     args = parser.parse_args(argv)
 
     exe = shutil.which(args.agent)
@@ -68,18 +70,18 @@ def main(argv=None):
     out_dir = os.path.abspath(args.out)
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir)
-    work_dir = tempfile.mkdtemp(prefix="etk-trigger-")
     cases = load_cases(args.skill)
     if args.only:
         wanted = {item.strip() for item in args.only.split(",") if item.strip()}
         cases = [case for case in cases if case[0] in wanted]
-    print("agent=%s skill=%s 用例=%d 输出=%s 工作目录=%s" % (
-        args.agent, args.skill, len(cases), out_dir, work_dir))
+    print("agent=%s skill=%s 用例=%d 输出=%s（每例独立空工作目录）" % (
+        args.agent, args.skill, len(cases), out_dir))
     failures = 0
     for case_id, expect, prompt in cases:
         out_path = os.path.join(out_dir, "%s.jsonl" % case_id)
         err_path = os.path.join(out_dir, "%s.error.txt" % case_id)
         cmd = build_command(args.agent, exe, prompt)
+        work_dir = tempfile.mkdtemp(prefix="etk-trigger-")
         start = time.time()
         status = "ok"
         try:
@@ -98,6 +100,9 @@ def main(argv=None):
             with open(err_path, "w", encoding="utf-8") as fh:
                 fh.write(repr(exc))
             failures += 1
+        finally:
+            if not args.keep:
+                shutil.rmtree(work_dir, ignore_errors=True)
         size = os.path.getsize(out_path) if os.path.isfile(out_path) else 0
         if status.startswith("rc="):
             failures += 1
