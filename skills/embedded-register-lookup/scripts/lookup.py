@@ -26,7 +26,7 @@ from etk_core.output import envelope  # noqa: E402
 from etk_core.values import parse_number  # noqa: E402
 
 TOOL = "embedded-register-lookup"
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 MAX_WARNINGS_SHOWN = 20
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 

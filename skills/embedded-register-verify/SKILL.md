@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件（查找规则同 embedded-register-lookup）；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # 寄存器核验器
@@ -39,7 +39,7 @@ python scripts/verify.py check examples/verify_demo.c --demo
 python scripts/verify.py rules
 ```
 
-- `check` 接受文件、目录（递归扫 `.c`/`.h`，上限 200 个）或 `--patch`（unified diff 的新增行）。
+- `check` 接受文件、目录（递归扫 `.c/.h/.cpp/.hpp/.ino` 等，上限 200 个）或 `--patch`（unified diff 的新增行）。
 - `--define NAME=VALUE` 补充宏定义（可多次，常用于从工程配置里带入的常量）。
 - `--no-clock-check` 关闭 E07（跨文件使能时常需要）。
 - `--checklist` 按复查要求分组输出：芯片默认 / 已核验 / 需查手册 / 需实测。
@@ -68,9 +68,11 @@ python scripts/verify.py rules
 | 直接/复合赋值 | `USART1->CR1 = v;`、`\|=`、`&=`、`^=` |
 | CMSIS 宏 | `SET_BIT`、`CLEAR_BIT`、`MODIFY_REG`、`WRITE_REG`（`READ_REG` 跳过） |
 | 字段宏（CMSIS 命名） | `USART_CR1_UE`、`GPIO_MODER_MODE0`、`TIM_CR2_MMS_Msk`、枚举名后缀（`USART_CR1_PS_ODD`） |
-| 直接地址 | `*(volatile uint32_t *)0x40013800 = v;`（报 E08 并反查寄存器名） |
+| 直接地址（报 E08 并反查寄存器名） | `*(volatile uint32_t *)0x40013800 = v;`、`*reinterpret_cast<volatile uint32_t *>(0x40013800) = v;`、`HWREG(0x40013800) = v;`（TI 风格） |
+| 地址别名宏 | `#define REG (*(volatile uint32_t *)0xADDR)` 后的 `REG = v;`（按该寄存器正常核验） |
+| 语言/工程 | C 与 C++（`.c/.h/.cpp/.cc/.hpp/.ino` 等），Arduino 工程里的直接寄存器写同样适用 |
 
-**不支持（一律进"未判定"，不当作错误）**：HAL/LL 调用、结构体成员赋值（`hi2c1.Init.X`）、运行时计算的地址、无法映射的字段宏、簇寄存器命名（如 `DMA1_Channel1->CCR` 对应 SVD 里 `DMA1` 的 `CH1` 簇）、内核外设（SysTick/NVIC 等在设备 SVD 之外）。
+**不支持（一律进"未判定"，不当作错误）**：HAL/LL 调用、结构体成员赋值（`hi2c1.Init.X`）、运行时计算的地址、无法映射的字段宏、簇寄存器命名（如 `DMA1_Channel1->CCR` 对应 SVD 里 `DMA1` 的 `CH1` 簇）、内核外设（SysTick/NVIC 等在设备 SVD 之外）、ESP-IDF 风格寄存器宏（`REG_WRITE` 等，寄存器号在头文件里，明确记"未判定"）。
 
 ## 判定口径（E01–E10）
 

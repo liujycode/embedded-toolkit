@@ -327,6 +327,79 @@ def test_modify_clear_mask_alone_not_reported(device):
     assert res["counts"]["report"] == 0
 
 
+def test_address_alias_define_checks_register(device):
+    text = ("#define TIM1_CR1 (*(volatile uint32_t *)0x40012C00)\n"
+            "void f(void) { TIM1_CR1 = 0x00010000; }\n")
+    res = crules.Verifier(device).check_file("t.c", text)
+    assert [f["class"] for f in res["findings"]] == ["E04"]
+
+
+def test_address_alias_readonly_register(device):
+    text = ("#define USART_SR (*(volatile uint32_t *)0x4001381C)\n"
+            "void f(void) { USART_SR = 0x00000020; }\n")
+    res = crules.Verifier(device).check_file("t.c", text)
+    assert [f["class"] for f in res["findings"]] == ["E10"]
+
+
+def test_address_alias_unknown_address_is_undetermined(device):
+    text = ("#define REGX (*(volatile uint32_t *)0x40013804)\n"
+            "void f(void) { REGX = 0x1; }\n")
+    res = crules.Verifier(device).check_file("t.c", text)
+    assert res["counts"]["report"] == 0
+    assert any("别名 REGX" in item["reason"] for item in res["undetermined"])
+
+
+def test_hwreg_known_address_is_e08(device):
+    res = crules.Verifier(device).check_file("t.c", "HWREG(0x40013800) = 0x00000001;\n")
+    assert [f["class"] for f in res["findings"]] == ["E08"]
+    assert "USART1.CR1" in res["findings"][0]["message"]
+
+
+def test_hwreg_unresolvable_expression_is_undetermined(device):
+    res = crules.Verifier(device).check_file("t.c", "HWREG(UART0_BASE + UART0_CTL) = 0x1;\n")
+    assert res["counts"]["report"] == 0
+    assert any("地址表达式" in item["reason"] for item in res["undetermined"])
+
+
+def test_reinterpret_cast_address_write_is_e08(device):
+    text = "*reinterpret_cast<volatile uint32_t *>(0x40013800) = 0x00000001;\n"
+    res = crules.Verifier(device).check_file("t.cpp", text)
+    assert [f["class"] for f in res["findings"]] == ["E08"]
+
+
+def test_more_cast_types_recognized(device):
+    for text in ("*(__I uint32_t *)0x40013800 = 0x1;",
+                 "*(uint32_t volatile *)0x40013800 = 0x1;",
+                 "*(u32 *)0x40013800 = 0x1;",
+                 "*(unsigned long *)0x40013800 = 0x1;"):
+        res = crules.Verifier(device).check_file("t.c", text)
+        assert [f["class"] for f in res["findings"]] == ["E08"], text
+
+
+def test_renesas_r_prefix_alias(device):
+    res = crules.Verifier(device).check_file("ra.c", "R_USART1->CR1 |= USART_CR1_UE;\n")
+    assert res["counts"]["report"] == 0
+    assert res["counts"]["passed"] == 1
+
+
+def test_esp_idf_style_macros_are_undetermined(device):
+    res = crules.Verifier(device).check_file("idf.c", "REG_WRITE(UART_CONF0_REG, 0x1);\n")
+    assert res["counts"]["report"] == 0
+    assert res["counts"]["undetermined"] == 1
+    assert any("ESP-IDF" in item["reason"] for item in res["undetermined"])
+
+
+def test_cli_collects_cpp_and_ino(tmp_path):
+    (tmp_path / "main.cpp").write_text("USART1->CR1 |= USART_CR1_XXX;\n", encoding="utf-8")
+    (tmp_path / "sketch.ino").write_text("USART1->CR1 |= USART_CR1_ZZZ;\n", encoding="utf-8")
+    (tmp_path / "skip.txt").write_text("USART1->CR1 |= USART_CR1_XXX;\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(tmp_path), "--svd", SYNTH, "--format", "json")
+    env = json.loads(r.stdout)
+    names = sorted(os.path.basename(res["path"]) for res in env["results"])
+    assert names == ["main.cpp", "sketch.ino"]
+    assert all(res["counts"]["report"] == 1 for res in env["results"])
+
+
 def test_cli_attaches_next_commands():
     r = run_py(VERIFY_CLI, "check", VERIFY_BAD, "--svd", SYNTH, "--format", "json")
     findings = json.loads(r.stdout)["results"][0]["findings"]

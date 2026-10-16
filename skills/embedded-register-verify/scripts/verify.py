@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""embedded-register-verify：核验 C 代码里的寄存器写入是否与芯片 SVD 一致。
+"""embedded-register-verify：核验 C/C++ 代码里的寄存器写入是否与芯片 SVD 一致。
 
 只做词法分析（规格 0.7：不执行用户代码、不 eval）；判定不确定时进"未判定"。
 退出码：0 = 没有"报"；1 = 检出问题或工具出错（errors 为空时表示检出问题）。
@@ -30,7 +30,7 @@ from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkErr
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -50,7 +50,7 @@ def build_parser():
 
     parser = argparse.ArgumentParser(
         prog="verify.py",
-        description="核验 C 代码中的寄存器写入是否与芯片 SVD 一致（只做词法分析，不执行代码）。",
+        description="核验 C/C++ 代码中的寄存器写入是否与芯片 SVD 一致（只做词法分析，不执行代码）。",
         epilog=(
             "示例：\n"
             "  verify.py check main.c --chip STM32G431\n"
@@ -64,7 +64,8 @@ def build_parser():
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("check", parents=[common], help="核验文件、目录或补丁中的寄存器写入")
-    p.add_argument("paths", nargs="*", metavar="路径", help="C 源文件、头文件或目录（用 --patch 时可省略）")
+    p.add_argument("paths", nargs="*", metavar="路径",
+                   help="C/C++ 源文件、头文件或目录（.c/.h/.cpp/.hpp/.ino 等；用 --patch 时可省略）")
     p.add_argument("--define", action="append", default=[], metavar="NAME=VALUE", help="补充宏定义（可多次）")
     p.add_argument("--patch", metavar="FILE", help="核验 unified diff / git diff 文件中新增的行")
     p.add_argument("--no-clock-check", action="store_true", help="关闭 E07（时钟使能）检查")
@@ -86,7 +87,7 @@ def _collect_sources(paths):
             for root, dirs, names in os.walk(item):
                 dirs[:] = [d for d in dirs if not d.startswith(".") and d not in SKIP_DIRS]
                 for name in sorted(names):
-                    if name.lower().endswith((".c", ".h")):
+                    if name.lower().endswith((".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".ino")):
                         files.append(os.path.join(root, name))
         elif os.path.isfile(item):
             files.append(item)
@@ -191,7 +192,7 @@ def _run(args):
         if truncated:
             warnings.append("文件数超过 %d，只核验了前 %d 个。" % (MAX_FILES, MAX_FILES))
         if not sources:
-            raise EtkError(E_INPUT_INVALID, "没有找到可核验的 .c/.h 文件。")
+            raise EtkError(E_INPUT_INVALID, "没有找到可核验的 .c/.h/.cpp/.hpp/.ino 文件。")
 
     results = []
     errors = []

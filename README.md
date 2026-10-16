@@ -14,10 +14,19 @@
 
 | 技能 | 版本 | 状态 | 说明 |
 |---|---|---|---|
-| `embedded-register-lookup`（寄存器百事通） | 1.4.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号与 NVIC 使能位；解码 / 写值计算 / 读改写陷阱提示；宏生成；双芯片与外设级对比；SVD 质量检查；环境体检；Markdown 输出；解析缓存 |
-| `embedded-register-verify`（寄存器核验器） | 1.2.0 | 注入集召回 225/225=100%（合成芯片，见 `benchmarks/verify-recall.md`）；正样本 55 文件 0 误报 | 核验 C 代码里的寄存器写入：外设/寄存器/位域存在性、值超宽、枚举合法性、只读位、时钟使能、硬编码地址、中断分组；报/未判定/通过分桶 + 复查清单；**每条问题带 `next` 查证命令与 `--explain` 内联寄存器定义（与百事通闭环）**；目录与 git diff 模式；不执行代码 |
+| `embedded-register-lookup`（寄存器百事通） | 1.5.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号与 NVIC 使能位；解码 / 写值计算 / 读改写陷阱提示；宏生成；双芯片与外设级对比；SVD 质量检查；环境体检；**SDK 自带 SVD 自动发现（PlatformIO / Arduino15 / ESP-IDF / Pico SDK，覆盖 ESP32 系列与 RP2040）**；Markdown 输出；解析缓存 |
+| `embedded-register-verify`（寄存器核验器） | 1.3.0 | 注入集召回 225/225=100%（合成芯片，见 `benchmarks/verify-recall.md`）；正样本 55 文件 0 误报 | 核验 C/C++ 代码里的寄存器写入：外设/寄存器/位域存在性、值超宽、枚举合法性、只读位、时钟使能、硬编码地址、中断分组；**支持 `.cpp/.hpp/.ino`、`reinterpret_cast`、`HWREG`（TI 风格）、地址别名宏、`NRF_`/`R_` 厂商别名**；报/未判定/通过分桶 + 复查清单；**每条问题带 `next` 查证命令与 `--explain` 内联寄存器定义（与百事通闭环）**；目录与 git diff 模式；不执行代码 |
 
 计划中（按阶段门推进，见总方案）：接线排障、时序计算器、原理图审查官。
+
+## 适配范围（跨厂商、跨工具链、跨写法）
+
+| 维度 | 覆盖 |
+|---|---|
+| 芯片 / 厂商 | 任何有 CMSIS SVD 的芯片：ST、GigaDevice、Nordic、NXP、Renesas、Microchip 等（Keil / cpackget 设备包）；**ESP32 系列、RP2040 由 SDK 自带 SVD 自动发现** |
+| SVD 来源 | `--svd` 指定 / 项目内扫描（深度 ≤6）/ 环境变量 `ETK_SVD_DIR` / 本机 CMSIS-Pack 缓存（含多平台路径）/ PlatformIO、Arduino15、ESP-IDF、Pico SDK 自带 SVD |
+| 工具链 / 环境 | Keil MDK、STM32CubeMX、PlatformIO、ESP-IDF、Arduino、Zephyr、nRF Connect SDK 的目录结构；Windows / macOS / Linux；Python 3.9+，零依赖、离线 |
+| 代码写法（核验器） | CMSIS 结构体写（`USART1->CR1`）、CMSIS 宏（`SET_BIT/MODIFY_REG`）、厂商别名（`NRF_USBD`、`R_PORT0`）、地址别名宏（`#define REG (*(volatile uint32_t *)0x...)`）、`HWREG`（TI 风格）、C/C++ 与 Arduino（`.cpp/.hpp/.ino`）；ESP-IDF 风格寄存器宏明确记"未判定" |
 
 ## 安装
 

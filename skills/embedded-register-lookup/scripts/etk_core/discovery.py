@@ -1,8 +1,12 @@
 """SVD 文件查找与盘点，顺序：
---svd 参数 > 项目配置 .etk/config.json > 项目内扫描 > 环境变量 ETK_SVD_DIR > 本机 Pack 缓存。
+--svd 参数 > 项目配置 .etk/config.json > 项目内扫描 > 环境变量 ETK_SVD_DIR > 本机 Pack 缓存 > SDK 自带缓存。
 
 Pack 目录布局：<Packs>/<厂商>/<包名>/<版本>/{SVD,CMSIS/SVD}/*.svd，
 两种布局分别对应 Keil STM32F1/F3 包与 STM32F4/G4 包，以及 Nordic、GigaDevice 的常见布局。
+
+SDK 自带缓存（本机自动发现，覆盖 ESP32/RP2040 等没有 CMSIS-Pack 的生态）：
+PlatformIO 包缓存、Arduino15（含 arduino-esp32 的 ide-debug/svd）、
+ESP-IDF（IDF_PATH）、Pico SDK（PICO_SDK_PATH 或 ~/.pico-sdk/sdk）。
 
 除查找外还提供 doctor_report（环境体检）与 list_devices（本机 SVD 盘点），
 供 CLI 的 doctor / devices 子命令使用。
@@ -123,6 +127,45 @@ def _pack_svds(roots):
     return sorted(found)
 
 
+_ARDUINO_PATTERNS = ("packages/*/hardware/*/*/tools/ide-debug/svd/*.svd",)
+
+
+def sdk_svd_candidates():
+    """SDK 自带 SVD 的候选位置：[(标签, 根目录, 匹配模式), ...]（包含不存在的候选）。"""
+    home = os.path.expanduser("~")
+    items = [
+        ("PlatformIO 包缓存", os.path.join(home, ".platformio", "packages"),
+         ("*/tools/ide-debug/svd/*.svd",)),
+    ]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        items.append(("Arduino15 缓存", os.path.join(local, "Arduino15"), _ARDUINO_PATTERNS))
+    items.append(("Arduino15 缓存（Linux）", os.path.join(home, ".arduino15"), _ARDUINO_PATTERNS))
+    items.append(("Arduino15 缓存（macOS）", os.path.join(home, "Library", "Arduino15"),
+                  _ARDUINO_PATTERNS))
+    idf = os.environ.get("IDF_PATH")
+    if idf:
+        items.append(("ESP-IDF（IDF_PATH）", idf, ("components/soc/**/*.svd",)))
+    pico = os.environ.get("PICO_SDK_PATH")
+    if pico:
+        items.append(("Pico SDK（PICO_SDK_PATH）", pico,
+                      ("src/rp2040/hardware_regs/*.svd", "*/src/rp2040/hardware_regs/*.svd")))
+    items.append(("Pico SDK（pico-vscode 缓存）", os.path.join(home, ".pico-sdk", "sdk"),
+                  ("*/src/rp2040/hardware_regs/*.svd",)))
+    return items
+
+
+def _sdk_svds(candidates=None):
+    found = set()
+    for _label, root, patterns in (candidates if candidates is not None else sdk_svd_candidates()):
+        if not os.path.isdir(root):
+            continue
+        for pattern in patterns:
+            for path in glob.glob(os.path.join(root, pattern), recursive=True):
+                found.add(os.path.normpath(path))
+    return sorted(found)
+
+
 def project_svds(start):
     """在项目目录内浅层扫描 .svd：深度 ≤ 6，跳过隐藏与依赖目录。
 
@@ -166,12 +209,16 @@ def _scan_roots(roots):
 
 
 def _chip_keys(chip):
-    """芯片名候选：完整名，再去掉封装后缀（STM32G431RB -> STM32G431）。"""
+    """芯片名候选：完整名、去掉封装后缀（STM32G431RB -> STM32G431）、去掉分隔符（ESP32-S3 -> ESP32S3）。"""
     base = chip.strip().upper()
     keys = [base]
     stripped = _PACKAGE_SUFFIX.sub("", base)
     if stripped and stripped != base and len(stripped) >= 6:
         keys.append(stripped)
+    for key in list(keys):
+        compact = re.sub(r"[-_\s]", "", key)
+        if compact and compact not in keys:
+            keys.append(compact)
     return keys
 
 
@@ -208,6 +255,10 @@ def _match(chip, paths):
         wildcard = [p for p in paths if _wildcard_equal(key, _stem(p))]
         if wildcard:
             return wildcard, key
+        # 反向前缀：用户给的板卡名比文件名长（如 nRF52840-DK -> nRF52840.svd）
+        reverse = [p for p in paths if len(_stem(p)) >= 6 and key.startswith(_stem(p))]
+        if reverse:
+            return reverse, key
     return [], None
 
 
@@ -230,9 +281,18 @@ def _pick_from(chip, paths, label, notes):
     if not matches:
         return None
     chosen, others = _choose(matches, key)
-    if others:
-        shown = "、".join(os.path.basename(p) for p in others[:5])
-        notes.append("%s找到多个候选，已选用 %s；其余：%s" % (label, os.path.basename(chosen), shown))
+    chosen_name = os.path.basename(chosen)
+    distinct = []
+    for path in others:
+        name = os.path.basename(path)
+        if name != chosen_name and name not in distinct:
+            distinct.append(name)
+    if distinct:
+        notes.append("%s找到多个候选，已选用 %s；其余：%s" % (
+            label, chosen_name, "、".join(distinct[:5])))
+    elif others:
+        notes.append("%s找到 %d 份同名文件（不同位置/版本），已选用 %s" % (
+            label, len(others) + 1, chosen_name))
     return chosen
 
 
@@ -293,6 +353,14 @@ def find_svd(svd=None, chip=None, project_dir=None):
         picked = _pick_from(chip, _pack_svds(roots), "本机", notes)
         if picked:
             return picked, "本机 CMSIS-Pack", notes
+        sdk_files = _sdk_svds()
+        if sdk_files:
+            picked = _pick_from(chip, sdk_files, "SDK 缓存", notes)
+            if picked:
+                return picked, "SDK 缓存（PlatformIO/Arduino/IDF/Pico）", notes
+            tried.append("SDK 缓存（%d 个 .svd）未匹配 %s" % (len(sdk_files), chip))
+        else:
+            tried.append("SDK 缓存：没有找到 .svd")
         tried.append("按芯片名 %s 未匹配到任何 .svd" % chip)
     else:
         if len(files) == 1:
@@ -309,7 +377,8 @@ def find_svd(svd=None, chip=None, project_dir=None):
 
     hint = ("用 --svd 指定 .svd 文件；把 .svd 放进项目目录（工具会自动扫描）；"
             "设置环境变量 ETK_SVD_DIR 指向自备 SVD 目录；或安装芯片对应的 CMSIS 设备包"
-            "（Keil Pack Installer 可安装）；或在项目根目录的 .etk/config.json 中写入 \"svd\" 字段。")
+            "（Keil Pack Installer 可安装）；或在项目根目录的 .etk/config.json 中写入 \"svd\" 字段；"
+            "已装 PlatformIO / Arduino / ESP-IDF / Pico SDK 的话，其自带的 SVD 也会被自动发现。")
     if not chip:
         hint = "未提供 --chip，也无法从项目或配置确定芯片。" + hint
     raise EtkError(
@@ -350,6 +419,9 @@ def list_devices(start=None, keyword=None, limit=200):
         env_files, _ = _scan_roots(env_roots)
         add_source("ETK_SVD_DIR", env_files, note="；".join(env_roots))
     add_source("CMSIS-Pack", _pack_svds(pack_roots()))
+    for label, root, patterns in sdk_svd_candidates():
+        if os.path.isdir(root):
+            add_source(label, _sdk_svds([(label, root, patterns)]), note=root)
 
     for index, entry in enumerate(entries):
         if index < _DEVICE_NAME_MAX:
@@ -428,13 +500,17 @@ def doctor_report(start=None, demo_path=None):
             note = absolute
         add(label, os.path.abspath(path), exists, count, note)
 
-    idf = os.environ.get("IDF_PATH")
-    if idf:
-        soc = os.path.join(idf, "components", "soc")
-        idf_files = sorted(glob.glob(os.path.join(soc, "**", "*.svd"), recursive=True)) if os.path.isdir(soc) else []
-        all_files.extend(idf_files)
-        add("ESP-IDF（IDF_PATH）", idf, os.path.isdir(idf), len(idf_files),
-            "components/soc 下找到 %d 个" % len(idf_files))
+    for label, root, patterns in sdk_svd_candidates():
+        absolute = os.path.abspath(root)
+        exists = os.path.isdir(absolute)
+        count = None
+        note = "不存在"
+        if exists:
+            found = _sdk_svds([(label, absolute, patterns)])
+            all_files.extend(found)
+            count = len(found)
+            note = absolute
+        add(label, absolute, exists, count, note)
 
     demo_exists = bool(demo_path) and os.path.isfile(demo_path)
     add("内置演示数据（--demo）", demo_path, demo_exists, None,
@@ -451,7 +527,8 @@ def doctor_report(start=None, demo_path=None):
     advice = []
     if total == 0:
         advice.append("本机没有找到任何 .svd：可安装芯片的 CMSIS 设备包（Keil Pack Installer / cpackget），"
-                      "或把 .svd 放进项目目录（工具会自动扫描），或用 ETK_SVD_DIR 指向自备 SVD 目录。")
+                      "或把 .svd 放进项目目录（工具会自动扫描），或用 ETK_SVD_DIR 指向自备 SVD 目录；"
+                      "ESP32 / RP2040 等生态可装 PlatformIO、Arduino 或 Pico SDK（其自带 SVD 会被自动发现）。")
     else:
         advice.append("直接查询：lookup USART1.CR1 --chip <芯片名>；列出本机可用芯片：devices。")
     if demo_exists:

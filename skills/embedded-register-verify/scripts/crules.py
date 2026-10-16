@@ -16,6 +16,10 @@ CORE_PERIPHERALS = frozenset({
     "NVIC", "NVIC_STIR", "SYSTICK", "STK", "SCB", "MPU", "FPU", "DWT", "ITM", "TPIU",
     "COREDEBUG", "DCB", "DIB",
 })
+ESP_IDF_OPS = frozenset({
+    "reg_write", "reg_set_bit", "reg_clr_bit", "reg_set_field", "write_peri_reg",
+    "set_peri_reg_mask", "clear_peri_reg_mask",
+})
 EXT_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 IDENT_WORD_RE = re.compile(r"\b([A-Za-z_]\w*)\b")
 MEMBER_ARG_RE = re.compile(r"^(&)?\s*([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*$")
@@ -85,6 +89,9 @@ class Verifier:
         if periph is None and key.startswith("NRF_"):
             # Nordic SDK 约定：nrf.h 用 NRF_<外设> 作为 SVD 外设名的别名（如 NRF_USBD → USBD）
             periph = self.peripherals.get(key[4:])
+        if periph is None and key.startswith("R_"):
+            # Renesas RA/FSP 约定：R_<外设> 为 SVD 外设名的别名（如 R_PORT0 → PORT0）
+            periph = self.peripherals.get(key[2:])
         return periph
 
     def _by_address(self):
@@ -175,11 +182,21 @@ class Verifier:
         problem 为 None 表示可判定；否则为 {"core"|"clusterish"|"unknown"|"bad_arg": 名称}；
         返回 (None, None, None) 表示按本地指针处理（静默忽略）。
         """
+        if write["kind"] == "alias":
+            hit = self._by_address().get(write.get("address"))
+            if hit is None:
+                return None, None, {"alias_addr": (write.get("name") or "?", write.get("address") or 0)}
+            return hit[0], hit[1], None
+        if write["kind"] == "addr_expr":
+            return None, None, {"addr_expr": write.get("expr") or "?"}
         if write["kind"] == "addr":
             hit = self._by_address().get(write["address"])
             if hit is None:
                 return None, None, {"address": write["address"]}
             return hit[0], hit[1], None
+        if write["kind"] == "macro" and write.get("op") in ESP_IDF_OPS:
+            # ESP-IDF 等风格：第一个参数是寄存器号常量（定义在 SDK 头文件里），不解析头文件
+            return None, None, {"esp_idf": write["op"]}
         if write["kind"] == "macro":
             args = write.get("args") or []
             if not args:
@@ -438,8 +455,16 @@ class Verifier:
                 add_finding(write, "E08", "硬编码地址 0x%08X（SVD 中未找到对应寄存器）" % problem["address"],
                             lookup=_lookup_hint("addr", address="0x%08X" % problem["address"],
                                                 reason="用地址反查寄存器"))
+            elif "alias_addr" in problem:
+                name, addr = problem["alias_addr"]
+                add_undet(write, "别名 %s 的地址 0x%X 在 SVD 中找不到对应寄存器，未检查" % (name, addr))
+            elif "addr_expr" in problem:
+                add_undet(write, "地址表达式无法解析（%s），未检查" % problem["addr_expr"])
             elif "bad_arg" in problem:
                 add_undet(write, "宏的第一个参数不是 外设->寄存器 形式：%r" % problem["bad_arg"])
+            elif "esp_idf" in problem:
+                add_undet(write, "ESP-IDF 风格寄存器宏（%s）：寄存器号来自头文件常量，无法定位，未检查"
+                          % problem["esp_idf"])
             return
         if periph is None:
             return

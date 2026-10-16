@@ -15,12 +15,28 @@ DEFINE_DEPTH_MAX = 8
 
 _DEFINE_RE = re.compile(r"^\s*#\s*define\s+([A-Za-z_]\w*)\s+(.+?)\s*$")
 _MEMBER_RE = re.compile(r"([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*(\|=|&=|\^=|=)(?!=)")
+_ADDR_QUAL = r"(?:volatile|const|__IO|__I|__O|__IM|__OM)"
+_ADDR_TYPE = (r"(?:" + _ADDR_QUAL + r"\s+)*(?:unsigned\s+(?:int|long)|unsigned|"
+              r"u?int(?:8|16|32|64)_t|uint\d+_t|u(?:8|16|32|64)|int|long)"
+              r"(?:\s+" + _ADDR_QUAL + r")*")
+_ADDR_VALUE = r"(0x[0-9A-Fa-f]+|[0-9]+)"
+# 直接地址写入：C 风格 *(volatile uint32_t *)0xADDR（含双括号），C++ 风格
+# *reinterpret_cast<volatile uint32_t *>(0xADDR)。组 1/2 分别是两种写法的地址。
 _ADDR_RE = re.compile(
-    r"\*\s*\(\s*(?:(?:volatile|__IO)\s+)?"
-    r"(?:unsigned\s+int|u?int(?:8|16|32|64)_t|uint\d+_t)\s*\*\s*\)\s*"
-    r"(0x[0-9A-Fa-f]+|[0-9]+)"
+    r"(?:\*\s*\(\s*\(?\s*" + _ADDR_TYPE + r"\s*\*\s*\)\s*" + _ADDR_VALUE + r"\s*\)?"
+    r"|reinterpret_cast\s*<\s*" + _ADDR_TYPE + r"\s*\*\s*>\s*\(\s*" + _ADDR_VALUE + r"\s*\))"
 )
-_MACRO_CALL_RE = re.compile(r"\b(SET_BIT|CLEAR_BIT|MODIFY_REG|WRITE_REG|READ_REG)\s*\(")
+# 厂商风格寄存器宏：TI TivaWare 的 HWREG/HWREGB/HWREGH(x)（x 为地址常量表达式）
+_HWREG_RE = re.compile(r"\bHWREG(?:B|H)?\s*\(")
+# 地址别名对象宏：#define NAME (*(volatile uint32_t *)0xADDR)；之后 NAME = / |= 视为对该地址的写入
+_ALIAS_DEFINE_RE = re.compile(
+    r"^\s*#\s*define\s+([A-Za-z_]\w*)\s+"
+    r"\(?\s*\(\s*\*\s*\(\s*" + _ADDR_TYPE + r"\s*\*\s*\)\s*" + _ADDR_VALUE + r"\s*\)\s*\)?\s*$")
+_ALIAS_USE_RE = re.compile(r"\s*([A-Za-z_]\w*)\s*(\|=|&=|\^=|=)(?!=)")
+_MACRO_CALL_RE = re.compile(
+    r"\b(SET_BIT|CLEAR_BIT|MODIFY_REG|WRITE_REG|READ_REG"
+    r"|REG_WRITE|REG_SET_BIT|REG_CLR_BIT|REG_SET_FIELD|WRITE_PERI_REG"
+    r"|SET_PERI_REG_MASK|CLEAR_PERI_REG_MASK)\s*\(")
 _HAL_ENABLE_RE = re.compile(r"__HAL_RCC_([A-Za-z0-9_]+?)_CLK_ENABLE\s*\(")
 _GROUPING_RE = re.compile(r"\bNVIC_SetPriorityGrouping\s*\(")
 _CAST_RE = re.compile(
@@ -185,14 +201,32 @@ def _op_after(stmt, pos):
     return m.group(1) if m else None
 
 
-def extract_all(text):
-    """总入口：返回 {defines, writes, enables, grouping_lines}。
+def collect_addr_aliases(clean):
+    """收集"地址别名"对象宏：#define NAME (*(volatile uint32_t *)0xADDR)。
 
-    writes 每项：{kind: member|addr|macro, op, line, code, ...}
+    返回 {NAME: address}；之后的 `NAME = / |= / &=` 按该地址的寄存器写入核验。
+    """
+    out = {}
+    for line in clean.split("\n"):
+        m = _ALIAS_DEFINE_RE.match(line)
+        if not m:
+            continue
+        try:
+            out[m.group(1)] = int(m.group(2), 0)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def extract_all(text):
+    """总入口：返回 {defines, aliases, writes, enables, grouping_lines}。
+
+    writes 每项：{kind: member|addr|addr_expr|alias|macro, op, line, code, ...}
     """
     joined, line_map = join_continuations(text)
     clean_all = strip_comments_and_strings(joined)
     defines = collect_defines(clean_all)
+    aliases = collect_addr_aliases(clean_all)
     clean = blank_preprocessor(clean_all)
     writes = []
     for start, end in split_statements(clean):
@@ -216,15 +250,44 @@ def extract_all(text):
         if macros:
             writes.extend(macros)
             continue
+        hw = _HWREG_RE.search(stmt)
+        if hw:
+            parsed = _parse_macro_args(stmt, hw.end() - 1)
+            if parsed:
+                args, close_pos = parsed
+                op = _op_after(stmt, close_pos + 1)
+                if op and args:
+                    value = eval_int(args[0], defines) if args[0] else None
+                    rhs = stmt[close_pos + 1:].lstrip().lstrip(op).rstrip().rstrip(";").strip()
+                    if value is None:
+                        writes.append({
+                            "kind": "addr_expr", "op": op, "line": line, "code": display,
+                            "expr": args[0][:80], "rhs": rhs,
+                        })
+                    else:
+                        writes.append({
+                            "kind": "addr", "op": op, "line": line, "code": display,
+                            "address": value, "rhs": rhs,
+                        })
+            continue
         addr = _ADDR_RE.search(stmt)
         if addr:
             op = _op_after(stmt, addr.end())
             if op:
                 writes.append({
                     "kind": "addr", "op": op, "line": line, "code": display,
-                    "address": int(addr.group(1), 0),
+                    "address": int(addr.group(1) or addr.group(2), 0),
                     "rhs": stmt[addr.end():].lstrip().lstrip(op).rstrip().rstrip(";").strip(),
                 })
+            continue
+        alias = _ALIAS_USE_RE.match(stmt)
+        if alias and alias.group(1) in aliases:
+            name = alias.group(1)
+            writes.append({
+                "kind": "alias", "op": alias.group(2), "line": line, "code": display,
+                "name": name, "address": aliases[name],
+                "rhs": stmt[alias.end():].rstrip().rstrip(";").strip(),
+            })
             continue
         member = _MEMBER_RE.search(stmt)
         if member:
@@ -237,6 +300,7 @@ def extract_all(text):
     grouping_lines = [_line_of(clean, m.start(), line_map) for m in _GROUPING_RE.finditer(clean)]
     return {
         "defines": defines,
+        "aliases": aliases,
         "writes": writes,
         "enables": enables,
         "grouping_lines": grouping_lines,

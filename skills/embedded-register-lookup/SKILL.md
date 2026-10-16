@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件：厂商 CMSIS-Pack 或用户自备的 .svd；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.4.0"
+  version: "1.5.0"
 ---
 
 # 寄存器百事通
@@ -80,9 +80,12 @@ python scripts/lookup.py fields GPIOA.MODER --demo
 3. 项目内扫描：当前目录向下深度 ≤ 6 的 `*.svd`（跳过隐藏目录与依赖目录）；没给 `--chip` 时，唯一的 .svd 会被直接使用
 4. 环境变量 `ETK_SVD_DIR` 指向的自备 SVD 目录（多个用系统路径分隔符分开）
 5. 本机 Pack 缓存：`%LOCALAPPDATA%\Arm\Packs`（Windows）、`~/.arm/Packs`、`~/.cache/arm/packs`（Linux）、`~/Library/Caches/Arm/Packs`（macOS）
-6. 都找不到时返回 `E_SVD_NOT_FOUND`，并列出已尝试的位置；此时建议用户运行 `doctor` 查看具体原因
+6. **SDK 自带缓存（自动发现）**：PlatformIO 包缓存、Arduino15（含 arduino-esp32 的 SVD，覆盖 ESP32 系列）、ESP-IDF（`IDF_PATH`）、Pico SDK（`PICO_SDK_PATH` 或 `~/.pico-sdk`）
+7. 都找不到时返回 `E_SVD_NOT_FOUND`，并列出已尝试的位置；此时建议用户运行 `doctor` 查看具体原因
 
-找不到 SVD 时，告诉用户这几种办法：把 .svd 放进项目目录（会被自动扫描）、安装对应芯片的 CMSIS 设备包（Keil Pack Installer 可安装）、用 `ETK_SVD_DIR` 指向自备 SVD 目录、或用 `--svd` 指定文件。不要凭记忆补寄存器定义。
+芯片名支持常见写法：`STM32G431RB`（自动去封装后缀）、`ESP32-S3`（自动去分隔符）、`nRF52840-DK`（反向前缀匹配文件名）。
+
+找不到 SVD 时，告诉用户这几种办法：把 .svd 放进项目目录（会被自动扫描）、安装对应芯片的 CMSIS 设备包（Keil Pack Installer 可安装）、用 `ETK_SVD_DIR` 指向自备 SVD 目录、或用 `--svd` 指定文件；已装 PlatformIO / Arduino / ESP-IDF / Pico SDK 的话其自带 SVD 会被自动发现。不要凭记忆补寄存器定义。
 
 ## 怎么回答
 

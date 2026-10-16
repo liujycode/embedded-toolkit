@@ -19,6 +19,8 @@ def isolated(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "no-local"))
     monkeypatch.delenv("ETK_PACKS_DIR", raising=False)
     monkeypatch.delenv("ETK_SVD_DIR", raising=False)
+    monkeypatch.delenv("IDF_PATH", raising=False)
+    monkeypatch.delenv("PICO_SDK_PATH", raising=False)
     return tmp_path
 
 
@@ -135,6 +137,79 @@ def test_chip_key_candidates():
     assert _chip_keys("stm32g431rb") == ["STM32G431RB", "STM32G431"]
     assert _chip_keys("NRF52840") == ["NRF52840"]
     assert _chip_keys("STM32F103C8T6") == ["STM32F103C8T6", "STM32F103"]
+    assert _chip_keys("ESP32-S3") == ["ESP32-S3", "ESP32S3"]
+    assert _chip_keys("nRF52840-DK") == ["NRF52840-DK", "NRF52840DK"]
+
+
+def test_chip_names_with_separators_match(isolated, monkeypatch):
+    packs = isolated / "packs"
+    _copy_svd(packs / "V" / "P" / "1" / "SVD", "ESP32S3.svd")
+    monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
+    project = isolated / "proj"
+    project.mkdir()
+    path, _, _ = find_svd(chip="ESP32-S3", project_dir=str(project))
+    assert path.endswith("ESP32S3.svd")
+
+
+def test_reverse_prefix_matches_board_name(isolated, monkeypatch):
+    packs = isolated / "packs"
+    _copy_svd(packs / "V" / "P" / "1" / "SVD", "NRF52840.svd")
+    monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
+    project = isolated / "proj"
+    project.mkdir()
+    path, _, _ = find_svd(chip="nRF52840-DK", project_dir=str(project))
+    assert path.endswith("NRF52840.svd")
+
+
+def test_sdk_cache_platformio(isolated):
+    home = isolated / "home"
+    svd_dir = (home / ".platformio" / "packages" / "framework-arduinoespressif32"
+               / "tools" / "ide-debug" / "svd")
+    _copy_svd(svd_dir, "ESP32S3.svd")
+    project = isolated / "proj"
+    project.mkdir()
+    path, how, _ = find_svd(chip="ESP32-S3", project_dir=str(project))
+    assert path.endswith("ESP32S3.svd")
+    assert how.startswith("SDK 缓存")
+
+
+def test_sdk_cache_arduino15(isolated, monkeypatch):
+    local = isolated / "local"
+    svd_dir = (local / "Arduino15" / "packages" / "esp32" / "hardware" / "esp32" / "3.3.7"
+               / "tools" / "ide-debug" / "svd")
+    _copy_svd(svd_dir, "ESP32C3.svd")
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    project = isolated / "proj"
+    project.mkdir()
+    path, how, _ = find_svd(chip="ESP32-C3", project_dir=str(project))
+    assert path.endswith("ESP32C3.svd")
+    assert how.startswith("SDK 缓存")
+
+
+def test_sdk_cache_duplicate_copies_do_not_note(isolated):
+    home = isolated / "home"
+    _copy_svd(home / ".platformio" / "packages" / "a" / "tools" / "ide-debug" / "svd",
+              "ESP32S3.svd")
+    _copy_svd(home / ".platformio" / "packages" / "b" / "tools" / "ide-debug" / "svd",
+              "ESP32S3.svd")
+    project = isolated / "proj"
+    project.mkdir()
+    path, how, notes = find_svd(chip="ESP32-S3", project_dir=str(project))
+    assert path.endswith("ESP32S3.svd")
+    assert how.startswith("SDK 缓存")
+    assert len(notes) == 1 and "2 份同名文件" in notes[0]
+
+
+def test_sdk_cache_does_not_beat_packs(isolated, monkeypatch):
+    packs = isolated / "packs"
+    _copy_svd(packs / "Keil" / "P" / "1" / "SVD", "CHIPD.svd")
+    monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
+    home = isolated / "home"
+    _copy_svd(home / ".platformio" / "packages" / "x" / "tools" / "ide-debug" / "svd", "CHIPD.svd")
+    project = isolated / "proj"
+    project.mkdir()
+    path, how, _ = find_svd(chip="CHIPD", project_dir=str(project))
+    assert how == "本机 CMSIS-Pack"
 
 
 def test_choose_prefers_exact_stem():
