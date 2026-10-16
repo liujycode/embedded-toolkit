@@ -15,7 +15,7 @@
 | 技能 | 版本 | 状态 | 说明 |
 |---|---|---|---|
 | `embedded-register-lookup`（寄存器百事通） | 1.6.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`）；厂商 SVD 冒烟 16 家（见 `benchmarks/vendor-svds.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号与 NVIC 使能位；解码 / 写值计算 / 读改写陷阱提示；宏生成；双芯片与外设级对比；SVD 质量检查（**识别厂商常见的多宽度视图/位域别名，不再误报**）；环境体检；**SDK 自带 SVD 自动发现（PlatformIO / Arduino15 / ESP-IDF / Pico SDK，覆盖 ESP32 系列与 RP2040）**；Markdown 输出；解析缓存 |
-| `embedded-register-verify`（寄存器核验器） | 1.5.0 | 注入集召回 225/225=100%（合成芯片，见 `benchmarks/verify-recall.md`）；正样本 55 文件 0 误报；ESP-IDF v4.4.7 真实源码 332 处写入 0 报（见 `benchmarks/verify-dogfood.md`） | 核验 C/C++ 代码里的寄存器写入：外设/寄存器/位域存在性、值超宽、枚举合法性、只读位、时钟使能、硬编码地址、中断分组、**使能后写 DMA 配置寄存器（E11，含数值使能 `CCR \|= 1`）**；**支持 `.cpp/.hpp/.ino`、`reinterpret_cast`、`HWREG`（TI 风格）、地址别名宏、`NRF_`/`R_` 厂商别名、ESP-IDF `REG_WRITE/REG_SET_FIELD`（配 `--headers`，含 `BIT(n)` 与实例函数宏）**；报/未判定/通过分桶 + 复查清单；**每条问题带 `next` 查证命令与 `--explain` 内联寄存器定义（与百事通闭环）**；目录与 git diff 模式；不执行代码 |
+| `embedded-register-verify`（寄存器核验器） | 1.6.0 | 注入集召回 225/225=100%（合成芯片，见 `benchmarks/verify-recall.md`）；正样本 55 文件 0 误报；ESP-IDF v4.4.7（332 处写入）与 TI TivaWare（406 处写入）真实源码均 0 报（见 `benchmarks/verify-dogfood.md`） | 核验 C/C++ 代码里的寄存器写入：外设/寄存器/位域存在性、值超宽、枚举合法性、只读位、时钟使能、硬编码地址、中断分组、**使能后写 DMA 配置寄存器（E11，含数值使能 `CCR \|= 1`）**；**支持 `.cpp/.hpp/.ino`、`reinterpret_cast`、HWREG（TI 风格，宏组合地址按具名核验）、地址别名宏、`NRF_`/`R_` 厂商别名、通道名同义写法（`DMA1_Channel3`↔`DMA1_CH3`↔SVD 后缀 `CCR3`）、ESP-IDF `REG_WRITE/REG_SET_FIELD`（配 `--headers`，含 `BIT(n)` 与实例函数宏）**；报/未判定/通过分桶 + 复查清单；**每条问题带 `next` 查证命令与 `--explain` 内联寄存器定义（与百事通闭环）**；目录与 git diff 模式；不执行代码 |
 
 计划中（按阶段门推进，见总方案）：接线排障、时序计算器、原理图审查官。
 

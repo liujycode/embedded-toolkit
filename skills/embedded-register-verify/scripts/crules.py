@@ -98,7 +98,22 @@ class Verifier:
         if periph is None and key.startswith("R_"):
             # Renesas RA/FSP 约定：R_<外设> 为 SVD 外设名的别名（如 R_PORT0 → PORT0）
             periph = self.peripherals.get(key[2:])
+        if periph is None:
+            # 通道命名的同义写法：各厂商 SVD 与头文件常混用 DMA1_CH1 / DMA1_Channel1（反之亦然）
+            for candidate in self._channel_candidates(key):
+                periph = self.peripherals.get(candidate)
+                if periph is not None:
+                    break
         return periph
+
+    @staticmethod
+    def _channel_candidates(key):
+        out = []
+        if "CHANNEL" in key:
+            out.append(re.sub(r"CHANNEL(?=\d|_|$)", "CH", key))
+        if re.search(r"(?<![A-Z0-9])CH(?=\d|_|$)", key):
+            out.append(re.sub(r"(?<![A-Z0-9])CH(?=\d|_|$)", "CHANNEL", key))
+        return out
 
     def _by_address(self):
         if self._addr_map is None:
@@ -115,12 +130,22 @@ class Verifier:
         picked = difflib.get_close_matches(name.upper(), list(by_upper), n=limit, cutoff=0.6)
         return [by_upper[k] for k in picked]
 
-    def _find_registers(self, periph, name):
+    def _find_registers(self, periph, name, context_reg=None):
         key = name.upper()
         exact = [r for r in periph.registers if r.name.upper() == key]
         if exact:
             return exact
-        return [r for r in periph.registers if r.name.upper().startswith(key + "_")]
+        prefixed = [r for r in periph.registers if r.name.upper().startswith(key + "_")]
+        if prefixed:
+            return prefixed
+        # 实例号在后缀的写法：宏用 CCR 而 SVD 里是 CCR1..CCR8（STM32 G4 的 DMA 通道等）
+        pattern = re.compile("^" + re.escape(key) + r"\d+$")
+        suffixed = [r for r in periph.registers if pattern.match(r.name.upper())]
+        if len(suffixed) > 1 and context_reg is not None:
+            for reg in suffixed:
+                if reg.name.upper() == context_reg.name.upper():
+                    return [reg]  # 优先命中当前写入的寄存器（按通道消歧）
+        return suffixed
 
     def _resolve_field(self, reg, field_tokens):
         """返回 (field, kind, value)：kind 为 field / enum / extra（位域名后多出无法识别的后缀）。"""
@@ -179,7 +204,7 @@ class Verifier:
         for cut in range(1, len(rest)):
             reg_tokens = rest[:cut]
             field_tokens = rest[cut:]
-            for reg in self._find_registers(periph, "_".join(reg_tokens)):
+            for reg in self._find_registers(periph, "_".join(reg_tokens), context_reg):
                 field, kind, value = self._resolve_field(reg, field_tokens)
                 if field is not None and kind in ("field", "enum"):
                     return {"register": reg, "field": field, "kind": kind, "value": value}
@@ -227,6 +252,16 @@ class Verifier:
             periph_name, reg_name = write["peripheral"], write["register"]
         periph = self._periph(periph_name)
         if periph is None:
+            # 通道号游走在"外设名 / 寄存器名"两端的写法：
+            #   DMA1_Channel3->CCR（ST 函数/头文件风格）或 DMA1_CH3->CCR（G4 SVD 风格）
+            #   → 基本外设 DMA1 + 寄存器 CCR3
+            m = re.match(r"^([A-Z0-9]+)_(?:CHANNEL|CH)(\d+)$", periph_name.upper())
+            if m:
+                base = self.peripherals.get(m.group(1))
+                if base is not None:
+                    suffixed = base.register(reg_name + m.group(2))
+                    if suffixed is not None:
+                        return base, suffixed, None
             key = periph_name.upper()
             if key in CORE_PERIPHERALS:
                 return None, None, {"core": periph_name}

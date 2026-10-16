@@ -314,12 +314,20 @@ def extract_all(text, extra_defines=None):
                 args, close_pos = parsed
                 op = _op_after(stmt, close_pos + 1)
                 if op and args:
-                    value = eval_int(args[0], defines) if args[0] else None
+                    expr = args[0]
+                    value = eval_int(expr, defines) if expr else None
                     rhs = stmt[close_pos + 1:].lstrip().lstrip(op).rstrip().rstrip(";").strip()
                     if value is None:
                         writes.append({
                             "kind": "addr_expr", "op": op, "line": line, "code": display,
-                            "expr": args[0][:80], "rhs": rhs,
+                            "expr": expr[:80], "rhs": rhs,
+                        })
+                    elif re.search(r"(?<![0-9A-Za-z_])[A-Za-z_]\w*", expr):
+                        # 由宏表达式组合出的地址（TI TivaWare 的 HWREG(外设_BASE + 寄存器_O_XXX)）：
+                        # 按"具名地址"核验（与地址别名宏同口径，不报 E08——它不是硬编码）
+                        writes.append({
+                            "kind": "alias", "op": op, "line": line, "code": display,
+                            "name": expr[:60], "address": value, "rhs": rhs,
                         })
                     else:
                         writes.append({

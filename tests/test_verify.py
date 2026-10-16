@@ -361,6 +361,59 @@ def test_hwreg_unresolvable_expression_is_undetermined(device):
     assert any("地址表达式" in item["reason"] for item in res["undetermined"])
 
 
+def test_hwreg_macro_composed_address_is_named(device):
+    """TI TivaWare 风格：HWREG(外设_BASE + 寄存器偏移) 由宏组合，按具名地址核验、不报 E08。"""
+    verifier = crules.Verifier(device, extra_defines={"USART1_BASE": "0x40013800"})
+    res = verifier.check_file("t.c", "HWREG(USART1_BASE + 0x1C) = 0x00000001;\n")
+    assert [f["class"] for f in res["findings"]] == ["E10"]  # 命中只读 SR → E10（若报 E08 则说明口径错）
+
+
+def test_channel_suffix_register_naming(tmp_path):
+    """通道号在寄存器后缀的 SVD（DMA1 + CCR3/CNDTR3），代码写 DMA1_Channel3->CCR 也要能对上。"""
+    svd_text = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<device schemaVersion="1.1"><name>CHIPG4</name><version>1.0</version>'
+        '<description>channel suffix</description><width>32</width><peripherals>'
+        '<peripheral><name>DMA1</name><baseAddress>0x40020000</baseAddress><registers>'
+        '<register><name>CCR3</name><addressOffset>0x30</addressOffset><fields>'
+        '<field><name>EN</name><bitOffset>0</bitOffset><bitWidth>1</bitWidth></field>'
+        '</fields></register>'
+        '<register><name>CNDTR3</name><addressOffset>0x34</addressOffset></register>'
+        '</registers></peripheral></peripherals></device>\n')
+    path = tmp_path / "suffix.svd"
+    path.write_text(svd_text, encoding="utf-8")
+    device = load_device(str(path))
+    res = crules.Verifier(device).check_file(
+        "dma.c", "DMA1_Channel3->CNDTR = 0x00000064;\nDMA1_Channel3->CCR |= DMA_CCR_EN;\n")
+    assert res["counts"]["passed"] == 2
+    assert res["counts"]["undetermined"] == 0
+    assert res["findings"] == []
+
+
+def test_channel_naming_variants(tmp_path):
+    """DMA1_CH1 ↔ DMA1_Channel1 同义命名（各厂商 SVD 与头文件混用）。"""
+    template = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<device schemaVersion="1.1"><name>CHCHIP</name><version>1.0</version>'
+        '<description>channel naming</description><width>32</width><peripherals>'
+        '<peripheral><name>%s</name><baseAddress>0x40020000</baseAddress><registers>'
+        '<register><name>CCR</name><addressOffset>0x00</addressOffset><fields>'
+        '<field><name>EN</name><bitOffset>0</bitOffset><bitWidth>1</bitWidth></field>'
+        '</fields></register></registers></peripheral></peripherals></device>\n')
+    ch_path = tmp_path / "ch.svd"
+    ch_path.write_text(template % "DMA1_CH1", encoding="utf-8")
+    res = crules.Verifier(load_device(str(ch_path))).check_file(
+        "dma.c", "DMA1_Channel1->CCR |= 0x00000001;\n")
+    assert res["counts"]["passed"] == 1
+    assert res["counts"]["undetermined"] == 0
+    full_path = tmp_path / "channel.svd"
+    full_path.write_text(template % "DMA1_Channel1", encoding="utf-8")
+    res = crules.Verifier(load_device(str(full_path))).check_file(
+        "dma.c", "DMA1_CH1->CCR |= 0x00000001;\n")
+    assert res["counts"]["passed"] == 1
+    assert res["counts"]["undetermined"] == 0
+
+
 def test_reinterpret_cast_address_write_is_e08(device):
     text = "*reinterpret_cast<volatile uint32_t *>(0x40013800) = 0x00000001;\n"
     res = crules.Verifier(device).check_file("t.cpp", text)

@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件（查找规则同 embedded-register-lookup）；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.5.0"
+  version: "1.6.0"
 ---
 
 # 寄存器核验器
@@ -74,8 +74,10 @@ python scripts/verify.py rules
 | 直接/复合赋值 | `USART1->CR1 = v;`、`\|=`、`&=`、`^=` |
 | CMSIS 宏 | `SET_BIT`、`CLEAR_BIT`、`MODIFY_REG`、`WRITE_REG`（`READ_REG` 跳过） |
 | 字段宏（CMSIS 命名） | `USART_CR1_UE`、`GPIO_MODER_MODE0`、`TIM_CR2_MMS_Msk`、枚举名后缀（`USART_CR1_PS_ODD`） |
-| 直接地址（报 E08 并反查寄存器名） | `*(volatile uint32_t *)0x40013800 = v;`、`*reinterpret_cast<volatile uint32_t *>(0x40013800) = v;`、`HWREG(0x40013800) = v;`（TI 风格） |
+| 直接地址（报 E08 并反查寄存器名） | `*(volatile uint32_t *)0x40013800 = v;`、`*reinterpret_cast<volatile uint32_t *>(0x40013800) = v;`、`HWREG(0x40013800) = v;`（纯字面量才报 E08） |
+| TI TivaWare 风格 | `HWREG(外设_BASE + 寄存器_O_XXX)`（宏组合出的具名地址按具名寄存器核验，**不报 E08**）、`HWREGH/HWREGB` |
 | 地址别名宏 | `#define REG (*(volatile uint32_t *)0xADDR)` 后的 `REG = v;`（按该寄存器正常核验） |
+| 通道名同义写法 | `DMA1_Channel3->CCR` ↔ `DMA1_CH3->CCR`；SVD 若把通道号放在寄存器后缀（G4 的 `CCR3`），也能对上并做字段级核验 |
 | ESP-IDF 风格寄存器宏 | `REG_WRITE/REG_SET_BIT/REG_CLR_BIT/REG_SET_FIELD/REG_CLR_FIELD(...)`：用 `--headers` 提供寄存器常量宏后按具名寄存器核验（`REG_SET_FIELD` 做到**字段级**：存在性/只读/位宽/枚举）；地址求值支持 `BIT(n)` 与单参数函数宏（`TIMG_RTCCALICFG_REG(0)` 这类）；未提供时记"未判定" |
 | 语言/工程 | C 与 C++（`.c/.h/.cpp/.cc/.hpp/.ino` 等），Arduino 工程里的直接寄存器写同样适用 |
 

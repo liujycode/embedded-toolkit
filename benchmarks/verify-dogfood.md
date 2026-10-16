@@ -62,6 +62,29 @@
    SVD `SAR_FORCE_XPD_SAR`、`RTC_CNTL_SDIO_PD_EN` → SVD `SDIO_REG_PD_EN`）按“词集合包含 + 唯一命中”
    放宽匹配——本轮最初跑出的 3 条 E03 全部是这类命名差异（语义正确），修复后归零。
 
+## TI TivaWare 真实源码试跑（v1.6.0）
+
+日期：2026-10-16 ｜ 语料：TI TivaWare（`yuvadm/tiva-c` 镜像）的 TM4C123 相关源码 **24 个文件**
+（dk/ek-tm4c123g 板级示例 + `utils/uartstdio.c`、`cpu_usage.c` + `boot_loader/bl_uart.c`、`bl_flash.c`
++ `driverlib/` 11 个驱动 + `usblib/` 2 个文件），头文件 `inc/` 106 个（用 `--headers`），
+SVD 为 `TM4C123GH6PM.svd`（跨厂商冒烟同源）。
+
+| 指标 | 数值 |
+|---|---|
+| 写入处 | 406 |
+| 报 | **0（0.00%）** |
+| 未判定 | 286 |
+| 通过 | 120 |
+
+- 未判定构成（全部归因，非工具问题）：
+  1. **257 处** `HWREG(ui32Base + ...)`：driverlib 函数的基址是**运行时参数**，天然无法静态解析
+     （与 HAL 调用同类，诚实记未判定）；
+  2. **29 处**别名地址不在 SVD：`NVIC_SW_TRIG`（0xE000EF00，SCS 内核区）与 GPIO 数据屏蔽窗口地址
+     （TivaWare 的 `GPIO_O_DATA + (pins << 2)` 位屏蔽窗口，SVD 无法表达，如实未判定）。
+- 本轮修复（否则会产生 E08 误报）：`HWREG(宏表达式)` 原先只要地址可求值就按"硬编码地址"报 E08；
+  但 `HWREG(UART0_BASE + UART_O_CTL)`、`HWREG(FLASH_FMA)` 是**具名地址**写法，现改为按具名地址核验
+  （与地址别名宏同口径，不报 E08）——只有纯字面量地址（如 `HWREG(0x40013800)`）才报 E08。
+
 ## 试跑中发现并修掉的问题
 
 1. **`SCB->CPACR` 误报 E02**（v1.0.0 试跑）：ST 的 SVD 里 `SCB` 只列了部分内核寄存器，
@@ -87,5 +110,5 @@
 
 - 触发评测：`tests/trigger/embedded-register-verify.json`（22 正 + 10 反）全量进行中，结果记入 `benchmarks/trigger-results.md`；
 - Trae CN / WorkBuddy：IDE 内人工触发验证（用例已就绪）；
-- 其它厂商真实语料：ESP-IDF v4.4.7 已补（见上节）；跨厂商 SVD 冒烟见 `benchmarks/vendor-svds.md`；
+- 其它厂商真实语料：ESP-IDF v4.4.7 与 TI TivaWare 已补（见上节）；跨厂商 SVD 冒烟见 `benchmarks/vendor-svds.md`；
   其余厂商（NXP/Renesas/Microchip 等）的**代码**语料与正样本集建设待补。

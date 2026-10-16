@@ -9,6 +9,7 @@
 import glob
 import os
 import re
+import sys
 import time
 import xml.etree.ElementTree as ET
 
@@ -16,6 +17,13 @@ import pytest
 
 from etk_core import query
 from etk_core.svd import load_device
+
+_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "skills", "embedded-register-verify", "scripts")
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
+
+import crules  # noqa: E402
 
 SVD_DIRS = [d for d in os.environ.get("ETK_TEST_SVD_DIR", "").split(os.pathsep) if d]
 pytestmark = pytest.mark.skipif(not SVD_DIRS, reason="未设置 ETK_TEST_SVD_DIR，跳过真实 SVD 测试")
@@ -103,6 +111,19 @@ def _parser_view(device):
             for r in p.registers
         }
     return out
+
+
+def test_stm32g431_dma_channel_alias_naming():
+    """G4 的 SVD 把通道号放在寄存器后缀（DMA1 的 CCR1..CCR8），代码却写 DMA1_ChannelN->CCR。"""
+    device = load_device(_find("STM32G431xx.svd"))
+    text = ("RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;\n"
+            "DMA1_CH3->CNDTR = 0x00000064;\n"
+            "DMA1_Channel3->CCR |= DMA_CCR_EN;\n")
+    res = crules.Verifier(device).check_file("dma.c", text)
+    assert res["counts"]["report"] == 0
+    assert res["counts"]["undetermined"] == 0
+    assert res["counts"]["passed"] == 3
+    assert res["findings"] == []
 
 
 def test_stm32g431_known_facts():

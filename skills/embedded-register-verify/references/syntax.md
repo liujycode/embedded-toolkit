@@ -7,7 +7,9 @@
 3. 跳过预处理行；收集对象宏 `#define NAME <表达式>`。
 4. 按分号切分语句：圆括号内不分号；`{` / `}` 视为语句边界（函数体不会被当成一条巨语句）。
 5. 在每条语句里按顺序找：CMSIS 宏调用（`SET_BIT/CLEAR_BIT/MODIFY_REG/WRITE_REG/READ_REG`）
-   → `HWREG(地址) op 值`（TI 风格）→ 直接地址（C 风格 `*(volatile uint32_t *)0xADDR`、
+   → `HWREG(地址) op 值`（TI 风格）：地址为**纯字面量**时按直接地址（报 E08）；由宏表达式组合
+   （`HWREG(UART0_BASE + UART_O_CTL)`、`HWREG(FLASH_FMA)`）且可求值时按**具名地址**核验
+   （与地址别名宏同口径，不报 E08）→ 直接地址（C 风格 `*(volatile uint32_t *)0xADDR`、
    C++ `*reinterpret_cast<...>(0xADDR)`）→ 文件内地址别名宏（`#define REG (*(...)0xADDR)` 后的
    `REG op 值`）→ `外设->寄存器 op 表达式`。
 6. 目录模式收集的扩展名：`.c/.h/.cpp/.cc/.cxx/.hpp/.hh/.ino`（C/C++ 工程与 Arduino 都能核验）。
@@ -22,6 +24,9 @@
 ## 外设名解析（别名约定）
 
 - 精确匹配 SVD 外设名（大小写不敏感）；`GPIOA` → `GPIO` 这类家族派生只用于字段宏，不用于外设。
+- **通道命名同义写法**：`P_ChannelN` ↔ `P_CHN`（各厂商 SVD 与头文件混用，如 F1 的 `DMA1_Channel1`、
+  G4 SVD 描述里的 `DMA1_CH1`）；若 SVD 把通道号放在**寄存器后缀**（G4：`DMA1` 的 `CCR3`/`CNDTR3`），
+  则 `DMA1_Channel3->CCR` / `DMA1_CH3->CCR` 均映射到 `DMA1.CCR3` 做正常核验。
 - **Nordic 约定**：`NRF_<外设>` 视为 `<外设>` 的别名（`NRF_USBD` → `USBD`、`NRF_RADIO` → `RADIO`），
   与 `nrf.h` 的实例指针定义一致。
 - **Renesas RA/FSP 约定**：`R_<外设>` 视为 `<外设>` 的别名（`R_PORT0` → `PORT0`）。
@@ -36,6 +41,8 @@ CMSIS 命名约定（`外设家族_寄存器_位域`），按下面顺序尝试�
    `_` 前第一段（`DMA1_Channel1`→`DMA1`→`DMA`）。
 3. 余下部分尝试所有切分，找"寄存器 + 位域"：
    - 寄存器精确匹配；否则前缀匹配（宏 `CCMR1` ↔ SVD `CCMR1_Output`）；
+   - 寄存器名后带实例号后缀时按数字匹配（宏 `CCR` ↔ SVD `CCR1..CCR8`；多个候选时优先命中
+     当前写入的寄存器，避免通道歧义）；
    - 位域名后若还剩一段，且恰好是该位域的枚举名 → 视为枚举值宏（`USART_CR1_PS_ODD`）。
 4. 映射成功但属于**另一个寄存器** → E03（宏与寄存器不符）。
 5. 寄存器能找到、位域找不到 → E03（给出同寄存器位域的拼写建议）。
