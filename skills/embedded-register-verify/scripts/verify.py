@@ -31,7 +31,7 @@ from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkErr
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -112,45 +112,113 @@ def _collect_sources(paths):
 HEADER_EXTS = (".h", ".hpp", ".hh", ".inc", ".c")
 HEADER_MAX_FILES = 512
 HEADER_MAX_BYTES = 8 * 1024 * 1024
+_INCLUDE_RE = re.compile(r'^\s*#\s*include\s*[<"]([^>"]+)[>"]', re.M)
 
 
-def _collect_header_defines(paths):
-    """从头文件（或目录）收集对象宏定义，用于解析寄存器常量宏（如 ESP-IDF 的 UART_CONF0_REG）。
+def _resolve_include(token, base_dirs, roots, index):
+    """把 `#include` 里的路径解析为实际文件：① 相对当前/被核验文件目录 ② 相对搜索根 ③ 按文件名唯一匹配。"""
+    rel = token.replace("\\", "/")
+    for base in base_dirs:
+        candidate = os.path.normpath(os.path.join(base, rel))
+        if os.path.isfile(candidate):
+            return candidate
+    for root in roots:
+        candidate = os.path.normpath(os.path.join(root, rel))
+        if os.path.isfile(candidate):
+            return candidate
+    hits = index.get(os.path.basename(rel).lower())
+    if hits:
+        return sorted(hits)[0]
+    return None
 
-    返回 (defines, note)：note 为 None 或"达到上限"的说明（提示使用者缩小 --headers 范围）。
+
+def _collect_header_defines(paths, requested=None, source_dirs=None):
+    """从头文件（或目录）收集宏定义，用于解析寄存器常量宏（如 ESP-IDF 的 UART_CONF0_REG）。
+
+    - requested 为被核验文件里的 `#include` 列表时：先解析出这些头文件的**闭包**并优先加载，
+      其余文件按路径顺序补足（上限 512 个文件 / 8 MB）——保证关键宏一定加载，避免大目录截断误伤；
+    - 没有 requested（源文件没有 include / 补丁模式）时：按原行为加载全部（带上限）。
+
+    返回 (defines, note)：note 为 None 或加载策略/达到上限的说明。
     """
-    files = []
+    roots = []
+    explicit = []
     for item in paths:
         if os.path.isdir(item):
-            for root, dirs, names in os.walk(item):
-                dirs[:] = [d for d in dirs if not d.startswith(".") and d not in SKIP_DIRS]
-                for name in sorted(names):
-                    if name.lower().endswith(HEADER_EXTS):
-                        files.append(os.path.join(root, name))
+            roots.append(os.path.abspath(item))
         elif os.path.isfile(item):
-            files.append(item)
+            explicit.append(os.path.abspath(item))
         else:
             raise EtkError(E_INPUT_INVALID, "--headers 路径不存在：%s" % item)
-    defines = {}
-    total = 0
-    selected = sorted(set(files))
-    note = None
-    if len(selected) > HEADER_MAX_FILES:
-        note = ("头文件数 %d 超过上限 %d，仅按路径顺序加载前 %d 个"
-                "（建议把 --headers 指向更精确的目录）" % (
-                    len(selected), HEADER_MAX_FILES, HEADER_MAX_FILES))
-    for path in selected[:HEADER_MAX_FILES]:
-        if total >= HEADER_MAX_BYTES:
-            if note is None:
-                note = ("头文件内容达到 %d MB 上限，其余未加载（建议缩小 --headers 范围）" % (
-                    HEADER_MAX_BYTES // (1024 * 1024)))
-            break
+
+    texts = {}
+    total = [0]
+
+    def load(path):
+        if path in texts:
+            return texts[path]
+        if total[0] >= HEADER_MAX_BYTES:
+            return None
         try:
             with open(path, encoding="utf-8", errors="replace") as fh:
-                text = fh.read(HEADER_MAX_BYTES - total)
+                text = fh.read(HEADER_MAX_BYTES - total[0])
         except OSError:
+            texts[path] = None
+            return None
+        total[0] += len(text)
+        texts[path] = text
+        return text
+
+    # 收集目录树里的全部候选文件（闭包解析与补足共用）
+    all_files = list(explicit)
+    for root in roots:
+        for dirpath, dirs, names in os.walk(root):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in SKIP_DIRS]
+            for name in sorted(names):
+                if name.lower().endswith(HEADER_EXTS):
+                    all_files.append(os.path.join(dirpath, name))
+    all_files = sorted(set(all_files))
+
+    note = None
+    closure = []
+    if requested and roots:
+        index = {}
+        for path in all_files:
+            index.setdefault(os.path.basename(path).lower(), []).append(path)
+        queue = list(requested)
+        seen = set()
+        while queue and len(closure) < HEADER_MAX_FILES:
+            token = queue.pop(0)
+            path = _resolve_include(token, source_dirs or [], roots, index)
+            if path is None or path in seen:
+                continue
+            seen.add(path)
+            closure.append(path)
+            text = load(path)
+            if text is None:
+                continue
+            for nested in _INCLUDE_RE.findall(text):
+                queue.append(nested)
+        if closure:
+            note = "按被核验文件的 #include 优先加载了 %d 个头文件" % len(closure)
+
+    order = closure + [path for path in all_files if path not in set(closure)]
+    if len(order) > HEADER_MAX_FILES:
+        cap_note = ("头文件数 %d 超过上限 %d，仅加载前 %d 个（建议把 --headers 指向更精确的目录）" % (
+            len(order), HEADER_MAX_FILES, HEADER_MAX_FILES))
+        note = (note + "；" + cap_note) if note else cap_note
+        order = order[:HEADER_MAX_FILES]
+
+    defines = {}
+    for path in order:
+        if total[0] >= HEADER_MAX_BYTES:
+            cap_note = "头文件内容达到 %d MB 上限，其余未加载（建议缩小 --headers 范围）" % (
+                HEADER_MAX_BYTES // (1024 * 1024))
+            note = (note + "；" + cap_note) if note else cap_note
+            break
+        text = load(path)
+        if text is None:
             continue
-        total += len(text)
         joined, _line_map = cscan.join_continuations(text)
         clean = cscan.strip_comments_and_strings(joined)
         for name, expr in cscan.collect_defines(clean).items():
@@ -221,26 +289,6 @@ def _run(args):
     device = load_device_cached(path)
     warnings = list(notes) + list(device.warnings)
 
-    defines = {}
-    for item in args.define:
-        name, sep, value = item.partition("=")
-        if not sep or not name.strip():
-            raise EtkError(E_INPUT_INVALID, "--define 需要 NAME=VALUE 形式：%r" % item)
-        defines[name.strip()] = value.strip()
-    if args.headers:
-        header_defines, header_note = _collect_header_defines(args.headers)
-        message = "从头文件加载了 %d 个宏定义（--headers）" % len(header_defines)
-        if header_note:
-            message += "；" + header_note
-        warnings.append(message)
-        merged = dict(header_defines)
-        merged.update(defines)  # --define 显式指定优先
-        defines = merged
-
-    verifier = crules.Verifier(device, extra_defines=defines,
-                               clock_check=not args.no_clock_check, limit=args.limit)
-    verifier.checklist = bool(args.checklist)
-
     if args.patch:
         with open(args.patch, encoding="utf-8", errors="replace") as fh:
             sources = _patch_sources(fh.read())
@@ -254,6 +302,37 @@ def _run(args):
             warnings.append("文件数超过 %d，只核验了前 %d 个。" % (MAX_FILES, MAX_FILES))
         if not sources:
             raise EtkError(E_INPUT_INVALID, "没有找到可核验的 .c/.h/.cpp/.hpp/.ino 文件。")
+
+    defines = {}
+    for item in args.define:
+        name, sep, value = item.partition("=")
+        if not sep or not name.strip():
+            raise EtkError(E_INPUT_INVALID, "--define 需要 NAME=VALUE 形式：%r" % item)
+        defines[name.strip()] = value.strip()
+    if args.headers:
+        requested = []
+        source_dirs = set()
+        for _name, text, path_hint in sources:
+            if path_hint:
+                parent = os.path.dirname(path_hint)
+                if parent:
+                    source_dirs.add(parent)
+            for token in _INCLUDE_RE.findall(text):
+                if token not in requested:
+                    requested.append(token)
+        header_defines, header_note = _collect_header_defines(
+            args.headers, requested=requested, source_dirs=sorted(source_dirs))
+        message = "从头文件加载了 %d 个宏定义（--headers）" % len(header_defines)
+        if header_note:
+            message += "；" + header_note
+        warnings.append(message)
+        merged = dict(header_defines)
+        merged.update(defines)  # --define 显式指定优先
+        defines = merged
+
+    verifier = crules.Verifier(device, extra_defines=defines,
+                               clock_check=not args.no_clock_check, limit=args.limit)
+    verifier.checklist = bool(args.checklist)
 
     results = []
     errors = []

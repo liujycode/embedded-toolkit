@@ -631,6 +631,48 @@ def test_headers_file_cap_note(tmp_path):
     assert any("超过上限" in w for w in env["warnings"])
 
 
+def test_headers_follow_includes(tmp_path):
+    """--headers 给搜索根即可：被核验文件的 #include 会被解析并优先加载（含嵌套包含链）。"""
+    root = tmp_path / "inc"
+    (root / "soc").mkdir(parents=True)
+    (root / "soc" / "soc.h").write_text("#define DR_REG_UART_BASE 0x40013800\n", encoding="utf-8")
+    (root / "soc" / "uart_reg.h").write_text(
+        '#include "soc/soc.h"\n#define USART1_CR1_REG (DR_REG_UART_BASE + 0x0)\n', encoding="utf-8")
+    (root / "decoy.h").write_text("#define DECOY_MACRO 0x1\n", encoding="utf-8")
+    src = tmp_path / "src"
+    src.mkdir()
+    code = src / "main.c"
+    code.write_text('#include "soc/uart_reg.h"\n'
+                    "void f(void)\n{\n    REG_WRITE(USART1_CR1_REG, 0x00000001);\n}\n",
+                    encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH,
+               "--headers", str(root), "--format", "json")
+    assert r.returncode == 0, r.stdout
+    env = json.loads(r.stdout)
+    res = env["results"][0]
+    assert res["counts"]["passed"] == 1
+    assert res["counts"]["undetermined"] == 0
+    assert any("按被核验文件的 #include 优先加载" in w for w in env["warnings"])
+
+
+def test_headers_follow_includes_basename_fallback(tmp_path):
+    """#include 不带目录时按文件名唯一匹配（在搜索根里找）。"""
+    root = tmp_path / "inc"
+    (root / "soc").mkdir(parents=True)
+    (root / "soc" / "uart_reg.h").write_text(
+        "#define USART1_CR1_REG (0x40013800)\n", encoding="utf-8")
+    code = tmp_path / "main.c"
+    code.write_text('#include "uart_reg.h"\n'
+                    "void f(void)\n{\n    REG_WRITE(USART1_CR1_REG, 0x00000001);\n}\n",
+                    encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH,
+               "--headers", str(root), "--format", "json")
+    assert r.returncode == 0, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["passed"] == 1
+    assert res["counts"]["undetermined"] == 0
+
+
 def test_headers_missing_path_is_input_error(tmp_path):
     code = tmp_path / "x.c"
     code.write_text("REG_WRITE(REG_X, 0x1);\n", encoding="utf-8")

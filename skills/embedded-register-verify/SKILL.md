@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件（查找规则同 embedded-register-lookup）；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.6.0"
+  version: "1.7.0"
 ---
 
 # 寄存器核验器
@@ -43,10 +43,11 @@ python scripts/verify.py rules
 - `check` 接受文件、目录（递归扫 `.c/.h/.cpp/.hpp/.ino` 等，上限 200 个）或 `--patch`（unified diff 的新增行）。
 - `--define NAME=VALUE` 补充宏定义（可多次，常用于从工程配置里带入的常量）。
 - `--headers 文件或目录` 从头文件加载宏定义（可多次）：ESP-IDF 等"寄存器常量宏"风格的代码，
-  配合 SVD 可正常核验 `REG_WRITE/REG_SET_BIT/REG_CLR_BIT/REG_SET_FIELD/REG_CLR_FIELD`；
-  一般给 IDF 的 `soc` 目录即可，个别宏在其它子目录（如 `esp_rom` 的 `rom/rtc.h`）时再补一个 `--headers`；
-  未提供头文件时这些宏记"未判定"。目录过大时有上限（512 个文件 / 8 MB，按路径顺序），
-  达到上限会明确提示——想更精确就缩小 `--headers` 的目录范围。
+  配合 SVD 可正常核验 `REG_WRITE/REG_SET_BIT/REG_CLR_BIT/REG_SET_FIELD/REG_CLR_FIELD`。
+  **被核验文件里的 `#include` 会被自动解析并优先加载**（含嵌套包含链）——一般给项目的 include 根
+  或 SDK 的 include 目录即可，不用精确到 `soc`；其余头文件按路径顺序补足（上限 512 个文件 / 8 MB，
+  达到上限会明确提示）。个别宏在其它目录（如 `esp_rom` 的 `rom/rtc.h`）时再补一个 `--headers`；
+  未提供头文件时这些宏记"未判定"。
 - `--no-clock-check` 关闭 E07（跨文件使能时常需要）。
 - `--checklist` 按复查要求分组输出：芯片默认 / 已核验 / 需查手册 / 需实测。
 - `--explain` 把每条问题对应的**寄存器定义直接内联进报告**（与百事通同一份 SVD）。
