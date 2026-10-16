@@ -22,6 +22,8 @@ ESP_IDF_OPS = frozenset({
 })
 _EN_MACRO_RE = re.compile(r"\b[A-Z][A-Z0-9_]*_(?:EN|ENABLE)\b")
 _DMA_CONFIG_REGS = frozenset({"CNDTR", "NDTR", "CMAR", "CPAR"})
+# DMA 控制寄存器（EN 恒为 bit0）：CCR（ST 通道）、CR（ST 流）、CHCTL（GD32）、CTL（部分厂商）
+_DMA_CTRL_REGS = frozenset({"CCR", "CR", "CHCTL", "CTL"})
 EXT_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 IDENT_WORD_RE = re.compile(r"\b([A-Za-z_]\w*)\b")
 MEMBER_ARG_RE = re.compile(r"^(&)?\s*([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*$")
@@ -198,6 +200,11 @@ class Verifier:
             if hit is None:
                 return None, None, {"alias_addr": (write.get("name") or "?", write.get("address") or 0)}
             return hit[0], hit[1], None
+        if write["kind"] == "field_write":
+            hit = self._by_address().get(write.get("address"))
+            if hit is None:
+                return None, None, {"alias_addr": (write.get("name") or "?", write.get("address") or 0)}
+            return hit[0], hit[1], None
         if write["kind"] == "addr_expr":
             return None, None, {"addr_expr": write.get("expr") or "?"}
         if write["kind"] == "addr":
@@ -246,6 +253,8 @@ class Verifier:
         missing = []
         unmapped = []
         for name in macro_words(expr):
+            if name.upper() in cscan.BIT_FUNCS:
+                continue  # BIT(n)/BIT_MASK(n) 等位函数：按整体表达式求值，不当作宏映射
             if cscan.eval_int(name, defines) is not None:
                 continue  # 文件内/--define 能解析的数值宏，不是位域宏
             result = self._map_macro(name, periph, context_reg)
@@ -397,7 +406,7 @@ class Verifier:
             })
 
         # 文件级规则：E11 使能后写 DMA 计数/地址寄存器（文本级，不依赖外设名能否解析）
-        for item in self._enable_order_findings(parsed["writes"]):
+        for item in self._enable_order_findings(parsed["writes"], defines):
             findings.append({
                 "class": "E11", "bucket": "报",
                 "severity": _SEVERITY["E11"], "label": _LABELS["E11"],
@@ -506,6 +515,9 @@ class Verifier:
                         lookup=_lookup_hint("lookup", path=periph.name,
                                             reason="查看该外设的寄存器清单"))
             return
+        if write["kind"] == "field_write":
+            self._check_field_write(write, periph, reg, defines, add_finding)
+            return
         if write["kind"] == "addr":
             hit = self._by_address()[write["address"]]
             add_finding(write, "E08",
@@ -602,6 +614,85 @@ class Verifier:
         if write["kind"] == "addr":
             return None, None
         return write.get("peripheral"), write.get("register")
+
+    def _find_field_by_macro(self, reg, macro):
+        """字段宏文本 → reg 中的位域（从严到宽）。
+
+        1) 整名 / 各段后缀精确匹配（CMSIS 命名）；
+        2) 后缀词集合 ⊆ 位域名词集合（容忍 SVD 多出/插入词，如
+           SENS_FORCE_XPD_SAR → SAR_FORCE_XPD_SAR、RTC_CNTL_SDIO_PD_EN → SDIO_REG_PD_EN）；
+           该级必须唯一命中，否则继续放宽；词数少于 2 时不再放宽（避免乱撞）；
+        3) 仍无 → None（上层报 E03）。
+        """
+        text = (macro or "").strip().upper()
+        if not text:
+            return None
+        lowered = {f.name.upper(): f for f in reg.fields}
+        parts = text.split("_")
+        for i in range(len(parts)):
+            hit = lowered.get("_".join(parts[i:]))
+            if hit is not None:
+                return hit
+        field_tokens = {name: set(name.split("_")) for name in lowered}
+        for i in range(1, len(parts)):
+            want = set(parts[i:])
+            if len(want) < 2:
+                break
+            hits = [lowered[name] for name, tokens in field_tokens.items()
+                    if want <= tokens and len(tokens) - len(want) <= 2]
+            if len(hits) == 1:
+                return hits[0]
+        return None
+
+    def _check_field_write(self, write, periph, reg, defines, add_finding):
+        """REG_SET_FIELD / REG_CLR_FIELD（地址已由 --headers 解析）：字段存在性、只读、值位宽。"""
+        macro = write.get("field_macro") or ""
+        field = self._find_field_by_macro(reg, macro)
+        if field is None:
+            add_finding(write, "E03",
+                        "字段宏 %s 在 %s.%s 中不存在（按 CMSIS 命名找不到对应位域）" % (
+                            macro, periph.name, reg.name),
+                        periph=periph.name, register=reg.name, field=macro,
+                        lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                            reason="查看该寄存器的位域清单"))
+            return
+        if reg.access == "read-only":
+            add_finding(write, "E10",
+                        "%s.%s 是只读寄存器，写入不会生效" % (periph.name, reg.name),
+                        periph=periph.name, register=reg.name, field=field.name,
+                        lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                            reason="查看该寄存器的访问属性"))
+            return
+        if field.access == "read-only":
+            add_finding(write, "E10",
+                        "位域 %s.%s.%s 是只读，写入不会生效" % (periph.name, reg.name, field.name),
+                        periph=periph.name, register=reg.name, field=field.name,
+                        lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                            periph.name, reg.name, field.name),
+                            reason="查看该位域的访问属性"))
+        if write.get("op") != "set_field":
+            return
+        value_expr = write.get("value")
+        value = cscan.eval_int(value_expr, defines) if value_expr else None
+        if value is not None and value >= 0 and field.width < 64:
+            limit_value = (1 << field.width) - 1
+            if value > limit_value:
+                add_finding(write, "E04",
+                            "值 0x%X 超出位域 %s.%s.%s 的 %d 位宽（最大 0x%X）" % (
+                                value, periph.name, reg.name, field.name, field.width, limit_value),
+                            periph=periph.name, register=reg.name, field=field.name,
+                            lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                                periph.name, reg.name, field.name),
+                                reason="查看该位域的宽度"))
+            elif field.enums and not any((value & e.mask) == e.value for e in field.enums):
+                options = "、".join(e.name for e in field.enums if e.name)
+                add_finding(write, "E05",
+                            "值 0x%X 不是位域 %s.%s.%s 的合法枚举（可选：%s）" % (
+                                value, periph.name, reg.name, field.name, options),
+                            periph=periph.name, register=reg.name, field=field.name,
+                            lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                                periph.name, reg.name, field.name),
+                                reason="查看该位域的枚举取值"))
 
     def _report_register_mismatch(self, write, periph, reg, macro_name, info, add_finding):
         """宏映射到了同外设的另一个寄存器时返回 True（已报告 E03）。"""
@@ -769,12 +860,13 @@ class Verifier:
                         lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
                             periph.name, reg.name, field.name), reason="查看该位域的访问属性"))
 
-    def _enable_order_findings(self, writes):
+    def _enable_order_findings(self, writes, defines):
         """E11：使能后写 DMA 计数/地址寄存器。
 
         文件级、文本级判定（不依赖外设名能否解析，簇命名如 DMA1_Channel1 也覆盖）：
-        - 使能：语句里出现 `..._EN` / `..._ENABLE` 宏，且是 =/|= 或 SET_BIT/WRITE_REG；
-        - 关闭：`&=` 或 CLEAR_BIT 上述宏；
+        - 使能：语句里出现 `..._EN` / `..._ENABLE` 宏（=/|= 或 SET_BIT/WRITE_REG），
+          或对 DMA 控制寄存器（CCR/CR/CHCTL/CTL）写入的数值 bit0=1；
+        - 关闭：`&=` / CLEAR_BIT 上述宏，或数值清除 bit0（掩码 bit0=0 或 =0 写）；
         - 配置：写 CNDTR/NDTR/CMAR/CPAR（任何形态）；
         - 同外设前缀下，配置写发生在最近一次使能之后且中间没有关闭 → 报。
         """
@@ -788,13 +880,33 @@ class Verifier:
                 write.get("rhs") or "",
                 write.get("code") or "",
             ])
-            has_en = bool(_EN_MACRO_RE.search(text))
             op = write["op"]
+            reg_key = reg.upper()
+            is_ctrl = reg_key in _DMA_CTRL_REGS
+            has_en = bool(_EN_MACRO_RE.search(text))
+            value = None
+            if not has_en and is_ctrl:
+                value_expr = None
+                if write["kind"] == "macro":
+                    args = write.get("args") or []
+                    if op in ("set_bit", "write_reg") and len(args) >= 2:
+                        value_expr = args[1]
+                else:
+                    value_expr = write.get("rhs")
+                if value_expr:
+                    value = cscan.eval_int(value_expr, defines)
             if has_en and op in ("=", "|=", "set_bit", "write_reg"):
                 events.append(("enable", periph.upper(), reg, write["line"], write["code"]))
             elif has_en and op in ("&=", "clear_bit"):
                 events.append(("disable", periph.upper(), reg, write["line"], write["code"]))
-            elif reg.upper() in _DMA_CONFIG_REGS:
+            elif is_ctrl and value is not None:
+                if op in ("=", "|=", "set_bit", "write_reg") and value & 1:
+                    events.append(("enable", periph.upper(), reg, write["line"], write["code"]))
+                elif op == "=" and not (value & 1):
+                    events.append(("disable", periph.upper(), reg, write["line"], write["code"]))
+                elif op in ("&=", "clear_bit") and not (value & 1):
+                    events.append(("disable", periph.upper(), reg, write["line"], write["code"]))
+            elif reg_key in _DMA_CONFIG_REGS:
                 events.append(("config", periph.upper(), reg, write["line"], write["code"]))
         events.sort(key=lambda item: item[3])
         out = []

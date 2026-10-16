@@ -31,7 +31,7 @@ from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkErr
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -115,7 +115,10 @@ HEADER_MAX_BYTES = 8 * 1024 * 1024
 
 
 def _collect_header_defines(paths):
-    """从头文件（或目录）收集对象宏定义，用于解析寄存器常量宏（如 ESP-IDF 的 UART_CONF0_REG）。"""
+    """从头文件（或目录）收集对象宏定义，用于解析寄存器常量宏（如 ESP-IDF 的 UART_CONF0_REG）。
+
+    返回 (defines, note)：note 为 None 或"达到上限"的说明（提示使用者缩小 --headers 范围）。
+    """
     files = []
     for item in paths:
         if os.path.isdir(item):
@@ -130,8 +133,17 @@ def _collect_header_defines(paths):
             raise EtkError(E_INPUT_INVALID, "--headers 路径不存在：%s" % item)
     defines = {}
     total = 0
-    for path in sorted(set(files))[:HEADER_MAX_FILES]:
+    selected = sorted(set(files))
+    note = None
+    if len(selected) > HEADER_MAX_FILES:
+        note = ("头文件数 %d 超过上限 %d，仅按路径顺序加载前 %d 个"
+                "（建议把 --headers 指向更精确的目录）" % (
+                    len(selected), HEADER_MAX_FILES, HEADER_MAX_FILES))
+    for path in selected[:HEADER_MAX_FILES]:
         if total >= HEADER_MAX_BYTES:
+            if note is None:
+                note = ("头文件内容达到 %d MB 上限，其余未加载（建议缩小 --headers 范围）" % (
+                    HEADER_MAX_BYTES // (1024 * 1024)))
             break
         try:
             with open(path, encoding="utf-8", errors="replace") as fh:
@@ -139,10 +151,11 @@ def _collect_header_defines(paths):
         except OSError:
             continue
         total += len(text)
-        clean = cscan.strip_comments_and_strings(text)
+        joined, _line_map = cscan.join_continuations(text)
+        clean = cscan.strip_comments_and_strings(joined)
         for name, expr in cscan.collect_defines(clean).items():
             defines.setdefault(name, expr)
-    return defines
+    return defines, note
 
 
 def _patch_sources(text):
@@ -215,8 +228,11 @@ def _run(args):
             raise EtkError(E_INPUT_INVALID, "--define 需要 NAME=VALUE 形式：%r" % item)
         defines[name.strip()] = value.strip()
     if args.headers:
-        header_defines = _collect_header_defines(args.headers)
-        warnings.append("从头文件加载了 %d 个宏定义（--headers）" % len(header_defines))
+        header_defines, header_note = _collect_header_defines(args.headers)
+        message = "从头文件加载了 %d 个宏定义（--headers）" % len(header_defines)
+        if header_note:
+            message += "；" + header_note
+        warnings.append(message)
         merged = dict(header_defines)
         merged.update(defines)  # --define 显式指定优先
         defines = merged

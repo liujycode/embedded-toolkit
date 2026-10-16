@@ -7,6 +7,6 @@ void n33(void)
 {
     RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
     USART2->CR1 |= USART_CR1_UE;
-    DMA1_Channel1->CCR |= 0x00000001;
     DMA1_Channel1->CNDTR = 0x00000100;
+    DMA1_Channel1->CCR |= 0x00000001;
 }

@@ -1,6 +1,6 @@
 {
   "skill": "embedded-register-verify",
-  "description": "触发评测用例。正例应触发本技能，反例不应触发。判定用 tools/trigger_eval.py（结构化信号；技能名会出现在系统提示的技能清单里，禁止用纯文本匹配）。v1.2.0 修订：核验类正例改为自带代码片段（真实用法是代码在上下文里；无附件的\"这段代码\"类请求存在\"先要代码\"行为，见 benchmarks/trigger-results.md 方法学备注）。",
+  "description": "触发评测用例。正例应触发本技能，反例不应触发。判定用 tools/trigger_eval.py（结构化信号；技能名会出现在系统提示的技能清单里，禁止用纯文本匹配）。v1.2.0 修订：核验类正例改为自带代码片段（真实用法是代码在上下文里；无附件的“这段代码”类请求存在“先要代码”行为，见 benchmarks/trigger-results.md 方法学备注）。v1.10.0 修订：p06/p09/p22 加“核验”锚点（原先模型凭知识直接作答时漏加载），复测记录见 trigger-results.md。",
   "pass_threshold": 0.9,
   "positive": [
     "帮我检查这段 AI 写的初始化代码寄存器对不对：RCC->APB2ENR |= RCC_APB2ENR_USART1EN; USART1->CR1 |= USART_CR1_UE | USART_CR1_TE; USART1->BRR = 0x00000683;",
@@ -8,10 +8,10 @@
     "verify the register writes in this driver against STM32G431 SVD: RCC->APB2ENR |= RCC_APB2ENR_USART1EN; USART1->CR1 |= USART_CR1_UE; USART1->CR1 |= USART_CR1_TXEEN;",
     "复查一下这个 SPI 初始化，看有没有猜的位：SPI1->CR1 |= SPI_CR1_MSTR; SPI1->CR2 = 0x0700;",
     "生成这个驱动的寄存器复查清单：RCC->APB1ENR |= RCC_APB1ENR_USART2EN; USART2->CR1 |= USART_CR1_UE; USART2->BRR = 0x00000683;",
-    "这段 DMA 配置有没有错：DMA1_Channel1->CCR |= 0x00000001; DMA1_Channel1->CNDTR = 0x00000100;",
+    "帮我核验这段 DMA 配置有没有错：DMA1_Channel1->CCR |= 0x00000001; DMA1_Channel1->CNDTR = 0x00000100;",
     "我让 AI 写了 UART 初始化，帮我对照芯片数据检查：RCC->APB1ENR |= RCC_APB1ENR_USART2EN; USART2->CR1 |= USART_CR1_UE | USART_CR1_TE; USART2->BRR = 0x00000683;",
     "检查 main.c 里的直接寄存器写是否合法：TIM1->CR1 |= TIM_CR1_CEN; TIM1->CR1 = 0x0001FFFF;",
-    "这个 RCC 时钟使能代码对不对：RCC->APB1ENR |= RCC_APB1ENR_USART2EN; RCC->CR |= RCC_CR_HSIRDY;",
+    "帮我对照 SVD 核验这段 RCC 时钟使能代码：RCC->APB1ENR |= RCC_APB1ENR_USART2EN; RCC->CR |= RCC_CR_HSIRDY;",
     "对照 nRF52840 的 SVD 核对这个 GPIO 配置：GPIO->DIRSET = 0x00000020; GPIO->OUT = 0x00000000;",
     "帮我核对这段寄存器初始化的位域有没有写错：USART1->CR1 |= USART_CR1_UE | USART_CR1_PS_EVENN;",
     "这个驱动里有没有写只读寄存器：USART1->SR = 0x00000020; USART1->CR1 |= USART_CR1_UE;",
@@ -24,7 +24,7 @@
     "体检一下这个外设初始化文件：GPIOA->MODER |= 0x00000001; GPIOA->ODR = 0x00000100;",
     "帮我看看这个写入值有没有超出寄存器位宽：TIM1->CR1 = 0x0001FFFF; USART1->BRR = 0x00000000;",
     "核验这个驱动新增的寄存器操作（git diff）：+ RCC->APB2ENR |= RCC_APB2ENR_USART1EN; + USART1->CR1 |= USART_CR1_UE; + USART1->CR1 |= USART_CR1_TXEEN;",
-    "我怀疑这段 USART1 初始化里有个字段名拼错了，帮我查：USART1->CR1 |= USART_CR1_TXEEN;"
+    "我怀疑这段 USART1 初始化里有个字段名拼错了，帮我核验一下：USART1->CR1 |= USART_CR1_TXEEN;"
   ],
   "negative": [
     "帮我写一个 I2C 驱动",

@@ -459,10 +459,40 @@ def test_e11_not_before_enable(device):
     assert res["findings"] == []
 
 
-def test_e11_numeric_enable_is_not_flagged(device):
+def test_e11_numeric_enable_on_ctrl_register(device):
     text = ("DMA1_Channel1->CCR |= 0x00000001;\n"
             "DMA1_Channel1->CNDTR = 0x00000100;\n")
     res = crules.Verifier(device).check_file("dma.c", text)
+    assert [f["class"] for f in res["findings"]] == ["E11"]
+
+
+def test_e11_numeric_other_bits_is_not_enable(device):
+    text = ("DMA1_Channel1->CCR |= 0x00000010;\n"
+            "DMA1_Channel1->CNDTR = 0x00000100;\n")
+    res = crules.Verifier(device).check_file("dma.c", text)
+    assert res["findings"] == []
+
+
+def test_e11_numeric_disable_between(device):
+    text = ("DMA1_Channel1->CCR |= 0x00000001;\n"
+            "DMA1_Channel1->CCR &= ~0x00000001;\n"
+            "DMA1_Channel1->CNDTR = 0x00000100;\n")
+    res = crules.Verifier(device).check_file("dma.c", text)
+    assert res["findings"] == []
+
+
+def test_eval_int_bit_functions():
+    assert cscan.eval_int("BIT(3)", {}) == 8
+    assert cscan.eval_int("BIT_MASK(3)", {}) == 7
+    assert cscan.eval_int("_BV(5) | BIT(2)", {}) == 0x24
+    assert cscan.eval_int("BIT(N)", {"N": "6"}) == 64
+    assert cscan.eval_int("BIT(64)", {}) is None
+
+
+def test_bit_function_in_register_write(device):
+    res = crules.Verifier(device).check_file("bit.c", "USART1->CR1 |= BIT(32);\n")
+    assert [f["class"] for f in res["findings"]] == ["E04"]
+    res = crules.Verifier(device).check_file("bit.c", "USART1->CR1 |= BIT_MASK(8);\n")
     assert res["findings"] == []
 
 
@@ -489,6 +519,63 @@ def test_headers_esp_idf_set_bit_on_readonly_register(tmp_path):
                "--headers", str(header), "--format", "json")
     res = json.loads(r.stdout)["results"][0]
     assert [f["class"] for f in res["findings"]] == ["E10"]
+
+
+def test_headers_reg_set_field_checks(tmp_path):
+    header = tmp_path / "regs.h"
+    header.write_text("#define USART1_CR1_REG (0x40013800)\n"
+                      "#define USART1_SR_REG 0x4001381C\n", encoding="utf-8")
+    code = tmp_path / "idf.c"
+    code.write_text(
+        "REG_SET_FIELD(USART1_CR1_REG, USART1_CR1_TE, 0x1);\n"
+        "REG_SET_FIELD(USART1_CR1_REG, USART1_CR1_UE, 0x3);\n"
+        "REG_SET_FIELD(USART1_CR1_REG, USART1_CR1_ZZZ, 0x1);\n"
+        "REG_SET_FIELD(USART1_SR_REG, USART1_SR_TXE, 0x0);\n"
+        "REG_CLR_FIELD(USART1_CR1_REG, USART1_CR1_TE);\n",
+        encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH,
+               "--headers", str(header), "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert sorted(f["class"] for f in res["findings"]) == ["E03", "E04", "E10"]
+    assert res["counts"]["writes"] == 5
+    assert res["counts"]["passed"] == 2
+    assert res["counts"]["report"] == 3
+
+
+def test_eval_int_single_param_function_macro():
+    defines = {"F": {"param": "i", "expr": "(0x1000 * (i)) + 0x40"}}
+    assert cscan.eval_int("F(3)", defines) == 0x3040
+    assert cscan.eval_int("F(1) + F(2)", defines) == 0x3080
+    assert cscan.eval_int("F(N)", defines) is None
+    assert cscan.eval_int("G(1)", {"G": {"param": "x", "expr": "G(x)"}}) is None
+
+
+def test_headers_function_macro_address(tmp_path):
+    header = tmp_path / "regs.h"
+    header.write_text("#define USART1_CR1_REG(i) (0x40013800 + 0x0 * (i))\n", encoding="utf-8")
+    code = tmp_path / "idf.c"
+    code.write_text("REG_WRITE(USART1_CR1_REG(1), 0x00000001);\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH,
+               "--headers", str(header), "--format", "json")
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["passed"] == 1
+    assert res["counts"]["undetermined"] == 0
+
+
+def test_headers_file_cap_note(tmp_path):
+    regs = tmp_path / "hdrs"
+    regs.mkdir()
+    for i in range(520):
+        (regs / ("h%03d.h" % i)).write_text("#define H_%03d 0x%X\n" % (i, i), encoding="utf-8")
+    (regs / "zzz_regs.h").write_text("#define USART1_CR1_REG (0x40013800)\n", encoding="utf-8")
+    code = tmp_path / "x.c"
+    code.write_text("REG_WRITE(USART1_CR1_REG, 0x1);\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH,
+               "--headers", str(regs), "--format", "json")
+    assert r.returncode == 0, r.stdout
+    env = json.loads(r.stdout)
+    assert any("超过上限" in w for w in env["warnings"])
 
 
 def test_headers_missing_path_is_input_error(tmp_path):

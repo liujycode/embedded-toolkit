@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件（查找规则同 embedded-register-lookup）；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.4.0"
+  version: "1.5.0"
 ---
 
 # 寄存器核验器
@@ -43,7 +43,10 @@ python scripts/verify.py rules
 - `check` 接受文件、目录（递归扫 `.c/.h/.cpp/.hpp/.ino` 等，上限 200 个）或 `--patch`（unified diff 的新增行）。
 - `--define NAME=VALUE` 补充宏定义（可多次，常用于从工程配置里带入的常量）。
 - `--headers 文件或目录` 从头文件加载宏定义（可多次）：ESP-IDF 等"寄存器常量宏"风格的代码，
-  配合 SVD 可正常核验 `REG_WRITE/REG_SET_BIT/REG_CLR_BIT`；未提供头文件时这些宏记"未判定"。
+  配合 SVD 可正常核验 `REG_WRITE/REG_SET_BIT/REG_CLR_BIT/REG_SET_FIELD/REG_CLR_FIELD`；
+  一般给 IDF 的 `soc` 目录即可，个别宏在其它子目录（如 `esp_rom` 的 `rom/rtc.h`）时再补一个 `--headers`；
+  未提供头文件时这些宏记"未判定"。目录过大时有上限（512 个文件 / 8 MB，按路径顺序），
+  达到上限会明确提示——想更精确就缩小 `--headers` 的目录范围。
 - `--no-clock-check` 关闭 E07（跨文件使能时常需要）。
 - `--checklist` 按复查要求分组输出：芯片默认 / 已核验 / 需查手册 / 需实测。
 - `--explain` 把每条问题对应的**寄存器定义直接内联进报告**（与百事通同一份 SVD）。
@@ -73,7 +76,7 @@ python scripts/verify.py rules
 | 字段宏（CMSIS 命名） | `USART_CR1_UE`、`GPIO_MODER_MODE0`、`TIM_CR2_MMS_Msk`、枚举名后缀（`USART_CR1_PS_ODD`） |
 | 直接地址（报 E08 并反查寄存器名） | `*(volatile uint32_t *)0x40013800 = v;`、`*reinterpret_cast<volatile uint32_t *>(0x40013800) = v;`、`HWREG(0x40013800) = v;`（TI 风格） |
 | 地址别名宏 | `#define REG (*(volatile uint32_t *)0xADDR)` 后的 `REG = v;`（按该寄存器正常核验） |
-| ESP-IDF 风格寄存器宏 | `REG_WRITE/REG_SET_BIT/REG_CLR_BIT(...)`：用 `--headers` 提供寄存器常量宏后按具名寄存器核验；未提供时记"未判定" |
+| ESP-IDF 风格寄存器宏 | `REG_WRITE/REG_SET_BIT/REG_CLR_BIT/REG_SET_FIELD/REG_CLR_FIELD(...)`：用 `--headers` 提供寄存器常量宏后按具名寄存器核验（`REG_SET_FIELD` 做到**字段级**：存在性/只读/位宽/枚举）；地址求值支持 `BIT(n)` 与单参数函数宏（`TIMG_RTCCALICFG_REG(0)` 这类）；未提供时记"未判定" |
 | 语言/工程 | C 与 C++（`.c/.h/.cpp/.cc/.hpp/.ino` 等），Arduino 工程里的直接寄存器写同样适用 |
 
 **不支持（一律进"未判定"，不当作错误）**：HAL/LL 调用、结构体成员赋值（`hi2c1.Init.X`）、运行时计算的地址、无法映射的字段宏、簇寄存器命名（如 `DMA1_Channel1->CCR` 对应 SVD 里 `DMA1` 的 `CH1` 簇）、内核外设（SysTick/NVIC 等在设备 SVD 之外）。

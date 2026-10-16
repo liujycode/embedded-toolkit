@@ -1,6 +1,6 @@
 # 寄存器核验器：真实代码试跑记录
 
-日期：2026-10-16 ｜ 版本：embedded-register-verify v1.2.0 ｜ 环境：Windows，本机 SVD（工程自带 / 厂商 SDK）
+日期：2026-10-16 ｜ 版本：embedded-register-verify（各小节标注：v1.2.0 → v1.5.0） ｜ 环境：Windows，本机 SVD（工程自带 / 厂商 SDK / 芯片包）
 
 > 说明：本文件记录**真实代码**上的试跑与误报观察（本地语料，原代码不进仓库）。
 > 合成芯片上的召回率与误报率量化（225 处注入、55 个正样本）见 `benchmarks/verify-recall.md`。
@@ -23,6 +23,44 @@
   3. 3 条为硬编码地址（E08，规则设计如此）：`0x4000C504`（TEMP 未文档化寄存器）、`0x400005F0/F4`。
 - Nordic SDK 驱动源码 10 条“报”全部是 E08 硬编码地址（`CLOCK`/`NFCT`/`SAADC`/`SPIM` 的
   未文档化寄存器地址，SDK 内部合法用法）——按规则设计提示“建议改用外设结构体或宏”，属预期行为。
+
+## ESP-IDF v4.4.7 真实源码试跑（`--headers`，v1.5.0）
+
+日期：2026-10-16 ｜ 语料：esp-idf **v4.4.7** 的 ESP32-S3 相关源码 14 个文件（GitHub 原始文件，本地语料不进仓库）
++ 本机 PlatformIO `framework-arduinoespressif32`（arduino-esp32 2.0.17）的 3 个 core 文件，
+合计 **17 个文件**；SVD 与头文件均取同代本机数据（`tools/ide-debug/svd/esp32s3.svd`、
+`tools/sdk/esp32s3/include/soc/esp32s3/include/soc`，头部共 125 个文件 / 4.62 MB）。
+
+| 指标 | 不带 `--headers` | 带 `--headers` |
+|---|---|---|
+| 写入处 | 332 | 332 |
+| 报 | 0 | **0（0.00%）** |
+| 未判定 | 224 | **34** |
+| 通过 | 108 | **298** |
+
+- `--headers` 把 **190 处**从“未判定”升级为“已核验”（占原未判定的 84.8%），报保持 0——
+  即真实 IDF 代码在配套 SVD 下**全量零误报**。
+- 剩余 34 处“未判定”全部归因（非工具问题）：
+  1. **19 处**来自 `esp_timer_impl_lac.c`（LACT 为 H2/C6 专用外设，esp32s3 头文件中没有这些宏，
+     该文件本就不会为 S3 编译）；
+  2. **2 处** `RTC_RESET_CAUSE_REG`：宏定义在 `esp_rom/include/esp32s3/rom/rtc.h`（不在给定的 `soc` 目录；
+     多加一个 `--headers` 目录即可解析）；
+  3. **7 处**射频/模拟域别名地址（`BBPD_CTRL`、`NRXPD_CTRL`、`FE_GEN_CTRL` 等）：SVD 中本就没有这些地址；
+  4. **6 处**数值标识符无法映射（如 `UINT32_MAX`，由标准头提供而非寄存器宏）。
+- 单文件亮点：`rtc_time.c` 15/15 通过（含 `TIMG_RTCCALICFG_REG(0)` 这类**函数式寄存器宏**链式求值）、
+  `driver/uart.c` 47/47、`driver/rmt.c` 30/30、`bootloader_random_esp32s3.c` 31/31。
+
+本轮为此修掉/新增的解析能力（对全部用户生效）：
+
+1. **单参数函数宏求值**（`#define X(i) (BASE(i) + 0xNN)`）：调用点代入实参递归求值
+   （`--headers` 头文件与源文件内的定义都支持），解决 IDF 大量 `*_REG(i)` 形态；
+2. **头文件多行续行宏**：`--headers` 收集前先拼接 `\` 续行（原先会漏掉多行宏）；
+3. **`REG_SET_FIELD` / `REG_CLR_FIELD` 字段级核验**：字段存在性（E03）、只读（E10）、
+   值位宽与枚举（E04/E05）；
+4. **位函数宏**：`BIT(n)`、`BIT_MASK(n)`、`_BV(n)`（Arduino/AVR）在数值表达式里直接求值；
+5. **字段名容忍匹配**：字段宏与 SVD 位域名存在插入词差异时（`SENS_FORCE_XPD_SAR` →
+   SVD `SAR_FORCE_XPD_SAR`、`RTC_CNTL_SDIO_PD_EN` → SVD `SDIO_REG_PD_EN`）按“词集合包含 + 唯一命中”
+   放宽匹配——本轮最初跑出的 3 条 E03 全部是这类命名差异（语义正确），修复后归零。
 
 ## 试跑中发现并修掉的问题
 
@@ -49,5 +87,5 @@
 
 - 触发评测：`tests/trigger/embedded-register-verify.json`（22 正 + 10 反）全量进行中，结果记入 `benchmarks/trigger-results.md`；
 - Trae CN / WorkBuddy：IDE 内人工触发验证（用例已就绪）；
-- 其它厂商真实语料：本机暂无可用工程（ESP 目录为空、无 GD32F4/NXP SVD），待补；
-  公共示例语料（≥50 个真实文件）与更多厂商 SVD 的正样本集建设。
+- 其它厂商真实语料：ESP-IDF v4.4.7 已补（见上节）；跨厂商 SVD 冒烟见 `benchmarks/vendor-svds.md`；
+  其余厂商（NXP/Renesas/Microchip 等）的**代码**语料与正样本集建设待补。

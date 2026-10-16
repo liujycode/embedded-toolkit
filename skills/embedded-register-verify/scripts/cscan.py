@@ -14,6 +14,9 @@ DISPLAY_MAX_CHARS = 200
 DEFINE_DEPTH_MAX = 8
 
 _DEFINE_RE = re.compile(r"^\s*#\s*define\s+([A-Za-z_]\w*)\s+(.+?)\s*$")
+# 单参数函数宏：#define NAME(i) <表达式>（IDF 里 TIMG_RTCCALICFG_REG(i) 这类带实例参数的寄存器宏；
+# 按 C 规范要求函数名与 "(" 之间无空格，避免把 `#define X (Y) ...` 误判为函数宏）
+_FUNC_DEFINE_RE = re.compile(r"^\s*#\s*define\s+([A-Za-z_]\w*)\(\s*([A-Za-z_]\w*)\s*\)\s+(.+?)\s*$")
 _MEMBER_RE = re.compile(r"([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*(\|=|&=|\^=|=)(?!=)")
 _ADDR_QUAL = r"(?:volatile|const|__IO|__I|__O|__IM|__OM)"
 _ADDR_TYPE = (r"(?:" + _ADDR_QUAL + r"\s+)*(?:unsigned\s+(?:int|long)|unsigned|"
@@ -35,7 +38,7 @@ _ALIAS_DEFINE_RE = re.compile(
 _ALIAS_USE_RE = re.compile(r"\s*([A-Za-z_]\w*)\s*(\|=|&=|\^=|=)(?!=)")
 _MACRO_CALL_RE = re.compile(
     r"\b(SET_BIT|CLEAR_BIT|MODIFY_REG|WRITE_REG|READ_REG"
-    r"|REG_WRITE|REG_SET_BIT|REG_CLR_BIT|REG_SET_FIELD|WRITE_PERI_REG"
+    r"|REG_WRITE|REG_SET_BIT|REG_CLR_BIT|REG_SET_FIELD|REG_CLR_FIELD|WRITE_PERI_REG"
     r"|SET_PERI_REG_MASK|CLEAR_PERI_REG_MASK)\s*\(")
 _HAL_ENABLE_RE = re.compile(r"__HAL_RCC_([A-Za-z0-9_]+?)_CLK_ENABLE\s*\(")
 _GROUPING_RE = re.compile(r"\bNVIC_SetPriorityGrouping\s*\(")
@@ -48,6 +51,13 @@ ESP_IDF_TO_ALIAS = {
     "reg_clr_bit": "&=",
     "clear_peri_reg_mask": "&=",
 }
+# ESP-IDF 字段宏 → 字段写入形态（reg_set_field 三参：寄存器、字段、值；reg_clr_field 两参：寄存器、字段）
+ESP_IDF_FIELD_OPS = {
+    "reg_set_field": "set_field",
+    "reg_clr_field": "clear_field",
+}
+# 常见"位函数"宏：按参数求值（BIT(n)=1<<n、BIT_MASK(n)=2^n-1、_BV(n)=1<<n，Arduino/AVR 风格）
+BIT_FUNCS = frozenset({"BIT", "BIT_MASK", "_BV", "BIT64", "BIT_MASK64"})
 _CAST_RE = re.compile(
     r"\(\s*(?:unsigned\s+)?(?:u?int(?:8|16|32|64)_t|uint\d+_t|int|long|short|char|"
     r"u8|u16|u32|u64|s8|s16|s32|s64|unsigned)\s*\)"
@@ -126,16 +136,25 @@ def join_continuations(text):
 
 
 def collect_defines(clean):
-    """收集对象宏 #define NAME <表达式>（函数宏与无值宏跳过）。"""
+    """收集宏定义。
+
+    - 对象宏 #define NAME <表达式> → {NAME: "表达式"}
+    - 单参数函数宏 #define NAME(p) <表达式> → {NAME: {"param": "p", "expr": "表达式"}}
+      （供 eval_int 在调用点代入实参求值；多参数/复杂函数宏跳过）
+    """
     out = {}
     for line in clean.split("\n"):
+        m = _FUNC_DEFINE_RE.match(line)
+        if m:
+            name, param, expr = m.group(1), m.group(2), m.group(3).strip()
+            if expr:
+                out[name] = {"param": param, "expr": expr}
+            continue
         m = _DEFINE_RE.match(line)
-        if not m:
-            continue
-        name, expr = m.group(1), m.group(2).strip()
-        if not expr:
-            continue
-        out[name] = expr
+        if m:
+            name, expr = m.group(1), m.group(2).strip()
+            if expr:
+                out[name] = expr
     return out
 
 
@@ -268,6 +287,19 @@ def extract_all(text, extra_defines=None):
                         "name": args[0][:60], "address": address, "rhs": rhs,
                     })
                     continue
+            field_op = ESP_IDF_FIELD_OPS.get(op_name)
+            if field_op and len(args) >= 2 and args[0]:
+                # 字段宏写入：地址可解析时按"字段级"核验（存在性/只读/值位宽）
+                address = eval_int(args[0], defines)
+                if address is not None:
+                    entry = {
+                        "kind": "field_write", "op": field_op, "line": line, "code": display,
+                        "name": args[0][:60], "address": address, "field_macro": args[1][:60],
+                    }
+                    if field_op == "set_field" and len(args) >= 3:
+                        entry["value"] = args[2]
+                    macros.append(entry)
+                    continue
             macros.append({
                 "kind": "macro", "op": op_name, "line": line,
                 "code": display, "args": args,
@@ -371,6 +403,18 @@ def _tokens(expr):
     return out or None
 
 
+def _find_func_define(defines, name):
+    """在 defines 里找单参数函数宏条目（大小写不敏感）。"""
+    entry = defines.get(name)
+    if isinstance(entry, dict) and entry.get("param"):
+        return entry
+    key = name.upper()
+    for k, v in defines.items():
+        if k.upper() == key and isinstance(v, dict) and v.get("param"):
+            return v
+    return None
+
+
 def eval_int(expr, defines, depth=0, seen=None):
     """受限整数常量表达式求值；无法确定时返回 None。
 
@@ -403,6 +447,35 @@ def eval_int(expr, defines, depth=0, seen=None):
             advance()
             return int(value, 0)
         if kind == "ident":
+            upper = value.upper()
+            nxt = tokens[state["i"] + 1] if state["i"] + 1 < len(tokens) else (None, None)
+            if upper in BIT_FUNCS and nxt[0] == "op" and nxt[1] == "(":
+                # BIT(n) / BIT_MASK(n) / _BV(n) 等常见位函数
+                advance()  # 函数名
+                advance()  # "("
+                arg = parse_or()
+                expect(")")
+                if arg < 0 or arg > 63:
+                    raise _EvalError()
+                if upper in ("BIT_MASK", "BIT_MASK64"):
+                    return (1 << arg) - 1
+                return 1 << arg
+            if nxt[0] == "op" and nxt[1] == "(":
+                # 单参数函数宏（如 TIMG_RTCCALICFG_REG(i)）：调用点代入实参求值
+                entry = _find_func_define(defines, value)
+                if entry is not None:
+                    if upper in (seen or set()):
+                        raise _EvalError()
+                    advance()  # 函数名
+                    advance()  # "("
+                    arg = parse_or()
+                    expect(")")
+                    sub = dict(defines)
+                    sub[entry["param"]] = str(arg)
+                    result = eval_int(entry["expr"], sub, depth + 1, (seen or set()) | {upper})
+                    if result is None:
+                        raise _EvalError()
+                    return result
             advance()
             return resolve_name(value)
         if kind == "op" and value == "(":

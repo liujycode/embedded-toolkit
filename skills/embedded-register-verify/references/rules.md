@@ -89,10 +89,13 @@
   同外设前缀下，「使能」之后又写「DMA 计数/地址寄存器」，且中间没有关闭动作。
 - 使能：语句里出现 `..._EN` / `..._ENABLE` 宏（如 `DMA_CCR_EN`、`DMA_SxCR_EN`），
   且是 `=` / `|=` 或 `SET_BIT` / `WRITE_REG`；关闭：`&=` 或 `CLEAR_BIT` 同类宏。
+- 数值形式：对 DMA 控制寄存器（`CCR`/`CR`/`CHCTL`/`CTL`）写入的数值 **bit0=1** 也按“使能”识别
+  （`DMA1_Channel1->CCR |= 0x00000001;`）；`=` 写或 `&=`/清位掩码 bit0=0 按“关闭”识别。
 - 配置寄存器：`CNDTR`、`NDTR`、`CMAR`、`CPAR`（DMA 传输数量/外设地址/内存地址）。
-- 会报：`DMA1_Channel1->CCR |= DMA_CCR_EN;` 之后才 `DMA1_Channel1->CNDTR = 0x100;`。
+- 会报：`DMA1_Channel1->CCR |= DMA_CCR_EN;` 之后才 `DMA1_Channel1->CNDTR = 0x100;`；
+  或 `DMA1_Channel1->CCR |= 0x00000001;` 之后再写 `CNDTR`。
 - 不会报：先写 `CNDTR/CMAR/CPAR` 再置 `EN`；或先清 `EN`、改完配置再置回；
-  **数值形式的使能**（`CCR |= 0x1;`）保守不判（无法确认那是 EN 位）。
+  其它外设名/寄存器名不满足上述形态的写入不参与判定。
 - 说明：这是保守的启发式规则，误报请对照手册；命中时标签为"需查手册"。
 
 ## 输出分桶

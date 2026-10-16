@@ -550,11 +550,11 @@ def normal_specs():
     ])
 
     # E. 混合风格（6）
-    add("n33", "DMA 簇命名（允许未判定）+ 寄存器写", [
+    add("n33", "DMA 簇命名（允许未判定）+ 寄存器写（先配置后使能，E11 正确顺序）", [
         "RCC->APB1ENR |= RCC_APB1ENR_USART2EN;",
         "USART2->CR1 |= USART_CR1_UE;",
-        "DMA1_Channel1->CCR |= 0x00000001;",
         "DMA1_Channel1->CNDTR = 0x00000100;",
+        "DMA1_Channel1->CCR |= 0x00000001;",
     ])
     add("n34", "局部指针写（按惯例静默忽略）", [
         "uart->CR1 |= USART_CR1_UE;",
@@ -1111,6 +1111,7 @@ def cmd_doc(_args):
 def cmd_corpus(args):
     verify_py = os.path.join(SCRIPTS, "verify.py")
     total = {"files": 0, "writes": 0, "report": 0, "undetermined": 0, "passed": 0}
+    class_counts = {}
     for directory in args.dir:
         if not os.path.isdir(directory):
             print("目录不存在：%s" % directory)
@@ -1122,6 +1123,8 @@ def cmd_corpus(args):
             cmd += ["--chip", args.chip]
         if args.no_clock_check:
             cmd += ["--no-clock-check"]
+        for item in args.headers:
+            cmd += ["--headers", item]
         proc = subprocess.run(cmd, capture_output=True, text=True,
                               encoding="utf-8", errors="replace")
         try:
@@ -1140,8 +1143,11 @@ def cmd_corpus(args):
             counts = res["counts"]
             for key in ("writes", "report", "undetermined", "passed"):
                 sub[key] += counts[key]
+            classes = sorted({f["class"] for f in res["findings"]})
+            for cls in classes:
+                class_counts[cls] = class_counts.get(cls, 0) + 1
             if counts["report"]:
-                offenders.append((res["path"], counts["report"]))
+                offenders.append((res["path"], counts["report"], classes))
         for key in total:
             total[key] += sub[key]
         ratio = "n/a"
@@ -1150,14 +1156,17 @@ def cmd_corpus(args):
         print("%s：%d 个文件、%d 处写入；报 %d（占比 %s）、未判定 %d、通过 %d" % (
             directory, sub["files"], sub["writes"], sub["report"], ratio,
             sub["undetermined"], sub["passed"]))
-        for path, count in sorted(offenders, key=lambda item: -item[1])[:10]:
-            print("    报 %d 处：%s" % (count, path))
+        for path, count, classes in sorted(offenders, key=lambda item: -item[1])[:10]:
+            print("    报 %d 处 %s：%s" % (count, "/".join(classes), path))
     ratio = "n/a"
     if total["writes"]:
         ratio = "%.2f%%" % (100.0 * total["report"] / total["writes"])
     print("合计：%d 个文件、%d 处写入；报 %d（占比 %s）、未判定 %d、通过 %d" % (
         total["files"], total["writes"], total["report"], ratio,
         total["undetermined"], total["passed"]))
+    if class_counts:
+        print("问题类别（按文件数）：%s" % "、".join(
+            "%s×%d" % (cls, count) for cls, count in sorted(class_counts.items())))
     return 0
 
 
@@ -1177,6 +1186,8 @@ def main(argv=None):
     corpus.add_argument("--dir", action="append", required=True, help="语料目录（可多次）")
     corpus.add_argument("--svd", help="SVD 路径")
     corpus.add_argument("--chip", help="芯片名（用本机 CMSIS-Pack 查找）")
+    corpus.add_argument("--headers", action="append", default=[],
+                        help="从头文件加载宏定义（文件或目录，可多次）")
     corpus.add_argument("--no-clock-check", action="store_true", help="关闭 E07")
     args = parser.parse_args(argv)
     if args.command == "generate":
