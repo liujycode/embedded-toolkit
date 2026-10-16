@@ -1,4 +1,4 @@
-"""核验规则 E01–E10：用 SVD 检查 C 源码里的寄存器写入。
+"""核验规则 E01–E11：用 SVD 检查 C 源码里的寄存器写入。
 
 判定口径（规格 §2.5）：不确定时一律进"未判定"，宁可漏报不误报。
 标签：E01–E05、E08、E10 = 已核验；E06、E07、E09 = 需查手册。
@@ -20,6 +20,8 @@ ESP_IDF_OPS = frozenset({
     "reg_write", "reg_set_bit", "reg_clr_bit", "reg_set_field", "write_peri_reg",
     "set_peri_reg_mask", "clear_peri_reg_mask",
 })
+_EN_MACRO_RE = re.compile(r"\b[A-Z][A-Z0-9_]*_(?:EN|ENABLE)\b")
+_DMA_CONFIG_REGS = frozenset({"CNDTR", "NDTR", "CMAR", "CPAR"})
 EXT_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 IDENT_WORD_RE = re.compile(r"\b([A-Za-z_]\w*)\b")
 MEMBER_ARG_RE = re.compile(r"^(&)?\s*([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*$")
@@ -41,9 +43,10 @@ def macro_words(expr):
             if looks_like_macro(m.group(1))]
 
 _SEVERITY = {"E01": "高", "E02": "高", "E03": "高", "E04": "高", "E05": "中",
-             "E06": "低", "E07": "中", "E08": "高", "E09": "中", "E10": "高"}
+             "E06": "低", "E07": "中", "E08": "高", "E09": "中", "E10": "高", "E11": "中"}
 _LABELS = {"E01": "已核验", "E02": "已核验", "E03": "已核验", "E04": "已核验", "E05": "已核验",
-           "E06": "需查手册", "E07": "需查手册", "E08": "已核验", "E09": "需查手册", "E10": "已核验"}
+           "E06": "需查手册", "E07": "需查手册", "E08": "已核验", "E09": "需查手册",
+           "E10": "已核验", "E11": "需查手册"}
 
 RULES = [
     {"class": "E01", "name": "外设不存在", "verdict": "SVD 中查外设名", "bucket": "报", "label": "已核验", "severity": "高"},
@@ -56,6 +59,7 @@ RULES = [
     {"class": "E08", "name": "硬编码地址", "verdict": "直接地址写入（并用地址反查命名）", "bucket": "报", "label": "已核验", "severity": "高"},
     {"class": "E09", "name": "中断分组多处设置", "verdict": "NVIC_SetPriorityGrouping 出现次数", "bucket": "报", "label": "需查手册", "severity": "中"},
     {"class": "E10", "name": "写只读寄存器或位域", "verdict": "SVD access 为 read-only", "bucket": "报", "label": "已核验", "severity": "高"},
+    {"class": "E11", "name": "使能后写 DMA 配置寄存器", "verdict": "使能（EN=1）后写 CNDTR/CMAR/CPAR 等", "bucket": "报", "label": "需查手册", "severity": "中"},
 ]
 
 
@@ -158,7 +162,14 @@ class Verifier:
         head = periph.name.upper().split("_")[0]
         family.add(head)
         family.add(head.rstrip("0123456789"))
-        start = 1 if tokens[0] in family else 0
+        # 先试最长的前缀：外设名本身可能带下划线（RTC_CNTL_RTC_ULP_CP_TIMER_ZZZ → RTC_CNTL）
+        start = 0
+        for size in range(min(4, len(tokens) - 2), 0, -1):
+            if "_".join(tokens[:size]) in family:
+                start = size
+                break
+        if start == 0 and tokens[0] in family:
+            start = 1
         rest = tokens[start:]
         if len(rest) < 2:
             return None
@@ -250,7 +261,7 @@ class Verifier:
     # ---------- 主流程 ----------
 
     def check_file(self, name, text):
-        parsed = cscan.extract_all(text)
+        parsed = cscan.extract_all(text, self.extra_defines)
         defines = dict(parsed["defines"])
         defines.update(self.extra_defines)
         findings = []
@@ -383,6 +394,22 @@ class Verifier:
                 "suggestion": "保留一处分组设置；多处设置会互相覆盖，需确认哪一处生效。",
                 "peripheral": None, "register": None, "field": None,
                 "lookup": None,
+            })
+
+        # 文件级规则：E11 使能后写 DMA 计数/地址寄存器（文本级，不依赖外设名能否解析）
+        for item in self._enable_order_findings(parsed["writes"]):
+            findings.append({
+                "class": "E11", "bucket": "报",
+                "severity": _SEVERITY["E11"], "label": _LABELS["E11"],
+                "line": item["line"], "code": item["code"],
+                "message": "使能 %s 后（第 %d 行）又写 %s.%s（第 %d 行）；"
+                           "DMA 的计数/地址寄存器通常需在 EN=0 时写，写入可能被硬件忽略" % (
+                               item["periph"], item["en_line"], item["periph"],
+                               item["reg"], item["line"]),
+                "suggestion": "调整顺序：先写 %s，再置 EN；或先清 EN、改完配置再置回。" % item["reg"],
+                "peripheral": item["periph"], "register": item["reg"], "field": None,
+                "lookup": _lookup_hint("lookup", path="%s.%s" % (item["periph"], item["reg"]),
+                                       reason="查看该寄存器的复位值与写约束"),
             })
 
         findings.sort(key=lambda f: (f["line"], f["class"]))
@@ -741,6 +768,48 @@ class Verifier:
                         periph=periph.name, register=reg.name, field=field.name,
                         lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
                             periph.name, reg.name, field.name), reason="查看该位域的访问属性"))
+
+    def _enable_order_findings(self, writes):
+        """E11：使能后写 DMA 计数/地址寄存器。
+
+        文件级、文本级判定（不依赖外设名能否解析，簇命名如 DMA1_Channel1 也覆盖）：
+        - 使能：语句里出现 `..._EN` / `..._ENABLE` 宏，且是 =/|= 或 SET_BIT/WRITE_REG；
+        - 关闭：`&=` 或 CLEAR_BIT 上述宏；
+        - 配置：写 CNDTR/NDTR/CMAR/CPAR（任何形态）；
+        - 同外设前缀下，配置写发生在最近一次使能之后且中间没有关闭 → 报。
+        """
+        events = []
+        for write in writes:
+            periph, reg = self._names(write)
+            if not periph or not reg:
+                continue
+            text = " ".join([
+                " ".join(write.get("args") or []),
+                write.get("rhs") or "",
+                write.get("code") or "",
+            ])
+            has_en = bool(_EN_MACRO_RE.search(text))
+            op = write["op"]
+            if has_en and op in ("=", "|=", "set_bit", "write_reg"):
+                events.append(("enable", periph.upper(), reg, write["line"], write["code"]))
+            elif has_en and op in ("&=", "clear_bit"):
+                events.append(("disable", periph.upper(), reg, write["line"], write["code"]))
+            elif reg.upper() in _DMA_CONFIG_REGS:
+                events.append(("config", periph.upper(), reg, write["line"], write["code"]))
+        events.sort(key=lambda item: item[3])
+        out = []
+        enabled = {}
+        for kind, periph_key, reg, line, code in events:
+            if kind == "enable":
+                enabled[periph_key] = (line, reg)
+            elif kind == "disable":
+                enabled.pop(periph_key, None)
+            else:
+                state = enabled.get(periph_key)
+                if state and state[0] < line:
+                    out.append({"periph": periph_key, "reg": reg, "line": line, "code": code,
+                                "en_line": state[0], "en_reg": state[1]})
+        return out
 
     # ---------- E07 ----------
 

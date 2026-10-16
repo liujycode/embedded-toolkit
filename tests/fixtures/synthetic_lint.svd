@@ -97,6 +97,34 @@
           <description>同一偏移的两个视图之二（合法写法，应记为 info）</description>
           <addressOffset>0x40</addressOffset>
         </register>
+        <register>
+          <name>REGV32</name>
+          <description>32 位视图（合法写法，与其中包含的 8 位视图应记为 info）</description>
+          <addressOffset>0x50</addressOffset>
+        </register>
+        <register>
+          <name>REGV8</name>
+          <description>8 位视图（完全落在 32 位视图内，应记为 info）</description>
+          <addressOffset>0x53</addressOffset>
+          <size>8</size>
+        </register>
+        <register>
+          <name>REGF</name>
+          <description>位域别名的容器（WIDE 与其中的 BIT2 应记为 info）</description>
+          <addressOffset>0x60</addressOffset>
+          <fields>
+            <field>
+              <name>WIDE</name>
+              <bitOffset>0</bitOffset>
+              <bitWidth>8</bitWidth>
+            </field>
+            <field>
+              <name>BIT2</name>
+              <bitOffset>2</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+          </fields>
+        </register>
       </registers>
     </peripheral>
     <peripheral>

@@ -267,7 +267,7 @@ def test_cli_rules_subcommand():
     assert r.returncode == 0
     env = json.loads(r.stdout)
     assert env["results"][0]["rules"][0]["class"] == "E01"
-    assert len(env["results"][0]["rules"]) == 10
+    assert len(env["results"][0]["rules"]) == 11
 
 
 def test_cli_demo_example():
@@ -387,6 +387,117 @@ def test_esp_idf_style_macros_are_undetermined(device):
     assert res["counts"]["report"] == 0
     assert res["counts"]["undetermined"] == 1
     assert any("ESP-IDF" in item["reason"] for item in res["undetermined"])
+
+
+def test_underscore_peripheral_name_macro_mapping(tmp_path):
+    """带下划线的外设名（如 RTC_CNTL）：宏前缀要整体消费，否则假字段宏会漏报。"""
+    svd_text = """<?xml version="1.0" encoding="utf-8"?>
+<device schemaVersion="1.1">
+  <name>USCHIP</name>
+  <version>1.0</version>
+  <description>underscore peripheral test</description>
+  <width>32</width>
+  <peripherals>
+    <peripheral>
+      <name>RTC_CNTL</name>
+      <baseAddress>0x60008000</baseAddress>
+      <registers>
+        <register>
+          <name>RTC_ULP_CP_TIMER</name>
+          <addressOffset>0x00</addressOffset>
+          <fields>
+            <field>
+              <name>EN</name>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+          </fields>
+        </register>
+      </registers>
+    </peripheral>
+  </peripherals>
+</device>
+"""
+    path = tmp_path / "underscore.svd"
+    path.write_text(svd_text, encoding="utf-8")
+    device = load_device(str(path))
+    res = crules.Verifier(device).check_file(
+        "idf.c", "RTC_CNTL->RTC_ULP_CP_TIMER |= RTC_CNTL_RTC_ULP_CP_TIMER_ZZZ;\n")
+    assert [f["class"] for f in res["findings"]] == ["E03"]
+
+
+def test_e11_enable_then_dma_config(device):
+    text = ("void f(void)\n{\n"
+            "    DMA1_Channel1->CCR |= DMA_CCR_EN;\n"
+            "    DMA1_Channel1->CNDTR = 0x00000100;\n"
+            "}\n")
+    res = crules.Verifier(device).check_file("dma.c", text)
+    classes = [f["class"] for f in res["findings"]]
+    assert classes == ["E11"]
+    assert "EN=0" in res["findings"][0]["message"]
+
+
+def test_e11_setbit_form(device):
+    text = ("SET_BIT(DMA1_Channel1->CCR, DMA_CCR_EN);\n"
+            "DMA1_Channel1->CMAR = 0x20000000;\n")
+    res = crules.Verifier(device).check_file("dma.c", text)
+    assert [f["class"] for f in res["findings"]] == ["E11"]
+
+
+def test_e11_not_when_disabled_between(device):
+    text = ("DMA1_Channel1->CCR |= DMA_CCR_EN;\n"
+            "DMA1_Channel1->CCR &= ~DMA_CCR_EN;\n"
+            "DMA1_Channel1->CNDTR = 0x00000100;\n")
+    res = crules.Verifier(device).check_file("dma.c", text)
+    assert res["findings"] == []
+
+
+def test_e11_not_before_enable(device):
+    text = ("DMA1_Channel1->CNDTR = 0x00000100;\n"
+            "DMA1_Channel1->CCR |= DMA_CCR_EN;\n")
+    res = crules.Verifier(device).check_file("dma.c", text)
+    assert res["findings"] == []
+
+
+def test_e11_numeric_enable_is_not_flagged(device):
+    text = ("DMA1_Channel1->CCR |= 0x00000001;\n"
+            "DMA1_Channel1->CNDTR = 0x00000100;\n")
+    res = crules.Verifier(device).check_file("dma.c", text)
+    assert res["findings"] == []
+
+
+def test_headers_resolve_esp_idf_macro(tmp_path):
+    header = tmp_path / "regs.h"
+    header.write_text("#define USART1_CR1_REG (0x40013800)\n", encoding="utf-8")
+    code = tmp_path / "idf.c"
+    code.write_text("REG_WRITE(USART1_CR1_REG, 0x00000001);\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH,
+               "--headers", str(header), "--format", "json")
+    assert r.returncode == 0, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["report"] == 0
+    assert res["counts"]["passed"] == 1
+    assert res["counts"]["undetermined"] == 0
+
+
+def test_headers_esp_idf_set_bit_on_readonly_register(tmp_path):
+    header = tmp_path / "regs.h"
+    header.write_text("#define USART1_SR_REG 0x4001381C\n", encoding="utf-8")
+    code = tmp_path / "idf.c"
+    code.write_text("REG_SET_BIT(USART1_SR_REG, 0x00000001);\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH,
+               "--headers", str(header), "--format", "json")
+    res = json.loads(r.stdout)["results"][0]
+    assert [f["class"] for f in res["findings"]] == ["E10"]
+
+
+def test_headers_missing_path_is_input_error(tmp_path):
+    code = tmp_path / "x.c"
+    code.write_text("REG_WRITE(REG_X, 0x1);\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH,
+               "--headers", str(tmp_path / "nope.h"), "--format", "json")
+    assert r.returncode == 1
+    assert json.loads(r.stdout)["errors"][0]["code"] == "E_INPUT_INVALID"
 
 
 def test_cli_collects_cpp_and_ino(tmp_path):

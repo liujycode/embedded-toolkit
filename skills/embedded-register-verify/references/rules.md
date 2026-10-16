@@ -1,4 +1,4 @@
-# 核验规则细节（E01–E10）
+# 核验规则细节（E01–E11）
 
 每条规则给出：判定方式、示例（会报 / 不会报）、桶与标签。所有判定只依赖 SVD 与代码文本；
 **不确定时进"未判定"**，不产生错误。
@@ -82,6 +82,18 @@
   2. 写入表达式中映射到的位域 `access` 为 `read-only`（含 `SET_BIT/CLEAR_BIT/MODIFY_REG` 的参数）；
   3. 数值参数命中寄存器中只读位域的位（结构体写、`SET_BIT/CLEAR_BIT/WRITE_REG` 的掩码/值、`MODIFY_REG` 的置位值；如 `RCC->CR = 0x400` 或 `SET_BIT(RCC->CR, 0x400)` 命中只读的 `HSIRDY`）。
 - 会报：`USART1->SR = 0x20;`（SR 只读）；`RCC->CR = 0x400;`（HSIRDY 只读）；`SET_BIT(RCC->CR, 0x400);`。
+
+## E11 使能后写 DMA 配置寄存器（报 / 需查手册 / 中）
+
+- 判定（文件级、文本级，不依赖外设名能否解析——簇命名 `DMA1_Channel1` 也覆盖）：
+  同外设前缀下，「使能」之后又写「DMA 计数/地址寄存器」，且中间没有关闭动作。
+- 使能：语句里出现 `..._EN` / `..._ENABLE` 宏（如 `DMA_CCR_EN`、`DMA_SxCR_EN`），
+  且是 `=` / `|=` 或 `SET_BIT` / `WRITE_REG`；关闭：`&=` 或 `CLEAR_BIT` 同类宏。
+- 配置寄存器：`CNDTR`、`NDTR`、`CMAR`、`CPAR`（DMA 传输数量/外设地址/内存地址）。
+- 会报：`DMA1_Channel1->CCR |= DMA_CCR_EN;` 之后才 `DMA1_Channel1->CNDTR = 0x100;`。
+- 不会报：先写 `CNDTR/CMAR/CPAR` 再置 `EN`；或先清 `EN`、改完配置再置回；
+  **数值形式的使能**（`CCR |= 0x1;`）保守不判（无法确认那是 EN 位）。
+- 说明：这是保守的启发式规则，误报请对照手册；命中时标签为"需查手册"。
 
 ## 输出分桶
 

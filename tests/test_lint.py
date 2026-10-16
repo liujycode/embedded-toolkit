@@ -19,12 +19,22 @@ def test_lint_finds_every_planted_issue(device):
     res = query.lint(device)
     codes = sorted({f["code"] for f in res["findings"]})
     assert codes == [
-        "duplicate_field", "duplicate_register", "field_out_of_range",
+        "duplicate_field", "duplicate_register", "field_alias", "field_out_of_range",
         "field_overlap", "interrupt_value_conflict", "register_alias",
-        "register_overlap", "reset_out_of_range",
+        "register_overlap", "register_view", "reset_out_of_range",
     ]
-    assert res["counts"] == {"error": 6, "warning": 1, "info": 1, "total": 8}
+    assert res["counts"] == {"error": 6, "warning": 1, "info": 3, "total": 10}
     assert res["truncated"] is False
+
+
+def test_lint_contained_overlaps_are_info_not_error(device):
+    res = query.lint(device, "REG")
+    views = [f for f in res["findings"] if f["code"] == "register_view"]
+    aliases = [f for f in res["findings"] if f["code"] == "field_alias"]
+    assert len(views) == 1 and views[0]["severity"] == "info"
+    assert "REGV32" in views[0]["message"] and "REGV8" in views[0]["message"]
+    assert len(aliases) == 1 and aliases[0]["severity"] == "info"
+    assert "WIDE" in aliases[0]["message"] and "BIT2" in aliases[0]["message"]
 
 
 def test_lint_scope_limits_to_peripheral(device):
@@ -44,7 +54,7 @@ def test_lint_limit_truncates_findings(device):
     res = query.lint(device, limit=2)
     assert res["truncated"] is True
     assert len(res["findings"]) == 2
-    assert res["counts"]["total"] == 8
+    assert res["counts"]["total"] == 10
 
 
 def test_lint_clean_synthetic_fixture_reports_nothing():
@@ -65,7 +75,7 @@ def test_lint_cli_json_counts():
     assert r.returncode == 0, r.stderr
     res = json.loads(r.stdout)["results"][0]
     assert res["kind"] == "lint"
-    assert res["counts"] == {"error": 6, "warning": 1, "info": 1, "total": 8}
+    assert res["counts"] == {"error": 6, "warning": 1, "info": 3, "total": 10}
 
 
 def test_lint_cli_text_and_scope():

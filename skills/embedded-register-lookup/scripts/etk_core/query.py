@@ -1168,10 +1168,19 @@ def lint(device, peripheral=None, limit=200):
             fields = sorted(reg.fields, key=lambda f: (f.lsb, -f.width))
             for first, later in zip(fields, fields[1:]):
                 if later.lsb <= first.msb:
-                    add("error", "field_overlap",
-                        "%s.%s 中位域 %s（位 %s）与 %s（位 %s）重叠" % (
-                            periph.name, reg.name, first.name, first.bit_text, later.name, later.bit_text),
-                        periph, reg, later)
+                    if later.msb <= first.msb:
+                        # 后一个位域完全落在前一个里：同一位置的多宽度视图/别名（常见厂商写法）
+                        add("info", "field_alias",
+                            "%s.%s 中位域 %s（位 %s）与 %s（位 %s）是同一位置的视图/别名（常见写法）" % (
+                                periph.name, reg.name, first.name, first.bit_text,
+                                later.name, later.bit_text),
+                            periph, reg, later)
+                    else:
+                        add("error", "field_overlap",
+                            "%s.%s 中位域 %s（位 %s）与 %s（位 %s）部分重叠" % (
+                                periph.name, reg.name, first.name, first.bit_text,
+                                later.name, later.bit_text),
+                            periph, reg, later)
         for first, later in zip(regs, regs[1:]):
             if first.offset + first.nbytes <= later.offset:
                 continue
@@ -1180,9 +1189,16 @@ def lint(device, peripheral=None, limit=200):
                     "%s 中 %s 与 %s 使用同一偏移 %s（同一寄存器的不同视图或别名，属常见写法；按需选用）" % (
                         periph.name, first.name, later.name, hex_offset(first.offset)),
                     periph, later)
+            elif later.offset + later.nbytes <= first.offset + first.nbytes:
+                # 后一个寄存器完全落在前一个里：同一位置的多宽度视图（32/16/8 位视图等）
+                add("info", "register_view",
+                    "%s 中 %s（偏移 %s，%d 字节）与 %s（偏移 %s，%d 字节）是同一位置的视图/别名（常见写法）" % (
+                        periph.name, first.name, hex_offset(first.offset), first.nbytes,
+                        later.name, hex_offset(later.offset), later.nbytes),
+                    periph, later)
             else:
                 add("error", "register_overlap",
-                    "%s 中寄存器 %s（偏移 %s，%d 字节）与 %s（偏移 %s）地址区域重叠" % (
+                    "%s 中寄存器 %s（偏移 %s，%d 字节）与 %s（偏移 %s）地址区域部分重叠（不构成包含关系）" % (
                         periph.name, first.name, hex_offset(first.offset), first.nbytes,
                         later.name, hex_offset(later.offset)),
                     periph, later)

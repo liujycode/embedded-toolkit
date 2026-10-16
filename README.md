@@ -14,8 +14,8 @@
 
 | 技能 | 版本 | 状态 | 说明 |
 |---|---|---|---|
-| `embedded-register-lookup`（寄存器百事通） | 1.5.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号与 NVIC 使能位；解码 / 写值计算 / 读改写陷阱提示；宏生成；双芯片与外设级对比；SVD 质量检查；环境体检；**SDK 自带 SVD 自动发现（PlatformIO / Arduino15 / ESP-IDF / Pico SDK，覆盖 ESP32 系列与 RP2040）**；Markdown 输出；解析缓存 |
-| `embedded-register-verify`（寄存器核验器） | 1.3.0 | 注入集召回 225/225=100%（合成芯片，见 `benchmarks/verify-recall.md`）；正样本 55 文件 0 误报 | 核验 C/C++ 代码里的寄存器写入：外设/寄存器/位域存在性、值超宽、枚举合法性、只读位、时钟使能、硬编码地址、中断分组；**支持 `.cpp/.hpp/.ino`、`reinterpret_cast`、`HWREG`（TI 风格）、地址别名宏、`NRF_`/`R_` 厂商别名**；报/未判定/通过分桶 + 复查清单；**每条问题带 `next` 查证命令与 `--explain` 内联寄存器定义（与百事通闭环）**；目录与 git diff 模式；不执行代码 |
+| `embedded-register-lookup`（寄存器百事通） | 1.6.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`）；厂商 SVD 冒烟 16 家（见 `benchmarks/vendor-svds.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号与 NVIC 使能位；解码 / 写值计算 / 读改写陷阱提示；宏生成；双芯片与外设级对比；SVD 质量检查（**识别厂商常见的多宽度视图/位域别名，不再误报**）；环境体检；**SDK 自带 SVD 自动发现（PlatformIO / Arduino15 / ESP-IDF / Pico SDK，覆盖 ESP32 系列与 RP2040）**；Markdown 输出；解析缓存 |
+| `embedded-register-verify`（寄存器核验器） | 1.4.0 | 注入集召回 225/225=100%（合成芯片，见 `benchmarks/verify-recall.md`）；正样本 55 文件 0 误报 | 核验 C/C++ 代码里的寄存器写入：外设/寄存器/位域存在性、值超宽、枚举合法性、只读位、时钟使能、硬编码地址、中断分组、**使能后写 DMA 配置寄存器（E11）**；**支持 `.cpp/.hpp/.ino`、`reinterpret_cast`、`HWREG`（TI 风格）、地址别名宏、`NRF_`/`R_` 厂商别名、ESP-IDF `REG_WRITE`（配 `--headers`）**；报/未判定/通过分桶 + 复查清单；**每条问题带 `next` 查证命令与 `--explain` 内联寄存器定义（与百事通闭环）**；目录与 git diff 模式；不执行代码 |
 
 计划中（按阶段门推进，见总方案）：接线排障、时序计算器、原理图审查官。
 
@@ -85,7 +85,7 @@ python skills/embedded-register-verify/scripts/verify.py check --patch changes.d
 python skills/embedded-register-verify/scripts/verify.py check examples/verify_demo.c --demo   # 零配置试用
 ```
 
-核验输出分三桶：**报**（E01–E10，附行号/类别/建议）、**未判定**（HAL 调用、内核外设等范围外内容，如实说明）、**通过**；退出码 1 表示检出问题。
+核验输出分三桶：**报**（E01–E11，附行号/类别/建议）、**未判定**（HAL 调用、内核外设等范围外内容，如实说明）、**通过**；退出码 1 表示检出问题。
 
 ## 两个技能怎么配合（查 → 写 → 验）
 

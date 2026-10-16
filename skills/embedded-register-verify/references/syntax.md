@@ -11,8 +11,9 @@
    C++ `*reinterpret_cast<...>(0xADDR)`）→ 文件内地址别名宏（`#define REG (*(...)0xADDR)` 后的
    `REG op 值`）→ `外设->寄存器 op 表达式`。
 6. 目录模式收集的扩展名：`.c/.h/.cpp/.cc/.cxx/.hpp/.hh/.ino`（C/C++ 工程与 Arduino 都能核验）。
-7. ESP-IDF 风格寄存器宏（`REG_WRITE/REG_SET_BIT/...`）：寄存器号来自头文件常量，无法定位 →
-   记"未判定"（明确告诉你没检查，而不是假装通过）。
+7. ESP-IDF 风格寄存器宏（`REG_WRITE/REG_SET_BIT/REG_CLR_BIT/...`）：寄存器号来自头文件常量。
+   用 `--headers <文件或目录>` 提供 `soc/*_reg.h` 后，地址可解析 → 按**具名寄存器**正常核验
+   （与地址别名宏同口径，不报 E08）；未提供头文件时记"未判定"。
 
 ## 外设名解析（别名约定）
 

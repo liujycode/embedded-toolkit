@@ -39,6 +39,15 @@ _MACRO_CALL_RE = re.compile(
     r"|SET_PERI_REG_MASK|CLEAR_PERI_REG_MASK)\s*\(")
 _HAL_ENABLE_RE = re.compile(r"__HAL_RCC_([A-Za-z0-9_]+?)_CLK_ENABLE\s*\(")
 _GROUPING_RE = re.compile(r"\bNVIC_SetPriorityGrouping\s*\(")
+# ESP-IDF 风格寄存器宏 → 写入形态（地址可由 --headers 提供的寄存器常量宏解析时）
+ESP_IDF_TO_ALIAS = {
+    "reg_write": "=",
+    "write_peri_reg": "=",
+    "reg_set_bit": "|=",
+    "set_peri_reg_mask": "|=",
+    "reg_clr_bit": "&=",
+    "clear_peri_reg_mask": "&=",
+}
 _CAST_RE = re.compile(
     r"\(\s*(?:unsigned\s+)?(?:u?int(?:8|16|32|64)_t|uint\d+_t|int|long|short|char|"
     r"u8|u16|u32|u64|s8|s16|s32|s64|unsigned)\s*\)"
@@ -218,14 +227,18 @@ def collect_addr_aliases(clean):
     return out
 
 
-def extract_all(text):
+def extract_all(text, extra_defines=None):
     """总入口：返回 {defines, aliases, writes, enables, grouping_lines}。
 
+    extra_defines 为外部补充的宏（--define / --headers），优先于文件内定义。
     writes 每项：{kind: member|addr|addr_expr|alias|macro, op, line, code, ...}
     """
     joined, line_map = join_continuations(text)
     clean_all = strip_comments_and_strings(joined)
     defines = collect_defines(clean_all)
+    if extra_defines:
+        for name, expr in extra_defines.items():
+            defines[name] = expr
     aliases = collect_addr_aliases(clean_all)
     clean = blank_preprocessor(clean_all)
     writes = []
@@ -243,8 +256,20 @@ def extract_all(text):
             if parsed is None:
                 continue
             args, _end = parsed
+            op_name = m.group(1).lower()
+            alias_op = ESP_IDF_TO_ALIAS.get(op_name)
+            if alias_op and len(args) >= 2 and args[0]:
+                # 地址可解析（常见于 --headers 带入了寄存器常量宏）→ 按"具名寄存器写入"核验
+                address = eval_int(args[0], defines)
+                if address is not None:
+                    rhs = args[1] if alias_op != "&=" else "~(%s)" % args[1]
+                    macros.append({
+                        "kind": "alias", "op": alias_op, "line": line, "code": display,
+                        "name": args[0][:60], "address": address, "rhs": rhs,
+                    })
+                    continue
             macros.append({
-                "kind": "macro", "op": m.group(1).lower(), "line": line,
+                "kind": "macro", "op": op_name, "line": line,
                 "code": display, "args": args,
             })
         if macros:

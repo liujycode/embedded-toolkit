@@ -23,6 +23,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
 import crules  # noqa: E402
+import cscan  # noqa: E402
 from etk_core import query as etk_query  # noqa: E402
 from etk_core.cache import load_device_cached  # noqa: E402
 from etk_core.discovery import find_svd  # noqa: E402
@@ -30,7 +31,7 @@ from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkErr
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -67,6 +68,8 @@ def build_parser():
     p.add_argument("paths", nargs="*", metavar="路径",
                    help="C/C++ 源文件、头文件或目录（.c/.h/.cpp/.hpp/.ino 等；用 --patch 时可省略）")
     p.add_argument("--define", action="append", default=[], metavar="NAME=VALUE", help="补充宏定义（可多次）")
+    p.add_argument("--headers", action="append", default=[], metavar="路径",
+                   help="从头文件加载宏定义（文件或目录，可多次）：用于 ESP-IDF 等以寄存器常量宏写寄存器的代码")
     p.add_argument("--patch", metavar="FILE", help="核验 unified diff / git diff 文件中新增的行")
     p.add_argument("--no-clock-check", action="store_true", help="关闭 E07（时钟使能）检查")
     p.add_argument("--checklist", action="store_true", help="输出复查清单（按复查要求分组）")
@@ -74,7 +77,7 @@ def build_parser():
                    help="在报告里内联对应寄存器的定义（来自寄存器百事通的同一份 SVD）")
     p.add_argument("--limit", type=int, default=200, help="每个文件最多列出条数（默认 200）")
 
-    sub.add_parser("rules", parents=[io], help="列出核验规则 E01–E10")
+    sub.add_parser("rules", parents=[io], help="列出核验规则 E01–E11")
     return parser
 
 
@@ -104,6 +107,42 @@ def _collect_sources(paths):
             raise EtkError(E_INPUT_INVALID, "无法读取文件：%s（%s）" % (path, exc))
         sources.append((os.path.basename(path), text, path))
     return sources, truncated
+
+
+HEADER_EXTS = (".h", ".hpp", ".hh", ".inc", ".c")
+HEADER_MAX_FILES = 512
+HEADER_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _collect_header_defines(paths):
+    """从头文件（或目录）收集对象宏定义，用于解析寄存器常量宏（如 ESP-IDF 的 UART_CONF0_REG）。"""
+    files = []
+    for item in paths:
+        if os.path.isdir(item):
+            for root, dirs, names in os.walk(item):
+                dirs[:] = [d for d in dirs if not d.startswith(".") and d not in SKIP_DIRS]
+                for name in sorted(names):
+                    if name.lower().endswith(HEADER_EXTS):
+                        files.append(os.path.join(root, name))
+        elif os.path.isfile(item):
+            files.append(item)
+        else:
+            raise EtkError(E_INPUT_INVALID, "--headers 路径不存在：%s" % item)
+    defines = {}
+    total = 0
+    for path in sorted(set(files))[:HEADER_MAX_FILES]:
+        if total >= HEADER_MAX_BYTES:
+            break
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read(HEADER_MAX_BYTES - total)
+        except OSError:
+            continue
+        total += len(text)
+        clean = cscan.strip_comments_and_strings(text)
+        for name, expr in cscan.collect_defines(clean).items():
+            defines.setdefault(name, expr)
+    return defines
 
 
 def _patch_sources(text):
@@ -175,6 +214,12 @@ def _run(args):
         if not sep or not name.strip():
             raise EtkError(E_INPUT_INVALID, "--define 需要 NAME=VALUE 形式：%r" % item)
         defines[name.strip()] = value.strip()
+    if args.headers:
+        header_defines = _collect_header_defines(args.headers)
+        warnings.append("从头文件加载了 %d 个宏定义（--headers）" % len(header_defines))
+        merged = dict(header_defines)
+        merged.update(defines)  # --define 显式指定优先
+        defines = merged
 
     verifier = crules.Verifier(device, extra_defines=defines,
                                clock_check=not args.no_clock_check, limit=args.limit)
@@ -323,7 +368,7 @@ def _format_addr(data):
 # ---------- 渲染 ----------
 
 def _render_rules(res):
-    lines = ["核验规则（E01–E10）："]
+    lines = ["核验规则（E01–E11）："]
     for item in res["rules"]:
         lines.append("  %s %s（%s）｜桶：%s｜标签：%s｜严重度：%s" % (
             item["class"], item["name"], item["verdict"], item["bucket"], item["label"], item["severity"]))
