@@ -7,6 +7,12 @@
   <name>SYNTH32</name>
   <version>1.0</version>
   <description>Synthetic device for embedded-toolkit tests</description>
+  <vendor>SYNTH-Corp</vendor>
+  <cpu>
+    <name>CM4</name>
+    <revision>r0p1</revision>
+    <endian>little</endian>
+  </cpu>
   <width>32</width>
   <resetValue>0x00000000</resetValue>
   <resetMask>0xFFFFFFFF</resetMask>
@@ -369,6 +375,36 @@
               <name>I2C1EN</name>
               <bitOffset>21</bitOffset>
               <bitWidth>1</bitWidth>
+            </field>
+          </fields>
+        </register>
+      </registers>
+    </peripheral>
+
+    <peripheral>
+      <name>EXTI</name>
+      <description>External interrupt/event controller</description>
+      <baseAddress>0x40010400</baseAddress>
+      <registers>
+        <register>
+          <name>PR</name>
+          <description>Pending register</description>
+          <addressOffset>0x14</addressOffset>
+          <modifiedWriteValues>oneToClear</modifiedWriteValues>
+          <fields>
+            <field>
+              <name>P0</name>
+              <description>Pending bit 0</description>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+              <readAction>clear</readAction>
+            </field>
+            <field>
+              <name>P1</name>
+              <description>Pending bit 1</description>
+              <bitOffset>1</bitOffset>
+              <bitWidth>1</bitWidth>
+              <modifiedWriteValues>oneToSet</modifiedWriteValues>
             </field>
           </fields>
         </register>

@@ -1,11 +1,11 @@
 ---
 name: embedded-register-lookup
-description: 查询 MCU 外设寄存器、位域、复位值和地址（基于 CMSIS SVD），每条结论带出处与证据标签；支持地址反查、寄存器值解码、关键词搜索。Use when the user asks about a register, bit field, reset value, peripheral base address, or wants to decode a register value. 关键词：寄存器、位域、复位值、SVD、外设地址、USART1->CR1、register、bitfield、reset value、decode。不用于：引脚复用、手册章节检索、勘误查询、核对代码中的寄存器写入（用 embedded-register-verify）。
+description: 查询 MCU 外设寄存器、位域、复位值和地址（基于 CMSIS SVD），每条结论带出处与证据标签；支持地址反查、寄存器值解码与写入值计算、位域速查与位图、跨芯片寄存器对比、地址区间查询、SVD 元信息、关键词搜索。Use when the user asks about a register, bit field, reset value, peripheral base address, wants to decode a register value, compute a register value to write, or compare register definitions between devices. 关键词：寄存器、位域、复位值、SVD、外设地址、寄存器值、掩码、位图、对比、USART1->CR1、register、bitfield、mask、reset value、decode。不用于：引脚复用、手册章节检索、勘误查询、核对代码中的寄存器写入（用 embedded-register-verify）。
 license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件：厂商 CMSIS-Pack 或用户自备的 .svd。
 metadata:
   author: liujycode
-  version: "1.0.1"
+  version: "1.1.0"
 ---
 
 # 寄存器百事通
@@ -16,8 +16,11 @@ metadata:
 
 - 问某个外设寄存器的某一位是什么、复位值是多少
 - 给一个地址，问它是哪个寄存器
-- 给一个寄存器值，按位解码成各字段
+- 给一个寄存器值，按位解码成各字段；或给位域赋值，算要写入的寄存器值
+- 要位域掩码、位图布局或写读语义（如写 1 清零），方便写代码
+- 对比两颗芯片（或两份 SVD 文件）的同一寄存器
 - 按关键词查找，例如 "baud"、"DMA 通道"
+- 核对 SVD 文件本身：厂商、统计、文件哈希
 
 ## 何时不用
 
@@ -35,10 +38,18 @@ python scripts/lookup.py lookup USART1.CR1.UE --chip STM32G431
 python scripts/lookup.py lookup USART1->CR1 --svd ./STM32G431xx.svd
 python scripts/lookup.py addr 0x4001380C --chip STM32G431
 python scripts/lookup.py search baud --chip STM32G431
-python scripts/lookup.py decode RCC.CR 0x00040002 --chip STM32G431
+python scripts/lookup.py decode RCC.CR 0x00040002 0x00000100 --chip STM32G431
+python scripts/lookup.py fields TIM1.CR1 --chip STM32G431
+python scripts/lookup.py diagram TIM1.CR1 --chip STM32G431
+python scripts/lookup.py set TIM1.CR1 CEN=1 DIR=UP --chip STM32G431
+python scripts/lookup.py diff USART1.CR1 --chip-a STM32F103C8 --chip-b STM32G431
+python scripts/lookup.py range 0x40013800 0x40013FFF --chip STM32G431
+python scripts/lookup.py info --chip STM32G431
 python scripts/lookup.py list --chip STM32G431
 ```
 
+- `set` 的值可以是数字（0x/0b/十进制）或字段的枚举名；默认以复位值为基准，`--from 数字` 可换基准。
+- `diff` 两侧分别用 `--svd-a/--chip-a`、`--svd-b/--chip-b` 指定。
 - 需要解析结果时加 `--format json`。
 - 需要保存给用户时加 `--out 文件名`。
 - 查询语法和各子命令的输出字段见 `references/query-syntax.md`。
@@ -58,11 +69,14 @@ python scripts/lookup.py list --chip STM32G431
 - 带上 `source` 中的文件名和设备名，让用户知道依据是哪份 SVD。
 - 标签为"已核验"时说明依据是 SVD 本身。
 - 地址落在保留区或没有寄存器定义时，直接说明"SVD 中未定义"，不要推测用途。
+- `set` 结果里有 `notes`（如只读位域）时，把提醒转告用户。
+- `diff` 结论要说明两侧各来自哪份 SVD 文件。
 - 结果中有 `warnings` 时，简要告诉用户哪些内容被跳过（如某个位域位置缺失）。
 
 ## 限制
 
 - 只查 SVD 中定义的内容。引脚复用、时钟树、手册勘误不在范围内。
+- `diff` 要求两侧都能解析到同一路径的寄存器，缺任一侧会报错并注明是 A 还是 B 侧。
 - 厂商 SVD 质量参差。发现明显错误时说明"以 SVD 为准，建议对照手册核对"。
 - 只读：不修改用户文件，不联网。
 - SVD 支持范围与已知缺口见 `references/svd-support.md`。

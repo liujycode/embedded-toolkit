@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  合成测试夹具 B：与 synthetic.svd 的 USART1.CR1 故意存在若干差异，用于 diff 测试。
+  差异清单（相对 A）：
+  - 外设基地址 0x40013800 -> 0x40013C00
+  - 寄存器复位值 0x00000000 -> 0x00000200
+  - TE 位置 bit3 -> bit4
+  - PS 访问 read-write -> read-only；枚举缺少 ODD
+  - M0 仅 A 侧存在；NEWF（bit20..21）仅 B 侧存在
+-->
+<device schemaVersion="1.1">
+  <name>SYNTH32B</name>
+  <version>1.0</version>
+  <description>Synthetic device B for diff tests</description>
+  <peripherals>
+    <peripheral>
+      <name>USART1</name>
+      <description>Synthetic USART 1 (B)</description>
+      <baseAddress>0x40013C00</baseAddress>
+      <registers>
+        <register>
+          <name>CR1</name>
+          <description>Control register 1</description>
+          <addressOffset>0x00</addressOffset>
+          <size>32</size>
+          <access>read-write</access>
+          <resetValue>0x00000200</resetValue>
+          <fields>
+            <field>
+              <name>UE</name>
+              <description>USART enable</description>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+            <field>
+              <name>TE</name>
+              <description>Transmitter enable</description>
+              <bitOffset>4</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+            <field>
+              <name>PS</name>
+              <description>Parity selection</description>
+              <bitRange>[9:9]</bitRange>
+              <access>read-only</access>
+              <enumeratedValues>
+                <enumeratedValue>
+                  <name>EVEN</name>
+                  <description>Even parity</description>
+                  <value>0</value>
+                </enumeratedValue>
+              </enumeratedValues>
+            </field>
+            <field>
+              <name>OVER8</name>
+              <description>Oversampling mode</description>
+              <lsb>15</lsb>
+              <msb>15</msb>
+            </field>
+            <field>
+              <name>NEWF</name>
+              <description>Only on device B</description>
+              <bitOffset>20</bitOffset>
+              <bitWidth>2</bitWidth>
+            </field>
+          </fields>
+        </register>
+      </registers>
+    </peripheral>
+  </peripherals>
+</device>

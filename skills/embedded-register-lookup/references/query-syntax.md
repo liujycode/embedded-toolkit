@@ -1,6 +1,7 @@
 # 查询语法与输出字段
 
-所有子命令都支持：`--svd`、`--chip`、`--project-dir`、`--format text|json`、`--out`。
+所有子命令都支持：`--project-dir`、`--format text|json`、`--out`。
+除 `diff` 外都支持 `--svd`、`--chip`（`diff` 用 `--svd-a/--chip-a`、`--svd-b/--chip-b`）。
 
 ## 查询路径
 
@@ -20,11 +21,20 @@
 |---|---|---|
 | `lookup <路径>` | 查外设、寄存器、位域 | `lookup USART1.CR1.UE` |
 | `addr <地址>` | 地址反查 | `addr 0x4001380C` |
-| `search <关键词>` | 按名称或描述搜索，`--limit` 控制条数 | `search baud --limit 20` |
-| `decode <寄存器> <值>` | 按位域解码寄存器值 | `decode RCC.CR 0x00040002` |
+| `search <关键词>` | 按名称或描述搜索；`--kind` 限定层级；`--limit` 控制条数 | `search baud --kind register --limit 20` |
+| `decode <寄存器> <值>...` | 按位域解码寄存器值，可给多个值 | `decode RCC.CR 0x00040002 0x00000100` |
+| `fields <寄存器>` | 位域速查表：位范围、宽度、掩码、访问、复位、未定义位 | `fields TIM1.CR1` |
+| `diagram <寄存器>` | 寄存器位图（符号图 + 图例 + 复位位） | `diagram TIM1.CR1` |
+| `set <寄存器> <字段=值>...` | 按位域赋值计算写入值；值可为数字或枚举名；`--from reset\|数字` | `set TIM1.CR1 CEN=1 DIR=UP` |
+| `diff <寄存器>` | 对比两份 SVD 中同一寄存器的定义 | `diff USART1.CR1 --chip-a STM32F103C8 --chip-b STM32G431` |
+| `range <起始> <结束>` | 列出地址区间内的寄存器；`--limit` | `range 0x40013800 0x40013FFF` |
+| `info` | SVD 元信息：厂商、CPU、统计、文件大小/SHA-256/修改时间 | `info` |
 | `list` | 列出全部外设、基地址、派生关系 | `list` |
 
-`decode` 的参数必须是寄存器，给位域会返回 `E_INPUT_INVALID`。
+- `decode` 的参数必须是寄存器，给位域会返回 `E_INPUT_INVALID`；多个值会输出多条结果。
+- `set` 的位域不存在时返回 `E_FIELD_NOT_FOUND`（含拼写建议）；值超宽或无法解析返回 `E_INPUT_INVALID`。
+- `range` 判定标准：寄存器**起始地址**落在 `[起始, 结束]` 内（闭区间）。
+- `diff` 输出中没有顶层 `source`，两侧的出处分别在 `a.source`、`b.source`。
 
 ## 地址反查的四种结果
 
@@ -41,7 +51,7 @@
 {
   "ok": true,
   "tool": "embedded-register-lookup",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "results": [ { "kind": "...", "label": "已核验", "source": { ... } } ],
   "warnings": [],
   "errors": []
@@ -58,13 +68,27 @@
 | `E_INPUT_INVALID` | 无 |
 | `E_INTERNAL` | 无（请附上输出提交 issue） |
 
-## 寄存器结果字段
+## 各结果对象的字段
 
-`register` 对象：`name`、`offset`（如 `0x0C`）、`address`（如 `0x4001380C`）、`size`（位宽）、`access`、`reset`（十六进制，宽度随位宽）、`reset_mask`、`description`。
+`register` 对象：`name`、`offset`、`address`、`size`、`access`、`reset`、`reset_mask`、`description`，
+以及写读语义：`modified_write_values`（SVD 原值）、`write_semantics`（中文提示）、`read_action`、`read_semantics`。
 
-`fields` 数组每项：`name`、`bits`（单比特写作 `5`，多比特写作 `15:0`）、`lsb`、`msb`、`width`、`access`、`reset`（该字段的复位值，十进制）、`description`、`enums`。
+`fields` 数组每项：`name`、`bits`（单比特写作 `5`，多比特写作 `15:0`）、`lsb`、`msb`、`width`、
+`mask`（该位域在寄存器中的完整掩码，按寄存器位宽格式化）、`access`、`reset`（十进制）、`description`、
+`modified_write_values`/`write_semantics`/`read_action`/`read_semantics`、`enums`。
 
 `enums` 每项：`name`、`value`、`pattern`（二进制图样，`x` 表示任意值）、`description`。
+
+### 新增子命令的结果要点
+
+| `kind` | 关键字段 |
+|---|---|
+| `fields` | `fields`（含 `mask`）、`undefined_bits`（未被任何位域覆盖的位号数组） |
+| `diagram` | `cells`（按位升序，含 `bit`/`char`/`field`）、`legend`（符号到字段）、`reset_bits`（复位为 1 的位号） |
+| `set` | `from`（基准：`label`/`value`/`value_hex`）、`value`/`value_hex`、`assignments`（每项含 `field`/`given`/`before`/`value`/`changed`/`via_enum`）、`undefined_bits_set`、`notes` |
+| `diff` | `a`/`b`（各含 `peripheral`/`base_address`/`register`/`source`）、`register_differences`、`fields`（每项 `status`：`same`/`diff`/`only_a`/`only_b`，`differences` 为文字说明数组）、`identical` |
+| `range` | `start`/`end`、`count`、`truncated`、`registers`（`path`/`address`/`size`/`access`/`reset`/`description`） |
+| `info` | `device`/`vendor`/`cpu`/`description`、`file_size`/`mtime`/`sha256`、`counts`（各层级数量与警告数） |
 
 ## 证据标签
 

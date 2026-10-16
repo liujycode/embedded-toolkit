@@ -11,6 +11,7 @@
 | 位域位置 | `bitOffset`+`bitWidth`、`bitRange [msb:lsb]`、`lsb`+`msb` 三种写法 |
 | `enumeratedValues` | 支持十进制、`0x` 十六进制、`#` 二进制；`#1XX` 形式的任意位 |
 | 属性继承 | 位宽、访问、复位值、复位掩码按 寄存器 → 外设 → 设备 逐级继承 |
+| `modifiedWriteValues` / `readAction` | 解析并按位域继承（位域级覆盖寄存器级），输出中文提示（如 写 1 清零、读后清零） |
 | XML 命名空间 | 带或不带 `xmlns` 都能解析 |
 | XML 声明前的空白/BOM | 自动剥离并记录警告（如 GD32F3x0 的 SVD 开头有两个空格）；其余脏数据仍报错 |
 
@@ -34,14 +35,15 @@
 
 1. `--svd` 指定的文件
 2. 项目根目录 `.etk/config.json`：`{"svd": "相对路径", "chip": "芯片名"}`
-3. CMSIS-Pack 缓存：`<Packs>/<厂商>/<包名>/<版本>/SVD/*.svd`
+3. CMSIS-Pack 缓存：`<Packs>/<厂商>/<包名>/<版本>/SVD/*.svd`（也支持 `CMSIS/SVD/` 布局，如 Keil 的 STM32F4xx/G4xx 包）
    - Windows：`%LOCALAPPDATA%\Arm\Packs`
    - Linux 和 macOS：`~/.arm/Packs`
    - 测试或特殊环境可用环境变量 `ETK_PACKS_DIR` 指定目录
-4. 芯片名匹配规则：先精确同名，再前缀匹配；若仍找不到，去掉封装后缀再试（`STM32G431RB` → `STM32G431`）。多个候选时选择名称最精确、版本号最高的，并给出提示。
+4. 芯片名匹配规则：先精确同名，再前缀匹配，最后等长的 `x` 通配（`STM32F407VE` → `STM32F40x.svd`）；若仍找不到，去掉封装后缀再试（`STM32G431RB` → `STM32G431`）。多个候选时选择名称最精确、版本号最高的，并给出提示。
 
 ## 验证情况
 
-- 合成夹具 `tests/fixtures/synthetic.svd` 覆盖以上全部特性，期望值人工计算。
-- 真实样本：STM32G431xx（ST）、nRF52840（Nordic）、GD32F3x0（GigaDevice，本机 Pack）。三者均做了独立遍历对照（见 `tests/test_real_svd.py`；GD32F3x0 为 41 个外设中 36 个逐项一致）。
+- 合成夹具 `tests/fixtures/synthetic.svd`（含衍生的 `synthetic_b.svd`）覆盖以上全部特性，期望值人工计算。
+- 真实样本：STM32G431xx（ST）、STM32F103xx（ST Keil Pack）、nRF52840（Nordic）、GD32F3x0（GigaDevice，本机 Pack）。各样本均做独立遍历对照（见 `tests/test_real_svd.py`；GD32F3x0 为 41 个外设中 36 个逐项一致）。
+- 新能力也在真实样本上核对：位域掩码、写入值计算（F103 的 `USART1.CR1.UE` 是 bit13，G431 是 bit0）、跨芯片 diff、`info` 哈希。
 - 尚未覆盖：NXP、Microchip、Espressif 的真实 SVD，待补。

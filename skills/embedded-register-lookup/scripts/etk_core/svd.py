@@ -23,7 +23,14 @@ from dataclasses import field as dc_field
 from .errors import E_SVD_NOT_FOUND, E_SVD_PARSE, EtkError
 from .values import dim_indices, parse_enum_value, parse_number
 
-_ATTR_DEFAULTS = {"size": 32, "access": "read-write", "reset_value": 0, "reset_mask": 0xFFFFFFFF}
+_ATTR_DEFAULTS = {
+    "size": 32,
+    "access": "read-write",
+    "reset_value": 0,
+    "reset_mask": 0xFFFFFFFF,
+    "modified_write_values": "",
+    "read_action": "",
+}
 _BIT_RANGE = re.compile(r"^\[\s*(\d+)\s*:\s*(\d+)\s*\]$")
 _NODE_TAGS = ("register", "cluster")
 
@@ -44,6 +51,8 @@ class Field:
     access: str
     description: str
     enums: list = dc_field(default_factory=list)
+    modified_write_values: str = ""
+    read_action: str = ""
 
     @property
     def msb(self):
@@ -68,6 +77,8 @@ class Register:
     reset_mask: int
     description: str
     fields: list = dc_field(default_factory=list)
+    modified_write_values: str = ""
+    read_action: str = ""
 
     @property
     def nbytes(self):
@@ -107,6 +118,8 @@ class Device:
     path: str
     peripherals: list = dc_field(default_factory=list)
     warnings: list = dc_field(default_factory=list)
+    vendor: str = ""
+    cpu: str = ""
 
     def peripheral(self, name):
         key = name.upper()
@@ -174,6 +187,7 @@ class _Builder:
                     address_span=rec.span,
                     registers=rec.registers,
                 ))
+        cpu_el = _kid(self.root, "cpu")
         return Device(
             name=_text(self.root, "name") or "未命名设备",
             version=_text(self.root, "version") or "",
@@ -181,6 +195,8 @@ class _Builder:
             path=self.path,
             peripherals=items,
             warnings=self.warnings,
+            vendor=_text(self.root, "vendor") or "",
+            cpu=(_text(cpu_el, "name") if cpu_el is not None else None) or "",
         )
 
     def _collect(self, periphs):
@@ -278,6 +294,12 @@ class _Builder:
         mask = self._num(el, "resetMask", where)
         if mask is not None:
             out["reset_mask"] = mask
+        modified = _text(el, "modifiedWriteValues")
+        if modified:
+            out["modified_write_values"] = modified
+        read_action = _text(el, "readAction")
+        if read_action:
+            out["read_action"] = read_action
         return out
 
     def _num(self, el, tag, where):
@@ -344,7 +366,9 @@ class _Builder:
         name = _text(node, "name")
         where = "外设 %s 寄存器 %s" % (periph, name)
         tpl = self._template(node, scope, defaults, where, ())
-        fields = self._fields(tpl["field_els"], tpl["access"], where)
+        fields = self._fields(
+            tpl["field_els"], tpl["access"], where,
+            tpl["modified_write_values"], tpl["read_action"])
         offset = base_offset + self._offset(node, where)
         return [
             Register(
@@ -356,6 +380,8 @@ class _Builder:
                 reset_mask=tpl["reset_mask"],
                 description=tpl["description"],
                 fields=fields,
+                modified_write_values=tpl["modified_write_values"],
+                read_action=tpl["read_action"],
             )
             for inst, off, _ in self._instances_of(node, name, offset, where)
         ]
@@ -386,7 +412,7 @@ class _Builder:
                     self.warnings.append("%s 中有缺少 name 的位域，已跳过" % where)
         return dict(attrs, description=_text(node, "description") or description, field_els=fields)
 
-    def _fields(self, field_els, access, where):
+    def _fields(self, field_els, access, where, modified_write_values="", read_action=""):
         out = []
         for f_name, f_el in field_els.items():
             spot = "%s 位域 %s" % (where, f_name)
@@ -401,6 +427,8 @@ class _Builder:
                 access=_text(f_el, "access") or access,
                 description=_text(f_el, "description") or "",
                 enums=self._enums(f_el, width, spot),
+                modified_write_values=_text(f_el, "modifiedWriteValues") or modified_write_values,
+                read_action=_text(f_el, "readAction") or read_action,
             ))
         return out
 

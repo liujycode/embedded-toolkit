@@ -6,10 +6,21 @@
 from __future__ import annotations
 
 import difflib
+import hashlib
+import os
+import time
 from collections import OrderedDict
 
-from .errors import E_FIELD_NOT_FOUND, E_INPUT_INVALID, E_PERIPH_NOT_FOUND, E_REG_NOT_FOUND, EtkError
-from .output import LABEL_VERIFIED, source_meta
+from .errors import (
+    E_FIELD_NOT_FOUND,
+    E_INPUT_INVALID,
+    E_PERIPH_NOT_FOUND,
+    E_REG_NOT_FOUND,
+    E_SVD_NOT_FOUND,
+    EtkError,
+)
+from .output import LABEL_VERIFIED, read_semantics, source_meta, write_semantics
+from .values import parse_number
 
 
 def hex_addr(value):
@@ -21,6 +32,10 @@ def hex_offset(value):
 
 
 def hex_reset(value, size):
+    return "0x%0*X" % (max(1, size // 4), value)
+
+
+def hex_mask(value, size):
     return "0x%0*X" % (max(1, size // 4), value)
 
 
@@ -102,19 +117,28 @@ def _reg_dict(periph, reg):
         "reset": hex_reset(reg.reset_value, reg.size),
         "reset_mask": hex_reset(reg.reset_mask, reg.size),
         "description": reg.description,
+        "modified_write_values": reg.modified_write_values,
+        "write_semantics": write_semantics(reg.modified_write_values),
+        "read_action": reg.read_action,
+        "read_semantics": read_semantics(reg.read_action),
     }
 
 
-def _field_dict(item, reg_reset):
+def _field_dict(item, reg_reset, size):
     return {
         "name": item.name,
         "bits": item.bit_text,
         "lsb": item.lsb,
         "msb": item.msb,
         "width": item.width,
+        "mask": hex_mask(item.mask << item.lsb, size),
         "access": item.access,
         "description": item.description,
         "reset": (reg_reset >> item.lsb) & item.mask,
+        "modified_write_values": item.modified_write_values,
+        "write_semantics": write_semantics(item.modified_write_values),
+        "read_action": item.read_action,
+        "read_semantics": read_semantics(item.read_action),
         "enums": [
             {
                 "name": e.name,
@@ -200,7 +224,7 @@ def _register_result(periph, reg, source):
         "peripheral": periph.name,
         "base_address": hex_addr(periph.base_address),
         "register": _reg_dict(periph, reg),
-        "fields": [_field_dict(f, reg.reset_value) for f in reg.fields],
+        "fields": [_field_dict(f, reg.reset_value, reg.size) for f in reg.fields],
         "label": LABEL_VERIFIED,
         "source": source,
     }
@@ -212,7 +236,7 @@ def _field_result(periph, reg, fld, source):
         "peripheral": periph.name,
         "base_address": hex_addr(periph.base_address),
         "register": _reg_dict(periph, reg),
-        "field": _field_dict(fld, reg.reset_value),
+        "field": _field_dict(fld, reg.reset_value, reg.size),
         "label": LABEL_VERIFIED,
         "source": source,
     }
@@ -282,23 +306,23 @@ def _rank(keyword, name, description):
     return None
 
 
-def search(device, keyword, limit=50):
+def search(device, keyword, limit=50, kind=None):
     kw = (keyword or "").strip().lower()
     if not kw:
         raise EtkError(E_INPUT_INVALID, "搜索关键词不能为空", hint="例如 search baud 或 search DMA。")
     hits = []
     for periph in device.peripherals:
         rank = _rank(kw, periph.name, periph.description)
-        if rank is not None:
+        if rank is not None and kind in (None, "peripheral"):
             hits.append((rank, periph.name, "peripheral", periph.name, periph.description))
         for reg in periph.registers:
             path = "%s.%s" % (periph.name, reg.name)
             rank = _rank(kw, reg.name, reg.description)
-            if rank is not None:
+            if rank is not None and kind in (None, "register"):
                 hits.append((rank, path, "register", path, reg.description))
             for fld in reg.fields:
                 rank = _rank(kw, fld.name, fld.description)
-                if rank is not None:
+                if rank is not None and kind in (None, "field"):
                     fpath = "%s.%s" % (path, fld.name)
                     hits.append((rank, fpath, "field", fpath, fld.description))
     hits.sort(key=lambda h: (h[0], h[1]))
@@ -372,6 +396,396 @@ def list_peripherals(device):
             }
             for p in device.peripherals
         ],
+        "label": LABEL_VERIFIED,
+        "source": source_meta(device),
+    }
+
+
+def bit_ranges(bits):
+    """把位号集合压缩成 [lo, hi] 区间列表，如 [1,2,4,5,6] -> [[1,2],[4,6]]。"""
+    out = []
+    for bit in sorted(bits):
+        if out and bit == out[-1][1] + 1:
+            out[-1][1] = bit
+        else:
+            out.append([bit, bit])
+    return out
+
+
+def _covered_mask(reg):
+    covered = 0
+    for fld in reg.fields:
+        covered |= fld.mask << fld.lsb
+    return covered
+
+
+def _owner(fields, bit):
+    for fld in fields:
+        if fld.lsb <= bit < fld.lsb + fld.width:
+            return fld.name
+    return None
+
+
+def register_fields(device, text):
+    """位域速查表：位范围、宽度、掩码、访问、复位、枚举与未定义位。"""
+    periph, reg = resolve_register(device, text)
+    covered = _covered_mask(reg)
+    undefined = [i for i in range(reg.size) if not (covered >> i) & 1]
+    return {
+        "kind": "fields",
+        "peripheral": periph.name,
+        "base_address": hex_addr(periph.base_address),
+        "register": _reg_dict(periph, reg),
+        "fields": [_field_dict(f, reg.reset_value, reg.size) for f in reg.fields],
+        "undefined_bits": undefined,
+        "label": LABEL_VERIFIED,
+        "source": source_meta(device),
+    }
+
+
+def diagram(device, text):
+    """寄存器位图：每个位域取一个符号字符，未定义位用点号。"""
+    periph, reg = resolve_register(device, text)
+    used = set()
+    legend = []
+    chars = ["." for _ in range(reg.size)]
+    for fld in reg.fields:
+        chosen = None
+        for cand in fld.name:
+            up = cand.upper()
+            if up.isalnum() and up not in used:
+                chosen = up
+                break
+        if chosen is None:
+            chosen = "*"
+        used.add(chosen)
+        legend.append({"char": chosen, "field": fld.name, "bits": fld.bit_text})
+        for bit in range(fld.lsb, min(fld.lsb + fld.width, reg.size)):
+            chars[bit] = chosen
+    return {
+        "kind": "diagram",
+        "peripheral": periph.name,
+        "base_address": hex_addr(periph.base_address),
+        "register": _reg_dict(periph, reg),
+        "cells": [
+            {"bit": i, "char": chars[i], "field": _owner(reg.fields, i)}
+            for i in range(reg.size)
+        ],
+        "legend": legend,
+        "reset_bits": [i for i in range(reg.size) if (reg.reset_value >> i) & 1],
+        "label": LABEL_VERIFIED,
+        "source": source_meta(device),
+    }
+
+
+def set_fields(device, text, assignments, source_value=None):
+    """按位域赋值计算寄存器写入值。source_value 为 None 时以复位值为基准。
+
+    assignments 形如 ["CEN=1", "DIR=UP"]，值可以是数字或字段的枚举名。
+    """
+    periph, reg = resolve_register(device, text)
+    size_mask = (1 << reg.size) - 1
+    if source_value is None:
+        from_label = "复位值"
+        initial = reg.reset_value & size_mask
+    else:
+        if source_value > size_mask:
+            raise EtkError(
+                E_INPUT_INVALID,
+                "基准值 0x%X 超出 %d 位寄存器 %s.%s 的范围" % (
+                    source_value, reg.size, periph.name, reg.name),
+                hint="寄存器宽 %d 位，取值范围 0 到 0x%X。" % (reg.size, size_mask),
+            )
+        from_label = "指定值"
+        initial = source_value
+    value = initial
+    rows = []
+    notes = []
+    for item in assignments:
+        name, sep, raw = item.partition("=")
+        name, raw = name.strip(), raw.strip()
+        if not sep or not name or not raw:
+            raise EtkError(
+                E_INPUT_INVALID,
+                "赋值 %r 格式不正确" % item,
+                hint="格式为 字段=值，例如 CEN=1 或 DIR=UP。",
+            )
+        fld = reg.field(name)
+        if fld is None:
+            sugg = suggest(name, [f.name for f in reg.fields])
+            hint = "可用 lookup %s.%s 查看全部位域。" % (periph.name, reg.name)
+            if sugg:
+                hint += "你可能要找：%s。" % "、".join(sugg)
+            raise EtkError(
+                E_FIELD_NOT_FOUND,
+                "%s.%s 中没有位域 %s" % (periph.name, reg.name, name),
+                hint=hint,
+                details={"suggestions": sugg},
+            )
+        enum = next((e for e in fld.enums if e.name.upper() == raw.upper()), None)
+        if enum is not None:
+            fv = enum.value
+        else:
+            try:
+                fv = parse_number(raw)
+            except ValueError:
+                names = "、".join(e.name for e in fld.enums if e.name)
+                hint = "给出数字（如 0x1）"
+                if names:
+                    hint += "，或字段的枚举名：" + names
+                raise EtkError(
+                    E_INPUT_INVALID,
+                    "无法解析位域 %s 的值 %r" % (fld.name, raw),
+                    hint=hint + "。",
+                ) from None
+        if fv > fld.mask:
+            raise EtkError(
+                E_INPUT_INVALID,
+                "值 %s 超出位域 %s 的 %d 位宽度" % (raw, fld.name, fld.width),
+                hint="该位域取值范围 0 到 %d（0x%X）。" % (fld.mask, fld.mask),
+            )
+        before = (value >> fld.lsb) & fld.mask
+        value = (value & ~(fld.mask << fld.lsb)) | (fv << fld.lsb)
+        if fld.access == "read-only":
+            notes.append("位域 %s 的访问类型是 read-only，写入该值可能无效" % fld.name)
+        elif fld.access == "read-writeOnce":
+            notes.append("位域 %s 只能写入一次（read-writeOnce）" % fld.name)
+        rows.append({
+            "field": fld.name,
+            "bits": fld.bit_text,
+            "width": fld.width,
+            "given": raw,
+            "value": fv,
+            "value_hex": "0x%X" % fv,
+            "before": before,
+            "changed": before != fv,
+            "via_enum": enum.name if enum else None,
+        })
+    covered = _covered_mask(reg)
+    undefined_set = [i for i in range(reg.size) if (value >> i) & 1 and not (covered >> i) & 1]
+    return {
+        "kind": "set",
+        "peripheral": periph.name,
+        "base_address": hex_addr(periph.base_address),
+        "register": _reg_dict(periph, reg),
+        "from": {"label": from_label, "value": initial, "value_hex": hex_reset(initial, reg.size)},
+        "value": value,
+        "value_hex": hex_reset(value, reg.size),
+        "assignments": rows,
+        "undefined_bits_set": undefined_set,
+        "notes": notes,
+        "label": LABEL_VERIFIED,
+        "source": source_meta(device),
+    }
+
+
+def _side_resolve(device, text, side):
+    try:
+        return resolve_register(device, text)
+    except EtkError as exc:
+        raise EtkError(
+            exc.code,
+            "%s 侧：%s" % (side, exc.message),
+            hint=exc.hint,
+            details=exc.details,
+        ) from None
+
+
+def _enum_diff(a_enums, b_enums):
+    out = []
+    by_a = {e.name.upper(): e for e in a_enums if e.name}
+    by_b = {e.name.upper(): e for e in b_enums if e.name}
+    removed = [by_a[k].name for k in by_a if k not in by_b]
+    added = [by_b[k].name for k in by_b if k not in by_a]
+    if removed:
+        out.append("枚举仅 A 侧有：%s" % "、".join(removed))
+    if added:
+        out.append("枚举仅 B 侧有：%s" % "、".join(added))
+    for key in by_a:
+        if key in by_b:
+            ea, eb = by_a[key], by_b[key]
+            if ea.value != eb.value or ea.mask != eb.mask:
+                out.append("枚举 %s 值 %d → %d" % (ea.name, ea.value, eb.value))
+    return out
+
+
+def diff_registers(device_a, device_b, text):
+    """对比两份 SVD 中同一路径寄存器的定义差异。"""
+    periph_a, reg_a = _side_resolve(device_a, text, "A")
+    periph_b, reg_b = _side_resolve(device_b, text, "B")
+    reg_diffs = []
+    if periph_a.base_address != periph_b.base_address:
+        reg_diffs.append("外设基地址 %s → %s" % (
+            hex_addr(periph_a.base_address), hex_addr(periph_b.base_address)))
+    if reg_a.offset != reg_b.offset:
+        reg_diffs.append("偏移 %s → %s" % (hex_offset(reg_a.offset), hex_offset(reg_b.offset)))
+    if reg_a.size != reg_b.size:
+        reg_diffs.append("宽度 %d → %d" % (reg_a.size, reg_b.size))
+    if reg_a.access != reg_b.access:
+        reg_diffs.append("访问 %s → %s" % (reg_a.access, reg_b.access))
+    if reg_a.reset_value != reg_b.reset_value:
+        reg_diffs.append("复位 %s → %s" % (
+            hex_reset(reg_a.reset_value, reg_a.size), hex_reset(reg_b.reset_value, reg_b.size)))
+    if reg_a.modified_write_values != reg_b.modified_write_values:
+        reg_diffs.append("写语义 %s → %s" % (
+            write_semantics(reg_a.modified_write_values) or "无",
+            write_semantics(reg_b.modified_write_values) or "无"))
+    if reg_a.read_action != reg_b.read_action:
+        reg_diffs.append("读语义 %s → %s" % (
+            read_semantics(reg_a.read_action) or "无",
+            read_semantics(reg_b.read_action) or "无"))
+    fa = {f.name.upper(): f for f in reg_a.fields}
+    fb = {f.name.upper(): f for f in reg_b.fields}
+    order = [f.name for f in reg_a.fields]
+    order += [f.name for f in reg_b.fields if f.name.upper() not in fa]
+    rows = []
+    for name in order:
+        key = name.upper()
+        item_a, item_b = fa.get(key), fb.get(key)
+        if item_a is not None and item_b is None:
+            rows.append({
+                "name": item_a.name, "status": "only_a",
+                "a": _field_dict(item_a, reg_a.reset_value, reg_a.size),
+                "b": None, "differences": [],
+            })
+            continue
+        if item_b is not None and item_a is None:
+            rows.append({
+                "name": item_b.name, "status": "only_b",
+                "a": None,
+                "b": _field_dict(item_b, reg_b.reset_value, reg_b.size),
+                "differences": [],
+            })
+            continue
+        da = _field_dict(item_a, reg_a.reset_value, reg_a.size)
+        db = _field_dict(item_b, reg_b.reset_value, reg_b.size)
+        diffs = []
+        if da["bits"] != db["bits"]:
+            diffs.append("位 %s → %s" % (da["bits"], db["bits"]))
+        if da["access"] != db["access"]:
+            diffs.append("访问 %s → %s" % (da["access"], db["access"]))
+        if da["reset"] != db["reset"]:
+            diffs.append("复位 %d → %d" % (da["reset"], db["reset"]))
+        if da["modified_write_values"] != db["modified_write_values"]:
+            diffs.append("写语义 %s → %s" % (
+                da["write_semantics"] or "无", db["write_semantics"] or "无"))
+        if da["read_action"] != db["read_action"]:
+            diffs.append("读语义 %s → %s" % (
+                da["read_semantics"] or "无", db["read_semantics"] or "无"))
+        diffs.extend(_enum_diff(item_a.enums, item_b.enums))
+        rows.append({
+            "name": da["name"],
+            "status": "same" if not diffs else "diff",
+            "a": da,
+            "b": db,
+            "differences": diffs,
+        })
+    identical = not reg_diffs and all(r["status"] == "same" for r in rows)
+    return {
+        "kind": "diff",
+        "path": "%s.%s" % (periph_a.name, reg_a.name),
+        "a": {
+            "peripheral": periph_a.name,
+            "base_address": hex_addr(periph_a.base_address),
+            "register": _reg_dict(periph_a, reg_a),
+            "source": source_meta(device_a),
+        },
+        "b": {
+            "peripheral": periph_b.name,
+            "base_address": hex_addr(periph_b.base_address),
+            "register": _reg_dict(periph_b, reg_b),
+            "source": source_meta(device_b),
+        },
+        "register_differences": reg_diffs,
+        "fields": rows,
+        "identical": identical,
+        "label": LABEL_VERIFIED,
+    }
+
+
+def find_in_range(device, start, end, limit=200):
+    """列出起始地址落在 [start, end] 区间内的寄存器（按地址排序）。"""
+    if start > end:
+        raise EtkError(
+            E_INPUT_INVALID,
+            "区间起点 0x%X 大于终点 0x%X" % (start, end),
+            hint="用法：range <起始地址> <结束地址>，如 range 0x40013800 0x40013FFF。",
+        )
+    hits = []
+    for periph in device.peripherals:
+        for reg in periph.registers:
+            addr = periph.base_address + reg.offset
+            if start <= addr <= end:
+                hits.append((addr, periph, reg))
+    hits.sort(key=lambda item: item[0])
+    matches = [
+        {
+            "path": "%s.%s" % (periph.name, reg.name),
+            "address": hex_addr(addr),
+            "offset": hex_offset(reg.offset),
+            "size": reg.size,
+            "access": reg.access,
+            "reset": hex_reset(reg.reset_value, reg.size),
+            "description": reg.description,
+        }
+        for addr, periph, reg in hits[:limit]
+    ]
+    return {
+        "kind": "range",
+        "start": hex_addr(start),
+        "end": hex_addr(end),
+        "count": len(hits),
+        "truncated": len(hits) > limit,
+        "registers": matches,
+        "label": LABEL_VERIFIED,
+        "source": source_meta(device),
+    }
+
+
+def device_info(device):
+    """SVD 元信息与统计：厂商、CPU、各层级数量、文件哈希（可追溯出处）。"""
+    registers = 0
+    fields = 0
+    enums = 0
+    derived = 0
+    for periph in device.peripherals:
+        if periph.derived_from:
+            derived += 1
+        for reg in periph.registers:
+            registers += 1
+            fields += len(reg.fields)
+            for fld in reg.fields:
+                enums += len(fld.enums)
+    try:
+        size = os.path.getsize(device.path)
+        mtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(device.path)))
+        digest = hashlib.sha256()
+        with open(device.path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                digest.update(chunk)
+    except OSError as exc:
+        raise EtkError(
+            E_SVD_NOT_FOUND,
+            "无法读取 SVD 文件：%s（%s）" % (device.path, exc.strerror or exc),
+            hint="文件可能已被移动或删除。",
+        ) from None
+    return {
+        "kind": "info",
+        "device": device.name,
+        "vendor": device.vendor,
+        "cpu": device.cpu,
+        "description": device.description,
+        "file_size": size,
+        "mtime": mtime,
+        "sha256": digest.hexdigest(),
+        "counts": {
+            "peripherals": len(device.peripherals),
+            "derived_peripherals": derived,
+            "registers": registers,
+            "fields": fields,
+            "enums": enums,
+            "warnings": len(device.warnings),
+        },
         "label": LABEL_VERIFIED,
         "source": source_meta(device),
     }

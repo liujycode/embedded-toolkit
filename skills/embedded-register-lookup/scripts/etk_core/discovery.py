@@ -1,6 +1,7 @@
 """SVD 文件查找，顺序：--svd 参数 > 项目配置 .etk/config.json > 本机 CMSIS-Pack 缓存。
 
-Pack 目录布局：<Packs>/<厂商>/<包名>/<版本>/SVD/*.svd，本机 Keil 与 GigaDevice 包均按此布局。
+Pack 目录布局：<Packs>/<厂商>/<包名>/<版本>/{SVD,CMSIS/SVD}/*.svd，
+两种布局分别对应 Keil STM32F1/F3 包与 STM32F4/G4 包，以及 Nordic、GigaDevice 的常见布局。
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from .errors import E_INPUT_INVALID, E_SVD_NOT_FOUND, EtkError
 CONFIG_RELPATH = os.path.join(".etk", "config.json")
 _PACK_PATTERNS = (
     os.path.join("*", "*", "*", "SVD", "*.svd"),
+    os.path.join("*", "*", "*", "CMSIS", "SVD", "*.svd"),
     os.path.join("*", "*", "*", "*.svd"),
 )
 _PACKAGE_SUFFIX = re.compile(r"(?<=\d{3})[A-Z][A-Z0-9]*$")
@@ -91,6 +93,20 @@ def _natural(path):
     return [int(p) if p.isdigit() else p.lower() for p in re.split(r"(\d+)", path)]
 
 
+def _wildcard_equal(key, stem):
+    """文件名里的 x 是厂商的通配写法（如 STM32F40x.svd 覆盖 STM32F405/407/415/417）。
+
+    等长比较：stem 中的 X 匹配任意字符，其余字符必须一致。
+    只在精确与前缀匹配都失败后使用，避免抢走更具体的文件（如 F401 优先 F401x.svd）。
+    """
+    if len(stem) != len(key):
+        return False
+    for s_ch, k_ch in zip(stem, key):
+        if s_ch != k_ch and s_ch != "X":
+            return False
+    return True
+
+
 def _match(chip, paths):
     for key in _chip_keys(chip):
         exact = [p for p in paths if _stem(p) == key]
@@ -99,6 +115,9 @@ def _match(chip, paths):
         prefix = [p for p in paths if _stem(p).startswith(key)]
         if prefix:
             return prefix, key
+        wildcard = [p for p in paths if _wildcard_equal(key, _stem(p))]
+        if wildcard:
+            return wildcard, key
     return [], None
 
 

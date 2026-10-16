@@ -26,7 +26,7 @@ def test_device_metadata(device):
 
 def test_peripheral_instances_in_document_order(device):
     assert [p.name for p in device.peripherals] == [
-        "USART1", "USART2", "USART3", "GPIOA", "GPIOB", "GPIOC", "DMA1", "TIM1", "RCC"]
+        "USART1", "USART2", "USART3", "GPIOA", "GPIOB", "GPIOC", "DMA1", "TIM1", "RCC", "EXTI"]
 
 
 def test_register_offsets_sizes_and_resets(device):
@@ -271,3 +271,21 @@ def test_nonspace_prefix_before_declaration_still_fails(tmp_path):
     with pytest.raises(EtkError) as info:
         load_device(str(path))
     assert info.value.code == E_SVD_PARSE
+
+
+def test_device_vendor_and_cpu(device):
+    assert device.vendor == "SYNTH-Corp"
+    assert device.cpu == "CM4"
+
+
+def test_modified_write_values_register_level_inherited_by_fields(device):
+    pr = device.peripheral("EXTI").register("PR")
+    assert pr.modified_write_values == "oneToClear"
+    assert pr.field("P0").modified_write_values == "oneToClear"
+    assert pr.field("P1").modified_write_values == "oneToSet"
+
+
+def test_read_action_is_field_level(device):
+    pr = device.peripheral("EXTI").register("PR")
+    assert pr.field("P0").read_action == "clear"
+    assert pr.field("P1").read_action == ""

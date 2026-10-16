@@ -195,3 +195,42 @@ def test_gd32f3x0_matches_independent_walk():
 
 def test_gd32f3x0_derived_peripherals_mirror_base():
     _assert_derived_mirror_base(_find("GD32F3x0.svd"))
+
+
+def test_real_g431_set_and_fields_masks():
+    dev = load_device(_find("STM32G431xx.svd"))
+    res = query.set_fields(dev, "USART1.CR1", ["UE=1", "RE=1"])
+    assert res["value"] == 0x00000005
+    fields = query.register_fields(dev, "USART1.CR1")
+    by_name = {f["name"]: f for f in fields["fields"]}
+    assert by_name["UE"]["mask"] == "0x00000001"
+    assert by_name["RE"]["mask"] == "0x00000004"
+
+
+def test_real_f103_usart1_ue_is_bit13():
+    dev = load_device(_find("STM32F103xx.svd"))
+    ue = dev.peripheral("USART1").register("CR1").field("UE")
+    assert (ue.lsb, ue.width) == (13, 1)
+    res = query.set_fields(dev, "USART1.CR1", ["UE=1"])
+    assert res["value"] == 0x00002000
+
+
+def test_real_diff_f103_vs_g431_usart_cr1():
+    f103 = load_device(_find("STM32F103xx.svd"))
+    g431 = load_device(_find("STM32G431xx.svd"))
+    res = query.diff_registers(f103, g431, "USART1.CR1")
+    assert res["identical"] is False
+    rows = {r["name"]: r for r in res["fields"]}
+    assert rows["UE"]["status"] == "diff"
+    assert rows["UE"]["a"]["bits"] == "13"
+    assert rows["UE"]["b"]["bits"] == "0"
+
+
+def test_real_info_sha256_matches_file():
+    import hashlib
+    path = _find("STM32G431xx.svd")
+    res = query.device_info(load_device(path))
+    with open(path, "rb") as fh:
+        assert res["sha256"] == hashlib.sha256(fh.read()).hexdigest()
+    assert res["counts"]["peripherals"] > 20
+    assert res["counts"]["registers"] > 100

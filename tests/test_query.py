@@ -226,8 +226,200 @@ def test_decode_rejects_field_path(device):
 
 def test_list_peripherals(device):
     res = query.list_peripherals(device)
-    assert res["count"] == 9
+    assert res["count"] == 10
     by_name = {p["name"]: p for p in res["peripherals"]}
     assert by_name["USART2"]["derived_from"] == "USART1"
     assert by_name["USART1"]["register_count"] == 3
     assert by_name["GPIOB"]["base_address"] == "0x48000400"
+
+
+def test_search_kind_filters_results(device):
+    all_res = query.search(device, "USART")
+    only = query.search(device, "USART", kind="peripheral")
+    assert only["total"] == 3
+    assert only["total"] < all_res["total"]
+    assert all(m["kind"] == "peripheral" for m in only["matches"])
+
+
+def test_lookup_reports_semantics_and_mask(device):
+    res = query.lookup(device, "EXTI.PR.P0")
+    f = res["field"]
+    assert f["modified_write_values"] == "oneToClear"
+    assert f["write_semantics"] == "写 1 清零"
+    assert f["read_semantics"] == "读后清零"
+    assert f["mask"] == "0x00000001"
+    reg = res["register"]
+    assert reg["write_semantics"] == "写 1 清零"
+    assert reg["read_semantics"] == ""
+
+
+def test_bit_ranges_compresses():
+    assert query.bit_ranges([1, 2, 4, 5, 6]) == [[1, 2], [4, 6]]
+    assert query.bit_ranges([]) == []
+    assert query.bit_ranges([0]) == [[0, 0]]
+
+
+def test_register_fields_masks_and_undefined(device):
+    res = query.register_fields(device, "USART1.CR1")
+    assert res["kind"] == "fields"
+    by_name = {f["name"]: f for f in res["fields"]}
+    assert by_name["UE"]["mask"] == "0x00000001"
+    assert by_name["TE"]["mask"] == "0x00000008"
+    assert by_name["PS"]["mask"] == "0x00000200"
+    assert by_name["M0"]["mask"] == "0x00001000"
+    assert by_name["OVER8"]["mask"] == "0x00008000"
+    assert res["undefined_bits"] == [1, 2, 4, 5, 6, 7, 8, 10, 11, 13, 14] + list(range(16, 32))
+
+
+def test_register_fields_mask_width_follows_register_size(device):
+    res = query.register_fields(device, "GPIOC.ODR")
+    assert res["fields"][0]["mask"] == "0x0001"
+
+
+def test_diagram_cells_legend_and_owner(device):
+    res = query.diagram(device, "USART1.CR1")
+    assert res["kind"] == "diagram"
+    assert len(res["cells"]) == 32
+    chars = {c["bit"]: c["char"] for c in res["cells"]}
+    assert chars[0] == "U" and chars[3] == "T" and chars[9] == "P"
+    assert chars[12] == "M" and chars[15] == "O" and chars[1] == "."
+    assert res["cells"][0]["field"] == "UE"
+    assert res["cells"][1]["field"] is None
+    assert [item["char"] for item in res["legend"]] == ["U", "T", "P", "M", "O"]
+    assert res["reset_bits"] == []
+
+
+def test_diagram_reset_bits(device):
+    res = query.diagram(device, "USART1.SR")
+    assert res["reset_bits"] == [6, 7]
+
+
+def test_set_fields_defaults_to_reset_and_enums(device):
+    res = query.set_fields(device, "TIM1.CR1", ["CEN=1", "DIR=UP"])
+    assert res["kind"] == "set"
+    assert res["from"]["label"] == "复位值"
+    assert (res["value"], res["value_hex"]) == (1, "0x0001")
+    rows = {a["field"]: a for a in res["assignments"]}
+    assert rows["CEN"]["changed"] is True
+    assert rows["DIR"]["changed"] is False
+    assert rows["DIR"]["via_enum"] == "UP"
+
+
+def test_set_fields_accepts_numeric_and_from_value(device):
+    res = query.set_fields(device, "TIM1.CR1", ["DIR=0x1", "CEN=0b1"], 0x0000)
+    assert res["value"] == 0x11
+    assert res["from"]["label"] == "指定值"
+
+
+def test_set_fields_unknown_field_suggests(device):
+    with pytest.raises(EtkError) as info:
+        query.set_fields(device, "TIM1.CR1", ["CENN=1"])
+    assert info.value.code == E_FIELD_NOT_FOUND
+    assert "CEN" in info.value.details["suggestions"]
+
+
+def test_set_fields_value_out_of_width_is_rejected(device):
+    with pytest.raises(EtkError) as info:
+        query.set_fields(device, "TIM1.CR1", ["CEN=2"])
+    assert info.value.code == E_INPUT_INVALID
+    assert "宽度" in info.value.message
+
+
+def test_set_fields_unknown_word_suggests_enum_names(device):
+    with pytest.raises(EtkError) as info:
+        query.set_fields(device, "TIM1.CR1", ["DIR=SIDEWAYS"])
+    assert info.value.code == E_INPUT_INVALID
+    assert "UP" in info.value.hint
+
+
+def test_set_fields_read_only_gets_note(device):
+    res = query.set_fields(device, "USART1.SR", ["TXE=0"])
+    assert any("read-only" in n for n in res["notes"])
+
+
+def test_set_fields_bad_assignment_format(device):
+    with pytest.raises(EtkError) as info:
+        query.set_fields(device, "TIM1.CR1", ["CEN"])
+    assert info.value.code == E_INPUT_INVALID
+
+
+def test_set_fields_source_value_out_of_range(device):
+    with pytest.raises(EtkError) as info:
+        query.set_fields(device, "TIM1.CR1", ["CEN=1"], 0x10000)
+    assert info.value.code == E_INPUT_INVALID
+
+
+def test_set_fields_reports_undefined_bits_set(device):
+    res = query.set_fields(device, "TIM1.CR1", ["CEN=1"], 0x0002)
+    assert res["value"] == 0x0003
+    assert res["undefined_bits_set"] == [1]
+
+
+def test_diff_registers_reports_all_statuses(device, device_b):
+    res = query.diff_registers(device, device_b, "USART1.CR1")
+    assert res["kind"] == "diff"
+    assert res["identical"] is False
+    assert "外设基地址 0x40013800 → 0x40013C00" in res["register_differences"]
+    assert "复位 0x00000000 → 0x00000200" in res["register_differences"]
+    rows = {r["name"]: r for r in res["fields"]}
+    assert rows["UE"]["status"] == "same"
+    assert rows["TE"]["status"] == "diff"
+    assert rows["TE"]["differences"] == ["位 3 → 4"]
+    assert "访问 read-write → read-only" in rows["PS"]["differences"]
+    assert "复位 0 → 1" in rows["PS"]["differences"]
+    assert "枚举仅 A 侧有：ODD" in rows["PS"]["differences"]
+    assert rows["M0"]["status"] == "only_a"
+    assert rows["M0"]["b"] is None
+    assert rows["NEWF"]["status"] == "only_b"
+    assert rows["NEWF"]["b"]["bits"] == "21:20"
+
+
+def test_diff_identical_when_both_sides_same(device):
+    res = query.diff_registers(device, device, "USART1.CR1")
+    assert res["identical"] is True
+    assert res["register_differences"] == []
+    assert all(r["status"] == "same" for r in res["fields"])
+
+
+def test_diff_error_names_the_side(device, device_b):
+    with pytest.raises(EtkError) as info:
+        query.diff_registers(device, device_b, "USART1.BRR")
+    assert info.value.code == E_REG_NOT_FOUND
+    assert "B 侧" in info.value.message
+
+
+def test_find_in_range_lists_sorted_matches(device):
+    res = query.find_in_range(device, 0x40013800, 0x4001381F)
+    assert res["kind"] == "range"
+    assert res["count"] == 3
+    assert [m["path"] for m in res["registers"]] == ["USART1.CR1", "USART1.BRR", "USART1.SR"]
+
+
+def test_find_in_range_truncates(device):
+    res = query.find_in_range(device, 0x40000000, 0x50000000, limit=2)
+    assert res["truncated"] is True
+    assert len(res["registers"]) == 2
+
+
+def test_find_in_range_reversed_bounds_is_error(device):
+    with pytest.raises(EtkError) as info:
+        query.find_in_range(device, 0x100, 0x10)
+    assert info.value.code == E_INPUT_INVALID
+
+
+def test_device_info_counts_vendor_and_hash(device):
+    import hashlib
+
+    from helpers import SYNTH
+
+    res = query.device_info(device)
+    assert res["kind"] == "info"
+    assert (res["device"], res["vendor"], res["cpu"]) == ("SYNTH32", "SYNTH-Corp", "CM4")
+    assert res["counts"]["peripherals"] == 10
+    assert res["counts"]["derived_peripherals"] == 2
+    assert res["counts"]["registers"] == 31
+    assert res["counts"]["fields"] == 52
+    assert res["counts"]["enums"] == 25
+    with open(SYNTH, "rb") as fh:
+        assert res["sha256"] == hashlib.sha256(fh.read()).hexdigest()
+    assert res["file_size"] > 0

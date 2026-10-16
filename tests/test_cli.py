@@ -3,7 +3,7 @@
 import json
 import re
 
-from helpers import LOOKUP, SYNTH, run_cli
+from helpers import LOOKUP, SYNTH, SYNTH_B, run_cli
 
 
 def _script_version():
@@ -114,3 +114,95 @@ def test_help_exits_zero():
     r = run_cli("--help")
     assert r.returncode == 0
     assert "lookup" in r.stdout
+
+
+def test_fields_command_lists_masks():
+    r = run_cli("fields", "USART1.CR1", "--svd", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "掩码 0x00008000" in r.stdout
+    assert "未定义位" in r.stdout
+
+
+def test_diagram_command_draws_symbols_and_legend():
+    r = run_cli("diagram", "USART1.CR1", "--svd", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "O..M..P." in r.stdout
+    assert "O=OVER8 b15" in r.stdout
+
+
+def test_set_command_computes_register_value():
+    r = run_cli("set", "TIM1.CR1", "CEN=1", "DIR=DOWN", "--svd", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "结果：0x0011" in r.stdout
+
+
+def test_set_command_json_reports_enum():
+    r = run_cli("set", "TIM1.CR1", "DIR=DOWN", "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stderr
+    res = json.loads(r.stdout)["results"][0]
+    assert res["kind"] == "set"
+    assert res["value"] == 0x10
+    assert res["assignments"][0]["via_enum"] == "DOWN"
+
+
+def test_set_unknown_field_is_error():
+    r = run_cli("set", "TIM1.CR1", "CENN=1", "--svd", SYNTH)
+    assert r.returncode == 1
+    assert "E_FIELD_NOT_FOUND" in r.stdout
+
+
+def test_diff_self_compare_warns_and_is_identical():
+    r = run_cli("diff", "USART1.CR1", "--svd-a", SYNTH, "--svd-b", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "自比对" in r.stdout
+    assert "两侧寄存器定义一致" in r.stdout
+
+
+def test_diff_reports_differences_between_fixtures():
+    r = run_cli("diff", "USART1.CR1", "--svd-a", SYNTH, "--svd-b", SYNTH_B, "--format", "json")
+    assert r.returncode == 0, r.stderr
+    res = json.loads(r.stdout)["results"][0]
+    assert res["a"]["source"]["file"] == "synthetic.svd"
+    assert res["b"]["source"]["file"] == "synthetic_b.svd"
+    assert res["identical"] is False
+    text = run_cli("diff", "USART1.CR1", "--svd-a", SYNTH, "--svd-b", SYNTH_B)
+    assert "位 3 → 4" in text.stdout
+    assert "仅 B 侧有" in text.stdout
+
+
+def test_range_command_lists_registers():
+    r = run_cli("range", "0x40013800", "0x4001381F", "--svd", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "共 3 个" in r.stdout
+    assert "USART1.BRR" in r.stdout
+
+
+def test_range_reversed_bounds_is_error():
+    r = run_cli("range", "0x100", "0x10", "--svd", SYNTH)
+    assert r.returncode == 1
+    assert "E_INPUT_INVALID" in r.stdout
+
+
+def test_info_command_reports_hash_and_counts():
+    r = run_cli("info", "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stderr
+    res = json.loads(r.stdout)["results"][0]
+    assert res["kind"] == "info"
+    assert res["vendor"] == "SYNTH-Corp"
+    assert res["counts"]["registers"] == 31
+    assert len(res["sha256"]) == 64
+
+
+def test_decode_accepts_multiple_values():
+    r = run_cli("decode", "USART1.CR1", "0x109", "0x200", "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stderr
+    env = json.loads(r.stdout)
+    assert [res["value"] for res in env["results"]] == [0x109, 0x200]
+
+
+def test_search_kind_filter():
+    r = run_cli("search", "USART", "--kind", "peripheral", "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stderr
+    res = json.loads(r.stdout)["results"][0]
+    assert res["total"] == 3
+    assert all(m["kind"] == "peripheral" for m in res["matches"])
