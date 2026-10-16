@@ -206,6 +206,28 @@ def blank_preprocessor(clean):
     return "\n".join(" " * len(line) if line.lstrip().startswith("#") else line for line in lines)
 
 
+def conditional_lines(clean_all):
+    """按行计算条件编译嵌套深度（#if/#ifdef/#ifndef 起，#endif 止；#else/#elif 不改变深度）。
+
+    返回逐行深度列表（下标为行号）。用于把"条件块内 + SVD 中不存在的目标"记未判定，
+    而不是误报——厂商库源码常在一个文件里支持整个芯片家族，用 #if 区分型号/配置。
+    """
+    depths = []
+    depth = 0
+    for line in clean_all.split("\n"):
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            m = re.match(r"#\s*(\w+)", stripped)
+            if m:
+                word = m.group(1)
+                if word in ("if", "ifdef", "ifndef"):
+                    depth += 1
+                elif word == "endif":
+                    depth = max(0, depth - 1)
+        depths.append(depth)
+    return depths
+
+
 def split_statements(clean):
     """按分号切分语句（圆括号内不分；花括号与分号都算语句边界）。
 
@@ -535,6 +557,14 @@ def extract_all(text, extra_defines=None):
                     if segments and segments[0] == "Group" and indices and indices[0] is not None:
                         group_index = indices[0].strip()
                         segments, indices = segments[1:], indices[1:]
+                    prefix_segments = None
+                    for idx, seg in enumerate(segments):
+                        # FSP 位域视图后缀：REG_b.FIELD → 寄存器 REG（其后段是位域选择）
+                        if len(seg) > 2 and seg.lower().endswith("_b"):
+                            if idx:
+                                prefix_segments = segments[:idx]  # 层级前缀（如 PFS 的 PORT.PIN）
+                            segments, indices = [seg[:-2]], [indices[idx]]
+                            break
                     if segments:
                         entry = {
                             "kind": "member", "op": m_op.group(1), "line": line, "code": display,
@@ -544,6 +574,8 @@ def extract_all(text, extra_defines=None):
                         }
                         if group_index:
                             entry["group_index"] = group_index
+                        if prefix_segments:
+                            entry["prefix_segments"] = prefix_segments
                         writes.append(entry)
                         continue
         bare = re.match(r"\s*([A-Z][A-Z0-9_]{1,})\s*(\|=|&=|\^=|=)(?!=)", stmt)
@@ -580,6 +612,13 @@ def extract_all(text, extra_defines=None):
                      | {name.upper() for name in _LOCM3_ENABLE_RE.findall(clean_all)}
                      | ({"RTC"} if _LOCM3_RTC_ENABLE_RE.search(clean_all) else set()))
     grouping_lines = [_line_of(clean, m.start(), line_map) for m in _GROUPING_RE.finditer(clean)]
+    # 条件编译标记：写入位于 #if/#ifdef 块内时打标（核验侧对"目标不存在"类问题降级为未判定）
+    depths = conditional_lines(clean_all)
+    cond_lines = {line_map[i] for i, d in enumerate(depths) if d and i < len(line_map)}
+    if cond_lines:
+        for w in writes:
+            if w["line"] in cond_lines:
+                w["conditional"] = True
     return {
         "defines": defines,
         "aliases": aliases,

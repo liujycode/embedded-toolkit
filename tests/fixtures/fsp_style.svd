@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Renesas FSP 风格测试夹具：
+  - 位域视图后缀（R_ICU->IELSR_b[0].IR）、数字后缀寄存器组（IELSR0…IELSR3）
+  - 占位符位域组（SADMACn → SADMAC0…7）
+  - 外设指针宏按地址解析（R_GPT0 → GPT320，需 headers 参数）
+  - 条件编译块内的型号差异寄存器（INTSELR）
+  仅用于 tests/test_verify.py。
+-->
+<device schemaVersion="1.1">
+  <name>FSPSYNTH</name>
+  <version>1.0</version>
+  <description>Renesas FSP style fixture</description>
+  <vendor>SYNTH-Corp</vendor>
+  <cpu>
+    <name>CM33</name>
+    <revision>r0p1</revision>
+    <endian>little</endian>
+  </cpu>
+  <width>32</width>
+  <resetValue>0x00000000</resetValue>
+  <resetMask>0xFFFFFFFF</resetMask>
+  <peripherals>
+    <peripheral>
+      <name>ICU</name>
+      <description>Interrupt controller unit</description>
+      <baseAddress>0x40006000</baseAddress>
+      <addressBlock>
+        <offset>0</offset>
+        <size>0x400</size>
+        <usage>registers</usage>
+      </addressBlock>
+      <registers>
+        <register>
+          <name>IELSR0</name>
+          <addressOffset>0x00</addressOffset>
+          <size>32</size>
+          <fields>
+            <field>
+              <name>IR</name>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+          </fields>
+        </register>
+        <register>
+          <name>IELSR1</name>
+          <addressOffset>0x04</addressOffset>
+          <size>32</size>
+          <fields>
+            <field>
+              <name>IR</name>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+          </fields>
+        </register>
+        <register>
+          <name>IELSR2</name>
+          <addressOffset>0x08</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>IELSR3</name>
+          <addressOffset>0x0C</addressOffset>
+          <size>32</size>
+        </register>
+      </registers>
+    </peripheral>
+    <peripheral>
+      <name>CPSCU</name>
+      <description>CPU security unit</description>
+      <baseAddress>0x40008000</baseAddress>
+      <addressBlock>
+        <offset>0</offset>
+        <size>0x100</size>
+        <usage>registers</usage>
+      </addressBlock>
+      <registers>
+        <register>
+          <name>ICUSARC</name>
+          <description>ICU security attribution</description>
+          <addressOffset>0x18</addressOffset>
+          <size>32</size>
+          <fields>
+            <field>
+              <name>SADMAC0</name>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+            <field>
+              <name>SADMAC1</name>
+              <bitOffset>1</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+            <field>
+              <name>SADMAC2</name>
+              <bitOffset>2</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+            <field>
+              <name>SADMAC3</name>
+              <bitOffset>3</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+          </fields>
+        </register>
+      </registers>
+    </peripheral>
+    <peripheral>
+      <name>GPT320</name>
+      <description>General PWM timer 32-bit channel 0</description>
+      <baseAddress>0x40169000</baseAddress>
+      <addressBlock>
+        <offset>0</offset>
+        <size>0x100</size>
+        <usage>registers</usage>
+      </addressBlock>
+      <registers>
+        <register>
+          <name>GTWP</name>
+          <description>General PWM timer write protection</description>
+          <addressOffset>0x00</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>GTCR</name>
+          <description>General PWM timer control</description>
+          <addressOffset>0x04</addressOffset>
+          <size>32</size>
+        </register>
+      </registers>
+    </peripheral>
+    <peripheral>
+      <name>TSN</name>
+      <description>Temperature sensor</description>
+      <baseAddress>0x400F3000</baseAddress>
+      <addressBlock>
+        <offset>0</offset>
+        <size>0x10</size>
+        <usage>registers</usage>
+      </addressBlock>
+      <registers>
+        <register>
+          <name>TSCR</name>
+          <description>Temperature sensor control</description>
+          <addressOffset>0x00</addressOffset>
+          <size>32</size>
+        </register>
+      </registers>
+    </peripheral>
+  </peripherals>
+</device>

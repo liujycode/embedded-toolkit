@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件（查找规则同 embedded-register-lookup）；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.9.0"
+  version: "1.10.0"
 ---
 
 # 寄存器核验器
@@ -81,6 +81,9 @@ python scripts/verify.py rules
 | 指针表达式写入 | `*(volatile uint32_t *)(外设_BASE + 偏移) = v;`（具名表达式不报 E08；纯字面量表达式报 E08；运行时基址记未判定） |
 | 函数宏作左值 | `GPIO_ODR(GPIOA) \|= v`（libopencm3）、`GPIO_OCTL(GPIOA) = v`（GD32）——单/多参数函数宏在调用点代入求值 |
 | CMSIS union/数组风格 | `PORT->Group[0].DIRSET.reg = v`、`SERCOM0->USART.CTRLA.reg = v`、`EIC->CONFIG[0].reg \|= v`（Microchip SAMD；组/通道号为运行时表达式时记"未判定"） |
+| FSP 位域视图后缀 | `R_ICU->IELSR_b[irq].IR = v`（`REG_b.FIELD` → 寄存器 `REG`；下标为运行时表达式时记"未判定"；层级写法 `PORT[x].PIN[y].PmnPFS` 记"未判定"） |
+| 外设指针宏（按地址解析） | `#define R_GPT0 ((R_GPT0_Type *) R_GPT0_BASE)` 后的 `R_GPT0->GTWP = v`：配 `--headers` 提供设备头，按基址匹配 SVD 外设（R_GPT0 → GPT320、R_TSN_CTRL → TSN） |
+| 占位符位域组 | `R_CPSCU_ICUSARC_SADMACn_Msk`（FSP 用 `n` 占位编号 → SADMAC0…7 组；编号未指定或来自运行参数时记"未判定"） |
 | 裸寄存器名 | `PORTB = 0xFF;`、`P1OUT \|= BIT0;`、`UCSR0B = (1 << RXEN0)`（AVR/MSP430/8051；与 SVD 中唯一寄存器名匹配才核验） |
 | 通道名同义写法 | `DMA1_Channel3->CCR` ↔ `DMA1_CH3->CCR`；SVD 若把通道号放在寄存器后缀（G4 的 `CCR3`），也能对上并做字段级核验 |
 | ESP-IDF 风格寄存器宏 | `REG_WRITE/REG_SET_BIT/REG_CLR_BIT/REG_SET_FIELD/REG_CLR_FIELD(...)`：用 `--headers` 提供寄存器常量宏后按具名寄存器核验（`REG_SET_FIELD` 做到**字段级**：存在性/只读/位宽/枚举）；地址求值支持 `BIT(n)` 与函数宏（`TIMG_RTCCALICFG_REG(0)`、`GPIO_ODR(port)`）；`#include` 自动跟随；未提供时记"未判定" |
@@ -104,6 +107,10 @@ python scripts/verify.py rules
 | E10 | 写只读寄存器或位域 | 已核验 | 高 |
 | E11 | 使能（EN=1）后写 DMA 计数/地址寄存器（CNDTR/CMAR/CPAR 等） | 需查手册 | 中 |
 | E12 | 只写寄存器上的读改写（`\|=`/`&=`/`SET_BIT` 等，读回值不可靠） | 需查手册 | 中 |
+
+**条件编译块口径**：目标（外设/寄存器/位域）不存在、但写入位于 `#if/#ifdef` 块内时，记"未判定"
+并注明原因——厂商库源码常在一个文件里用 `#if` 区分芯片家族/配置（如 FSP 的 `R_GPT_ODC`、
+`R_ICU->INTSELR`），避免把其它型号的分支误报成错误；条件块**外**的不存在写法照常报 E01/E02/E03。
 
 完整判定细节与示例见 `references/rules.md`；支持形态与限制见 `references/syntax.md`。
 

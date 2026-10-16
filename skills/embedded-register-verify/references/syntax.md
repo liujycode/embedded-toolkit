@@ -18,6 +18,15 @@
    → **裸寄存器名**（AVR/MSP430/8051/PIC 风格 `PORTB = 0xFF;`、`P1OUT |= BIT0;`）：
      名字与设备 SVD 中**唯一**寄存器名精确匹配时按寄存器核验；与头文件里的地址宏重名时先按地址核验
      （见下条）；其余按普通变量赋值静默忽略、不进入统计。
+   - **CMSIS union/数组成员链**：`PORT->Group[0].DIRSET.reg = v`（Microchip SAMD）、
+     `SERCOM0->USART.CTRLA.reg = v`、`EIC->CONFIG[0].reg |= v`、`ADC->CTRLB.bit.RESSEL = ...`：
+     `.reg/.bit` 后缀截断、`Group[N]`/`[N]` 下标（支持一层嵌套表达式）、复合寄存器名（`COUNT16.CTRLA`）
+     与组/引脚后缀寄存器（`DIRSET0`、`PINCFG0_4`、`CONFIG0`）自动对上；组/引脚号为运行时表达式时
+     记"未判定"（如 `PORT->Group[g_APinDescription[pin].ulPort]`）。
+   - **FSP 位域视图后缀**：`R_ICU->IELSR_b[irq].IR = v`（`REG_b.FIELD` → 寄存器 `REG`）；
+     层级写法（`R_PFS->PORT[x].PIN[y].PmnPFS`）无法静态映射到 SVD 寄存器名 → 记"未判定"。
+   - **指针表达式写入**：`*(volatile uint32_t *)(外设_BASE + 偏移) = v`——具名表达式按寄存器核验
+     （不报 E08）、纯字面量表达式报 E08、运行时基址记"未判定"。
 6. 目录模式收集的扩展名：`.c/.h/.cpp/.cc/.cxx/.hpp/.hh/.ino`（C/C++ 工程与 Arduino 都能核验）。
 7. ESP-IDF 风格寄存器宏（`REG_WRITE/REG_SET_BIT/REG_CLR_BIT/REG_SET_FIELD/REG_CLR_FIELD/...`）：
    寄存器号来自头文件常量。用 `--headers <文件或目录>`（可多次）提供搜索根后，地址可解析 →
@@ -46,6 +55,10 @@
 - **Nordic 约定**：`NRF_<外设>` 视为 `<外设>` 的别名（`NRF_USBD` → `USBD`、`NRF_RADIO` → `RADIO`），
   与 `nrf.h` 的实例指针定义一致。
 - **Renesas RA/FSP 约定**：`R_<外设>` 视为 `<外设>` 的别名（`R_PORT0` → `PORT0`）。
+- **外设指针宏（按地址解析）**：`#define R_GPT0 ((R_GPT0_Type *) R_GPT0_BASE)` 这类厂商实例宏，
+  在 `--headers` 提供设备头后按基址匹配 SVD 外设（`R_GPT0` → `GPT320`、`R_TSN_CTRL` → `TSN`）。
+- **条件编译块口径**：目标（外设/寄存器/位域）不存在、但写入位于 `#if/#ifdef` 块内 → 记"未判定"
+  （厂商库跨型号/跨配置分支）；条件块**外**照常报 E01/E02/E03。
 - 其余无法匹配的名字按既有口径处理：内核外设/簇命名进"未判定"，其它像外设名的进"报"（E01，附拼写建议）。
 
 ## 字段宏映射（E03 的核心）

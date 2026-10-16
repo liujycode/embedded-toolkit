@@ -151,15 +151,49 @@ gpio/crc/dma/adc v1），头文件 `include/libopencm3/stm32/f1` + `stm32/common
   自动探测匹配；
 - 两条未判定只是 `F_CPU`/`TWI_FREQ` 这类**构建期宏**（用 `--define` 传入即通过），工具行为正确。
 
-## NXP（MCUXpresso / mbed K64F）试跑（v1.8.0）
+## NXP（MCUXpresso / mbed K64F）试跑（v1.8.0；v1.10.0 扩量）
 
-日期：2026-10-16 ｜ 语料：MCUXpresso SDK 驱动 5 个文件（fsl_uart/gpio/ftm/adc16/dspi）+
-mbed-os K64F 的 `serial_api.c`、`fsl_clock_config.c`，SVD 为 `MK64F12.svd`（cmsis-svd-data）。
+日期：2026-10-16（扩量 2026-10-17）｜ 语料：MCUXpresso SDK 驱动 **23 个文件**
+（fsl_uart/gpio/ftm/adc16/dspi/i2c/flexcan/pit/pdb/rtc/sim/pmc/wdog/dac/cmp/dmamux/edma/
+sai/sdhc/enet/flexbus + `fsl_clock_config.c`）+ mbed-os K64F 的 `serial_api.c`，
+SVD 为 `MK64F12.svd`（cmsis-svd-data）。
 
-- MCUXpresso 驱动全部经 `base->REG = ...`（运行时基址参数）访问寄存器 → 按新口径**静默忽略、
-  不计入统计**；mbed `serial_api.c` 同样如此。结论：NXP 生态当前以 HAL 风格为主，
-  本工具能核验的直接寄存器写入很少；无任何误报。NXP/Renesas 的**直接寄存器**语料（KSDK 1.x 风格）
-  仍待补充。
+| 指标 | 数值 |
+|---|---|
+| 写入处 | 3 |
+| 报 | **0** |
+| 未判定 | 1 |
+| 通过 | 2 |
+
+- MCUXpresso 驱动绝大多数经 `base->REG = ...`（运行时基址参数）访问寄存器 → 按口径**静默忽略、
+  不计入统计**（与 HAL 同类的指针参数风格）；mbed `serial_api.c` 同样如此。
+- 可核验的 3 处：`SIM->SOPT1CFG |= ...`、`SIM->SOPT1 = ...`（大写外设名直写，**2 处通过**）；
+  `fsl_flexcan.c` 的 `*(volatile uint32_t *)CAN_INIT_RXFIR = 0x0U` 记未判定（宏来自 SDK 头，
+  未提供 `--headers` 时地址不可解析）。
+- 结论：NXP 生态当前以 HAL/指针参数风格为主，直接寄存器写入少；**0 误报**。
+
+## Renesas RA（FSP）真实源码试跑（v1.10.0）
+
+日期：2026-10-17 ｜ 语料：FSP 源码 8 个文件（bsp_io.c、bsp_irq.c、r_ioport.c、r_sci_uart.c、
+r_gpt.c、r_adc.c、r_dac.c、r_spi.c）+ 设备头 `R7FA6M4AF.h`（`--headers`），SVD 为
+`R7FA6M4AF.svd`（cmsis-svd-data）。
+
+| 指标 | 数值 |
+|---|---|
+| 写入处 | 36 |
+| 报 | **0** |
+| 未判定 | 26 |
+| 通过 | 10 |
+
+- 覆盖 Renesas FSP 的写法：`R_ICU->IELSR_b[irq].IR`（`REG_b` 位域视图后缀）、
+  `R_ICU->IELSR[i] = v`（数组下标寄存器）、`R_CPSCU->ICUSARC = ~R_CPSCU_ICUSARC_SADMACn_Msk`
+  （占位符位域组 `SADMACn` → SADMAC0…7）、`R_GPT0->GTWP` / `R_TSN_CTRL->TSCR`
+  （**外设指针宏按地址解析**：`((R_GPT0_Type *) 0x40169000)` → `GPT320`，配设备头后 10 处通过）、
+  `R_PFS->PORT[x].PIN[y].PmnPFS`（层级写法 → 未判定）。
+- 未判定构成（全部归因）：NVIC 内核外设（10 处）；组/引脚/索引为运行时表达式（IELSR_b[irq]、
+  PFS 层级、INTSELR[intselr_num]）；**条件编译块内的型号差异分支**——FSP 一个文件支持整个 RA 家族，
+  `R_GPT_ODC`、`R_GPT_GTCLK`、`R_PORGA`、`R_IRDA`、`R_ICU->INTSELR` 均位于 `#if` 特性宏块内。
+- 无头文件单跑（仅 SVD）：36 处写入同样 **0 报**（26 → 36 未判定：跨型号分支全部降级为未判定）。
 
 ## Microchip SAMD（Arduino SAMD 核心）真实源码试跑（v1.9.0）
 
@@ -222,10 +256,22 @@ WInterrupts.c、wiring_analog.c、delay.c、wiring_shift.c），SVD 为 `ATSAMD2
    （`EXTINT(3)`→`EXTINT3`），编号来自运行参数时记"位域组宏"未判定。
 15. **`TCx->COUNT16.CC[tcChannel].reg` 类运行时下标**：链解析支持一层嵌套下标表达式
    （`[g_APinDescription[pin].ulPort]`），无法静态确定组/通道号时记未判定并注明原因。
+16. **条件编译块内的型号差异误报**（Renesas 试跑发现）：FSP 一个文件用 `#if` 支持整个 RA 家族，
+   `R_GPT_ODC`、`R_ICU->INTSELR`、`R_PORGA`、`R_IRDA` 等在本型号 SVD 中不存在 → 原先误报 E01/E02。
+   已修正：写入位于 `#if/#ifdef` 块内且目标不存在时记"未判定"并注明原因；条件块外照常报。
+17. **FSP `REG_b` 位域视图后缀**：`R_ICU->IELSR_b[irq].IR` 原先被当成寄存器名 `IELSR_b.IR`（E02）。
+   已修正：`REG_b.FIELD` → 寄存器 `REG`；层级前缀（PFS 的 `PORT[x].PIN[y]`）记"未判定"。
+18. **外设指针宏不识别**：`#define R_GPT0 ((R_GPT0_Type *) R_GPT0_BASE)` 后的 `R_GPT0->GTWP`
+   原先误报 E01。已修正：配 `--headers` 后按基址匹配 SVD 外设（`R_GPT0` → `GPT320`、
+   `R_TSN_CTRL` → `TSN`）；字段宏的 `R_`/`NRF_` 前缀同步支持。
+19. **FSP 占位符位域组**：`SADMACn_Msk`（`n` 为占位符）原先记"无法映射"。已修正：`n` 占位符
+   对应 `SADMAC0…7` 编号组 → 记"位域组宏"未判定（提供设备头时该宏直接按数值解析）。
 
 ## 未完成事项（下一步）
 
 - 触发评测：`tests/trigger/embedded-register-verify.json`（22 正 + 10 反）结果见 `benchmarks/trigger-results.md`；
 - Trae CN / WorkBuddy：IDE 内人工触发验证（用例已就绪）；
-- 其它厂商真实语料：ESP-IDF、TI TivaWare、libopencm3、AVR（Arduino 核心）、NXP（部分）已补（见上）；
-  跨厂商 SVD 冒烟 16 家见 `benchmarks/vendor-svds.md`；Renesas/Microchip 的**直接寄存器**代码语料仍待补。
+- 其它厂商真实语料：ESP-IDF、TI TivaWare、libopencm3、AVR（Arduino 核心）、NXP（23 文件）、
+  Microchip SAMD（Arduino SAMD 核心）、Renesas RA（FSP）已补（见上）；跨厂商 SVD 冒烟 16 家见
+  `benchmarks/vendor-svds.md`；Renesas RL78/RX、PIC/8051 的直接寄存器代码语料仍待补
+  （MSP430 无可用 SVD，cmsis-svd-data 仅含 MSP432/TM4C）。

@@ -139,6 +139,36 @@ class Verifier:
                     self._addr_map.setdefault(periph.base_address + reg.offset, (periph, reg))
         return self._addr_map
 
+    def _periph_at(self, addr):
+        """按基址精确匹配外设（厂商实例宏按地址解析时用）。"""
+        for periph in self.device.peripherals:
+            if periph.base_address == addr:
+                return periph
+        return None
+
+    # 外设指针宏：#define R_GPT0 ((R_GPT0_Type *) R_GPT0_BASE)、#define UART0 ((UART0_Type *)0x40000000)
+    _PERIPH_PTR_MACRO_RE = re.compile(
+        r"^\(\s*\(\s*(?:volatile\s+|const\s+)*[\w\s]*\*\s*\)\s*(.+?)\s*\)$")
+
+    def _periph_from_macro(self, name):
+        """外设名是"指针宏"时按地址解析（FSP 的 R_GPT0/R_TSN_CTRL 这类跨家族命名）。
+
+        依赖 --headers 提供设备头里的宏定义；解析不了返回 None（照常走未判定/报错）。
+        """
+        defines = getattr(self, "defines", None)
+        if not defines:
+            return None
+        expr = defines.get(name)
+        if not isinstance(expr, str):
+            return None
+        m = self._PERIPH_PTR_MACRO_RE.match(expr.strip())
+        if not m:
+            return None
+        addr = cscan.eval_int(m.group(1), defines)
+        if addr is None:
+            return None
+        return self._periph_at(addr)
+
     def _register_by_name(self):
         """裸寄存器名索引（AVR/MSP430/8051 风格：PORTB = ...、P1OUT |= ...）。
 
@@ -208,6 +238,8 @@ class Verifier:
                 upper = upper[: -len(suf)]
                 break
         tokens = upper.split("_")
+        if len(tokens) >= 3 and tokens[0] in ("R", "NRF"):
+            tokens = tokens[1:]  # 厂商前缀：FSP 的 R_CPSCU_...、Nordic 的 NRF_USBD_...
         if len(tokens) < 2:
             return None
         family = {periph.name.upper()}
@@ -302,6 +334,9 @@ class Verifier:
             # PORT->Group[0]：SVD 把组建模为独立外设（PORTA/PORTB）时按字母映射
             periph = self._periph(periph_name + chr(ord("A") + int(group_index)))
         if periph is None:
+            # 外设指针宏按地址解析（FSP 的 R_GPT0 → GPT320、R_TSN_CTRL → TSN）
+            periph = self._periph_from_macro(periph_name)
+        if periph is None:
             # 通道号游走在"外设名 / 寄存器名"两端的写法：
             #   DMA1_Channel3->CCR（ST 函数/头文件风格）或 DMA1_CH3->CCR（G4 SVD 风格）
             #   → 基本外设 DMA1 + 寄存器 CCR3
@@ -330,8 +365,21 @@ class Verifier:
                 return None, None, {"cluster_reg": "%s.%s" % (periph_name, reg_name)}
             if self._has_suffix_variants(periph, write):
                 return None, None, {"suffix_reg": "%s.%s" % (periph.name, reg_name)}
+            if write.get("prefix_segments"):
+                return None, None, {"hier_reg": "%s.%s.%s" % (
+                    periph_name, ".".join(write["prefix_segments"]), reg_name)}
+            if self._has_dynamic_index(write):
+                return None, None, {"dyn_index": "%s.%s" % (periph.name, reg_name)}
             return periph, None, None
         return periph, reg, None
+
+    @staticmethod
+    def _has_dynamic_index(write):
+        """写法是否带运行时下标（PORT[x].PIN[y]、IELSR[irq] 等）→ 寄存器名无法静态定位。"""
+        idxs = list(write.get("indices") or [])
+        if write.get("group_index"):
+            idxs.append(write["group_index"])
+        return any(idx and not idx.strip().isdigit() for idx in idxs)
 
     def _member_register(self, periph, write):
         """成员写法的寄存器名解析：精确 → 组/引脚数字后缀（DIRSET0、PINCFG0_4、CONFIG0）
@@ -429,6 +477,12 @@ class Verifier:
                            for f in reg.fields):
                         dim.append(name)
                         continue
+                    if len(seg) > 1 and seg[-1] in "nN":
+                        # FSP 占位符命名：SADMACn → SADMAC0…7（编号未指定，记未判定）
+                        if any(re.fullmatch(re.escape(seg[:-1]) + r"\d+", f.name, re.IGNORECASE)
+                               for f in reg.fields):
+                            dim.append(name)
+                            continue
                 missing.append((name, result))
             else:
                 unmapped.append(name)
@@ -442,6 +496,7 @@ class Verifier:
         self._mentions = {m.upper() for m in parsed.get("mentions") or []}
         defines = dict(parsed["defines"])
         defines.update(self.extra_defines)
+        self.defines = defines  # 供 _periph_from_macro（外设指针宏按地址解析）使用
         findings = []
         undetermined = []
         defaults = []
@@ -654,14 +709,18 @@ class Verifier:
             elif "clusterish" in problem:
                 add_undet(write, "%s 可能对应 SVD 中的簇寄存器（如 DMA1 的 CHx），命名无法自动对应，未检查" % problem["clusterish"])
             elif "unknown" in problem:
-                names = [p.name for p in self.device.peripherals]
-                suggestion = self._suggest_names(problem["unknown"], names)
-                add_finding(write, "E01",
-                            "外设 %s 在设备 %s 的 SVD 中不存在" % (problem["unknown"], self.device.name),
-                            suggestion=("你可能要找：" + "、".join(suggestion)) if suggestion else None,
-                            periph=problem["unknown"],
-                            lookup=_lookup_hint("search", keyword=problem["unknown"],
-                                                reason="按名字搜索相近外设"))
+                if write.get("conditional"):
+                    add_undet(write, "外设 %s 不在设备 %s 的 SVD 中，但写入位于条件编译块（#if/#ifdef）内"
+                              "——可能是其它型号/配置的分支，未判定" % (problem["unknown"], self.device.name))
+                else:
+                    names = [p.name for p in self.device.peripherals]
+                    suggestion = self._suggest_names(problem["unknown"], names)
+                    add_finding(write, "E01",
+                                "外设 %s 在设备 %s 的 SVD 中不存在" % (problem["unknown"], self.device.name),
+                                suggestion=("你可能要找：" + "、".join(suggestion)) if suggestion else None,
+                                periph=problem["unknown"],
+                                lookup=_lookup_hint("search", keyword=problem["unknown"],
+                                                    reason="按名字搜索相近外设"))
             elif "cluster_reg" in problem:
                 add_undet(write, "%s 是簇寄存器（SVD 中命名为 %s.x），未检查" % (
                     problem["cluster_reg"], problem["cluster_reg"]))
@@ -670,6 +729,11 @@ class Verifier:
                 base = full.rsplit(".", 1)[-1]
                 add_undet(write, "%s 是数字后缀寄存器组（%s0/%s1…）：当前写法的组/通道号无法静态确定，未检查"
                           % (full, base, base))
+            elif "hier_reg" in problem:
+                add_undet(write, "%s 是层级寄存器（如 FSP PFS 的 PORT[x].PIN[y].PmnPFS）："
+                          "层级/下标无法静态映射到 SVD 寄存器名，未检查" % problem["hier_reg"])
+            elif "dyn_index" in problem:
+                add_undet(write, "%s 的寄存器名带运行时下标，无法静态定位，未检查" % problem["dyn_index"])
             elif "address" in problem:
                 add_finding(write, "E08", "硬编码地址 0x%08X（SVD 中未找到对应寄存器）" % problem["address"],
                             lookup=_lookup_hint("addr", address="0x%08X" % problem["address"],
@@ -689,6 +753,10 @@ class Verifier:
             return
         if reg is None:
             periph_label, reg_label = self._names(write)
+            if write.get("conditional"):
+                add_undet(write, "%s 中不存在寄存器 %s，但写入位于条件编译块（#if/#ifdef）内"
+                          "——可能是其它型号/配置的分支，未判定" % (periph.name, reg_label or "?"))
+                return
             names = [r.name for r in periph.registers]
             suggestion = self._suggest_names(reg_label or "", names)
             add_finding(write, "E02",
@@ -734,9 +802,13 @@ class Verifier:
         rhs = write.get("rhs") or ""
         mapped, missing, unmapped, dim, value = self._fields_for_expr(rhs, periph, reg, defines)
         for macro_name, info in missing:
+            if write.get("conditional"):
+                add_undet(write, "位域宏 %s 在 %s.%s 中不存在，但写入位于条件编译块（#if/#ifdef）内"
+                          "——可能是其它型号/配置的分支，未判定" % (macro_name, periph.name, reg.name))
+                continue
             self._report_macro_mismatch(write, periph, reg, macro_name, info, add_finding)
         if dim:
-            add_undet(write, "位域组宏（编号来自函数宏实参/运行时表达式，无法静态定位）：%s"
+            add_undet(write, "位域组宏（编号未指定或来自运行参数，无法静态定位）：%s"
                       % "、".join(sorted(set(dim))[:4]))
         for macro_name, field, info in mapped:
             if self._report_register_mismatch(write, periph, reg, macro_name, info, add_finding):
@@ -963,9 +1035,13 @@ class Verifier:
                           add_finding, add_undet, sets, unknown_set_regs, reported):
         mapped, missing, unmapped, dim, value = self._fields_for_expr(expr, periph, reg, defines)
         for macro_name, _info in missing:
+            if write.get("conditional"):
+                add_undet(write, "位域宏 %s 在 %s.%s 中不存在，但写入位于条件编译块（#if/#ifdef）内"
+                          "——可能是其它型号/配置的分支，未判定" % (macro_name, periph.name, reg.name))
+                continue
             self._report_macro_mismatch(write, periph, reg, macro_name, _info, add_finding)
         if dim:
-            add_undet(write, "位域组宏（编号来自函数宏实参/运行时表达式，无法静态定位）：%s"
+            add_undet(write, "位域组宏（编号未指定或来自运行参数，无法静态定位）：%s"
                       % "、".join(sorted(set(dim))[:4]))
         mapped_names = set()
         for macro_name, field, _info in mapped:

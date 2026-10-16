@@ -14,7 +14,7 @@ if VERIFY_SCRIPTS not in sys.path:
 import cscan  # noqa: E402
 import crules  # noqa: E402
 from etk_core.svd import load_device  # noqa: E402
-from helpers import FIXTURES, SYNTH, UNION_SVD, WOSYNTH, run_py  # noqa: E402
+from helpers import FIXTURES, FSP_SVD, SYNTH, UNION_SVD, WOSYNTH, run_py  # noqa: E402
 
 VERIFY_BAD = os.path.join(FIXTURES, "verify_bad.c")
 VERIFY_OK = os.path.join(FIXTURES, "verify_ok.c")
@@ -342,6 +342,72 @@ def test_pointer_cast_expression_writes(tmp_path):
     assert res["counts"]["undetermined"] == 1
     assert res["findings"][0]["class"] == "E08"
     assert "PORT.DIRSET0" in res["findings"][0]["message"]
+
+
+def test_fsp_bitfield_view_and_conditional(tmp_path):
+    """Renesas FSP 风格：REG_b 位域视图、数字后缀组、占位符位域组（SADMACn）、条件编译块降级。"""
+    code = tmp_path / "fsp.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "    R_ICU->IELSR_b[0].IR = 1U;\n"                        # 通过：IELSR0
+        "    R_ICU->IELSR_b[irq].IR = 1U;\n"                     # 未判定：运行时下标
+        "    R_CPSCU->ICUSARC = ~R_CPSCU_ICUSARC_SADMACn_Msk;\n"  # 未判定：占位符位域组
+        "#if BSP_FEATURE_ICU_HAS_INTSELR\n"
+        "    R_ICU->INTSELR[0] = 1U;\n"                          # 未判定：条件块内、SVD 无此寄存器
+        "    R_FOO->REG = 1U;\n"                                # 未判定：条件块内、外设不存在
+        "#endif\n"
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", FSP_SVD, "--format", "json")
+    assert r.returncode == 0, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["writes"] == 5
+    assert res["counts"]["report"] == 0
+    assert res["counts"]["passed"] == 1
+    assert res["counts"]["undetermined"] == 4
+    reasons = " ".join(u["reason"] for u in res["undetermined"])
+    assert "条件编译块" in reasons
+    assert "位域组宏" in reasons
+
+
+def test_fsp_periph_pointer_macro_by_address(tmp_path):
+    """外设指针宏按地址解析：R_GPT0 → GPT320、R_TSN_CTRL → TSN（需 --headers）。"""
+    hdr = tmp_path / "dev.h"
+    hdr.write_text(
+        "#define R_GPT0_BASE 0x40169000UL\n"
+        "#define R_GPT0 ((R_GPT0_Type *) R_GPT0_BASE)\n"
+        "#define R_TSN_CTRL_BASE 0x400F3000UL\n"
+        "#define R_TSN_CTRL ((R_TSN_CTRL_Type *) R_TSN_CTRL_BASE)\n", encoding="utf-8")
+    code = tmp_path / "app.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "    R_GPT0->GTWP = 0x0000A500;\n"   # 通过：GPT320.GTWP
+        "    R_TSN_CTRL->TSCR = 0x80;\n"     # 通过：TSN.TSCR
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", FSP_SVD,
+               "--headers", str(hdr), "--format", "json")
+    assert r.returncode == 0, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["writes"] == 2
+    assert res["counts"]["passed"] == 2
+    assert res["counts"]["report"] == 0
+
+
+def test_conditional_field_macro_not_reported(tmp_path):
+    """条件编译块内的位域宏缺失记未判定；条件块外的仍然报 E03（召回不降）。"""
+    code = tmp_path / "cond.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "#if BOARD_V2\n"
+        "    USART1->CR1 |= USART_CR1_ZZZ;\n"
+        "#endif\n"
+        "    USART1->CR1 |= USART_CR1_ZZZ;\n"
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["report"] == 1
+    assert res["counts"]["undetermined"] == 1
+    assert res["findings"][0]["class"] == "E03"
 
 
 def test_fuzz_random_snippets_do_not_crash(device):
