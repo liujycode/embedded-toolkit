@@ -150,3 +150,45 @@ def test_real_keil_pack_when_installed():
         raise
     assert os.path.basename(path).upper().startswith("STM32F103")
     assert how == "本机 CMSIS-Pack"
+
+
+def test_pack_lookup_finds_cmsis_svd_subdir(isolated, monkeypatch):
+    """Keil 的 STM32F4/G4 包把 SVD 放在 CMSIS/SVD/ 下，必须能找到。"""
+    packs = isolated / "packs"
+    _copy_svd(packs / "Keil" / "STM32G4xx_DFP" / "1.4.0" / "CMSIS" / "SVD", "STM32G431xx.svd")
+    monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
+    path, how, _ = find_svd(chip="STM32G431RB", project_dir=str(isolated))
+    assert path.endswith("STM32G431xx.svd")
+    assert how == "本机 CMSIS-Pack"
+
+
+def test_pack_lookup_matches_wildcard_stem(isolated, monkeypatch):
+    packs = isolated / "packs"
+    svd_dir = packs / "Keil" / "STM32F4xx_DFP" / "2.7.0" / "CMSIS" / "SVD"
+    _copy_svd(svd_dir, "STM32F40x.svd")
+    _copy_svd(svd_dir, "STM32F401x.svd")
+    monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
+    path, _, _ = find_svd(chip="STM32F407VE", project_dir=str(isolated))
+    assert path.endswith("STM32F40x.svd")
+    # 更具体的文件优先：F401 走前缀匹配，不应落到通配的 F40x
+    path2, _, _ = find_svd(chip="STM32F401CC", project_dir=str(isolated))
+    assert path2.endswith("STM32F401x.svd")
+
+
+def test_pack_lookup_wildcard_requires_same_length(isolated, monkeypatch):
+    packs = isolated / "packs"
+    _copy_svd(packs / "V" / "P" / "1" / "SVD", "WCHIPXY.svd")
+    monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
+    with pytest.raises(EtkError) as info:
+        find_svd(chip="WCHIP123", project_dir=str(isolated))
+    assert info.value.code == E_SVD_NOT_FOUND
+
+
+def test_wildcard_equal_unit():
+    from etk_core.discovery import _wildcard_equal
+
+    assert _wildcard_equal("STM32F407", "STM32F40X")
+    assert _wildcard_equal("STM32F411VE", "STM32F411XX")
+    assert not _wildcard_equal("STM32F407", "STM32F40")
+    assert not _wildcard_equal("STM32F407", "STM32F46X")
+    assert not _wildcard_equal("STM32F407", "STM32F401X")
