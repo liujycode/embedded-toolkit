@@ -263,3 +263,31 @@ def test_real_f103_write_notes_on_read_only_idr():
     dev = load_device(_find("STM32F103xx.svd"))
     res = query.decode(dev, "GPIOA.IDR", 0xFFFF, as_write=True)
     assert any("read-only" in n for n in res["write_notes"])
+
+
+def test_real_svds_pass_lint_without_errors():
+    """四份真实厂商 SVD 的 lint 不应有 error：重叠/越界类问题在这几份文件上不存在。
+
+    真实存在的只有"同偏移双视图"（如 CCMR1_Output / CCMR1_Input），记为 info。
+    """
+    for name in ("STM32F103xx.svd", "STM32G431xx.svd", "nrf52840.svd", "GD32F3x0.svd"):
+        res = query.lint(load_device(_find(name)))
+        assert res["counts"]["error"] == 0, (name, res["findings"][:3])
+
+
+def test_real_f103_lint_reports_ccmr_alias_as_info():
+    dev = load_device(_find("STM32F103xx.svd"))
+    res = query.lint(dev, "TIM1")
+    aliases = [f for f in res["findings"] if f["code"] == "register_alias"]
+    assert aliases
+    assert any("CCMR1_Output" in f["message"] and "CCMR1_Input" in f["message"] for f in aliases)
+    assert all(f["severity"] == "info" for f in aliases)
+
+
+def test_real_f103_devices_listing_finds_devices():
+    from etk_core.discovery import list_devices
+
+    root = os.path.dirname(_find("STM32F103xx.svd"))
+    res = list_devices(root, keyword="STM32F103")
+    assert res["total"] >= 1
+    assert all(e["device"] for e in res["entries"])

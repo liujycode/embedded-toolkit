@@ -276,3 +276,57 @@ def test_diff_accepts_multiple_registers():
     env = json.loads(r.stdout)
     assert [res["path"] for res in env["results"]] == ["USART1.CR1", "USART1.BRR"]
     assert all(res["identical"] for res in env["results"])
+
+
+def test_format_md_produces_tables():
+    r = run_cli("fields", "USART1.CR1", "--svd", SYNTH, "--format", "md")
+    assert r.returncode == 0, r.stderr
+    assert "| 位 | 位域 | 访问 | 复位 | 掩码 | 说明 |" in r.stdout
+    assert "_已核验" in r.stdout
+
+
+def test_format_md_register_lookup_with_enums():
+    r = run_cli("lookup", "USART1.CR1", "--svd", SYNTH, "--format", "md")
+    assert r.returncode == 0, r.stderr
+    assert "## USART1.CR1" in r.stdout
+    assert "**枚举**" in r.stdout
+
+
+def test_format_md_error_block():
+    r = run_cli("lookup", "USART9", "--svd", SYNTH, "--format", "md")
+    assert r.returncode == 1
+    assert "## 错误" in r.stdout
+    assert "E_PERIPH_NOT_FOUND" in r.stdout
+
+
+def test_format_md_macros_uses_code_fence():
+    r = run_cli("macros", "TIM1.CR1", "--svd", SYNTH, "--format", "md")
+    assert r.returncode == 0, r.stderr
+    assert "```c" in r.stdout
+    assert "#define TIM1_CR1_CEN_Pos 0U" in r.stdout
+
+
+def test_devices_cli_reports_sources(tmp_path):
+    r = run_cli("devices", "--project-dir", str(tmp_path), "--filter", "ZZ_NO_SUCH_CHIP", "--format", "json")
+    assert r.returncode == 0, r.stderr
+    res = json.loads(r.stdout)["results"][0]
+    assert res["kind"] == "devices"
+    assert res["total"] == 0
+    assert res["sources"][0]["name"] == "项目内扫描"
+    assert res["sources"][0]["count"] == 0
+
+
+def test_doctor_cli_reports_checks_and_advice():
+    r = run_cli("doctor", "--format", "json")
+    assert r.returncode == 0, r.stderr
+    res = json.loads(r.stdout)["results"][0]
+    assert res["kind"] == "doctor"
+    assert res["python"].count(".") == 2
+    assert any("演示" in c["name"] for c in res["checks"])
+    assert res["advice"]
+
+
+def test_demo_cli_quickstart():
+    r = run_cli("set", "GPIOA.MODER", "MODE0=OUTPUT", "MODE1=ALTERNATE", "--demo")
+    assert r.returncode == 0, r.stderr
+    assert "结果：0x00000009" in r.stdout

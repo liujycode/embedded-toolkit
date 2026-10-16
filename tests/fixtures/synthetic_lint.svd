@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 质量检查（lint）夹具：故意包含各类问题，供测试断言用，不是真实芯片数据。 -->
+<device schemaVersion="1.3">
+  <name>LINTCHIP</name>
+  <version>0.1</version>
+  <description>lint 测试夹具：包含重叠、越界、重复名与中断号冲突</description>
+  <vendor>Test</vendor>
+  <cpu>
+    <name>CM0</name>
+  </cpu>
+  <size>32</size>
+  <access>read-write</access>
+  <resetValue>0x00000000</resetValue>
+  <resetMask>0xFFFFFFFF</resetMask>
+  <peripherals>
+    <peripheral>
+      <name>REG</name>
+      <description>寄存器问题合集</description>
+      <baseAddress>0x40000000</baseAddress>
+      <interrupt>
+        <name>IRQX</name>
+        <value>5</value>
+      </interrupt>
+      <registers>
+        <register>
+          <name>REGA</name>
+          <description>4 字节，与 REGB 重叠</description>
+          <addressOffset>0x00</addressOffset>
+        </register>
+        <register>
+          <name>REGB</name>
+          <description>起始地址落在 REGA 内</description>
+          <addressOffset>0x02</addressOffset>
+        </register>
+        <register>
+          <name>DUP</name>
+          <addressOffset>0x10</addressOffset>
+        </register>
+        <register>
+          <name>dup</name>
+          <description>与 DUP 仅是大小写不同（重复名）</description>
+          <addressOffset>0x20</addressOffset>
+        </register>
+        <register>
+          <name>REGC</name>
+          <description>位域重叠与越界</description>
+          <addressOffset>0x30</addressOffset>
+          <fields>
+            <field>
+              <name>F1</name>
+              <bitOffset>0</bitOffset>
+              <bitWidth>4</bitWidth>
+            </field>
+            <field>
+              <name>F2</name>
+              <description>与 F1 在 bit3 重叠</description>
+              <bitOffset>3</bitOffset>
+              <bitWidth>3</bitWidth>
+            </field>
+            <field>
+              <name>BIG</name>
+              <description>超出 32 位寄存器范围</description>
+              <bitRange>[35:32]</bitRange>
+            </field>
+          </fields>
+        </register>
+        <register>
+          <name>REGD</name>
+          <description>位域名仅大小写不同</description>
+          <addressOffset>0x34</addressOffset>
+          <fields>
+            <field>
+              <name>F</name>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+            <field>
+              <name>f</name>
+              <bitOffset>1</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+          </fields>
+        </register>
+        <register>
+          <name>REGE</name>
+          <description>复位值超出 32 位</description>
+          <addressOffset>0x38</addressOffset>
+          <resetValue>0x1FFFFFFFF</resetValue>
+        </register>
+        <register>
+          <name>ALIAS_A</name>
+          <description>同一偏移的两个视图之一（合法写法，应记为 info）</description>
+          <addressOffset>0x40</addressOffset>
+        </register>
+        <register>
+          <name>ALIAS_B</name>
+          <description>同一偏移的两个视图之二（合法写法，应记为 info）</description>
+          <addressOffset>0x40</addressOffset>
+        </register>
+      </registers>
+    </peripheral>
+    <peripheral>
+      <name>OTHER</name>
+      <description>中断号与 REG 的 IRQX 冲突</description>
+      <baseAddress>0x40001000</baseAddress>
+      <interrupt>
+        <name>IRQX</name>
+        <value>7</value>
+      </interrupt>
+    </peripheral>
+  </peripherals>
+</device>

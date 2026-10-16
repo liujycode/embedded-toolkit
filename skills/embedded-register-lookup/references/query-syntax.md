@@ -1,7 +1,10 @@
 # 查询语法与输出字段
 
-所有子命令都支持：`--project-dir`、`--format text|json`、`--out`。
-除 `diff` 外都支持 `--svd`、`--chip`（`diff` 用 `--svd-a/--chip-a`、`--svd-b/--chip-b`）。
+所有子命令都支持：`--project-dir`、`--format text|json|md`、`--out`。
+除 `diff`、`devices`、`doctor` 外都支持 `--svd`、`--chip`、`--demo`（`diff` 用 `--svd-a/--chip-a`、`--svd-b/--chip-b`）。
+
+`--demo` 使用内置合成芯片（ETK-DEMO，不是真实数据），用于零配置试用；与 `--svd` 同时给出会报 `E_INPUT_INVALID`。
+`--format md` 输出 Markdown（表格与代码块），适合粘贴到文档、PR 或聊天；错误与警告以列表给出。
 
 ## 查询路径
 
@@ -30,8 +33,11 @@
 | `macros <路径>` | 生成 CMSIS 风格参考宏（`_OFFSET`/`_ADDR`/`_Pos`/`_Msk`/枚举值） | `macros USART1.CR1` |
 | `diff <寄存器>...` | 对比两份 SVD 中同一寄存器的定义 | `diff USART1.CR1 --chip-a STM32F103C8 --chip-b STM32G431` |
 | `range <起始> <结束>` | 列出地址区间内的寄存器；`--limit` | `range 0x40013800 0x40013FFF` |
+| `lint` | SVD 质量检查：重叠、越界、重复名、复位值超宽、中断号冲突；`--peripheral`、`--limit` | `lint --peripheral TIM1` |
 | `info` | SVD 元信息：厂商、CPU、统计、文件大小/SHA-256/修改时间 | `info` |
 | `list` | 列出全部外设、基地址、派生关系 | `list` |
+| `devices` | 本机可用 SVD 清单（项目扫描 + ETK_SVD_DIR + Pack 缓存）；`--filter`、`--limit` | `devices --filter STM32F4` |
+| `doctor` | 环境体检：Python 版本、各 SVD 来源是否存在与数量、上手建议 | `doctor` |
 
 - `lookup`、`fields`、`diagram`、`diff` 支持多个路径/寄存器：逐条独立判定，某个失败不影响其它（失败的进 `errors`，其余进 `results`，`ok` 为 `false`）。
 - `decode` 的参数必须是寄存器，给位域会返回 `E_INPUT_INVALID`；多个值会输出多条结果。
@@ -39,6 +45,7 @@
 - `range` 判定标准：寄存器**起始地址**落在 `[起始, 结束]` 内（闭区间）。
 - `diff` 输出中没有顶层 `source`，两侧的出处分别在 `a.source`、`b.source`。
 - `macros` 的宏名含外设实例名（`USART1_CR1_UE_Pos`）；含任意位的枚举（如 `1xx`）只出注释、不生成宏。
+- `lint` 三级：`error`（重叠、越界、重复名、复位值超宽）、`warning`（同一中断名向量号冲突）、`info`（同一寄存器的不同视图/别名共用同一偏移，属常见写法）。
 
 ## 地址反查的四种结果
 
@@ -55,7 +62,7 @@
 {
   "ok": true,
   "tool": "embedded-register-lookup",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "results": [ { "kind": "...", "label": "已核验", "source": { ... } } ],
   "warnings": [],
   "errors": []
@@ -94,7 +101,10 @@
 | `range` | `start`/`end`、`count`、`truncated`、`registers`（`path`/`address`/`size`/`access`/`reset`/`description`） |
 | `irq` | `query`、`total`、`truncated`、`matches`（`value`/`peripheral`/`name`/`description`，按中断号排序） |
 | `macros` | `path`、`registers`（每项含 `offset`/`address`/`macros`/`fields`）、`code`（完整的 C 文本，带出处头注释） |
+| `lint` | `scope`、`counts`（`error`/`warning`/`info`/`total`）、`findings`（每项 `severity`/`code`/`peripheral`/`register`/`field`/`message`） |
 | `info` | `device`/`vendor`/`cpu`/`description`、`file_size`/`mtime`/`sha256`、`counts`（各层级数量、中断数与警告数） |
+| `devices` | `keyword`、`total`、`truncated`、`entries`（`file`/`path`/`device`/`source`）、`sources`（各来源数量） |
+| `doctor` | `python`/`platform`、`checks`（`name`/`path`/`exists`/`count`/`note`）、`total_svds`、`advice` |
 
 其他要点：
 

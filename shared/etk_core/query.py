@@ -953,3 +953,109 @@ def macros_for(device, text, generator=None):
         "label": LABEL_VERIFIED,
         "source": src,
     }
+
+
+_LINT_SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
+
+
+def lint(device, peripheral=None, limit=200):
+    """SVD 质量检查：寄存器/位域重叠、越界、重复名，复位值超宽与中断号冲突。
+
+    只做从 SVD 自身数据就能判定的检查，不需要任何外部信息。
+    """
+    if peripheral:
+        periphs = [_periph_or_raise(device, peripheral)]
+    else:
+        periphs = device.peripherals
+    findings = []
+
+    def add(severity, code, message, periph, register=None, field=None):
+        findings.append({
+            "severity": severity,
+            "code": code,
+            "peripheral": periph.name,
+            "register": register.name if register is not None else None,
+            "field": field.name if field is not None else None,
+            "message": message,
+        })
+
+    irq_names = {}
+    for periph in periphs:
+        regs = sorted(periph.registers, key=lambda r: r.offset)
+        seen_reg = {}
+        for reg in regs:
+            key = reg.name.upper()
+            if key in seen_reg:
+                add("error", "duplicate_register",
+                    "%s 中寄存器 %s 定义了两次（偏移 %s 与 %s）" % (
+                        periph.name, reg.name, hex_offset(seen_reg[key].offset), hex_offset(reg.offset)),
+                    periph, reg)
+            else:
+                seen_reg[key] = reg
+            if reg.reset_value >> reg.size:
+                add("error", "reset_out_of_range",
+                    "%s.%s 的复位值 %s 超出 %d 位宽度" % (
+                        periph.name, reg.name, hex_reset(reg.reset_value, reg.size), reg.size),
+                    periph, reg)
+            seen_field = {}
+            for fld in reg.fields:
+                fkey = fld.name.upper()
+                if fkey in seen_field:
+                    add("error", "duplicate_field",
+                        "%s.%s 中位域 %s 定义了两次" % (periph.name, reg.name, fld.name),
+                        periph, reg, fld)
+                else:
+                    seen_field[fkey] = fld
+                if fld.msb >= reg.size:
+                    add("error", "field_out_of_range",
+                        "%s.%s.%s 位 %s（宽 %d）超出 %d 位寄存器范围" % (
+                            periph.name, reg.name, fld.name, fld.bit_text, fld.width, reg.size),
+                        periph, reg, fld)
+            fields = sorted(reg.fields, key=lambda f: (f.lsb, -f.width))
+            for first, later in zip(fields, fields[1:]):
+                if later.lsb <= first.msb:
+                    add("error", "field_overlap",
+                        "%s.%s 中位域 %s（位 %s）与 %s（位 %s）重叠" % (
+                            periph.name, reg.name, first.name, first.bit_text, later.name, later.bit_text),
+                        periph, reg, later)
+        for first, later in zip(regs, regs[1:]):
+            if first.offset + first.nbytes <= later.offset:
+                continue
+            if first.offset == later.offset:
+                add("info", "register_alias",
+                    "%s 中 %s 与 %s 使用同一偏移 %s（同一寄存器的不同视图或别名，属常见写法；按需选用）" % (
+                        periph.name, first.name, later.name, hex_offset(first.offset)),
+                    periph, later)
+            else:
+                add("error", "register_overlap",
+                    "%s 中寄存器 %s（偏移 %s，%d 字节）与 %s（偏移 %s）地址区域重叠" % (
+                        periph.name, first.name, hex_offset(first.offset), first.nbytes,
+                        later.name, hex_offset(later.offset)),
+                    periph, later)
+        for item in periph.interrupts:
+            key = item.name.upper()
+            if key in irq_names and irq_names[key][1] != item.value:
+                previous = irq_names[key]
+                add("warning", "interrupt_value_conflict",
+                    "中断 %s 的向量号不一致：%s 中是 %d，%s 中是 %d" % (
+                        item.name, previous[0].name, previous[1], periph.name, item.value),
+                    periph)
+            else:
+                irq_names.setdefault(key, (periph, item.value))
+
+    findings.sort(key=lambda f: (
+        _LINT_SEVERITY_ORDER.get(f["severity"], 9), f["code"],
+        f["peripheral"], f["register"] or "", f["field"] or ""))
+    errors = sum(1 for f in findings if f["severity"] == "error")
+    warnings = sum(1 for f in findings if f["severity"] == "warning")
+    infos = len(findings) - errors - warnings
+    return {
+        "kind": "lint",
+        "device": device.name,
+        "scope": peripheral or None,
+        "counts": {"error": errors, "warning": warnings, "info": infos, "total": len(findings)},
+        "truncated": len(findings) > limit,
+        "findings": findings[:limit],
+        "label": LABEL_VERIFIED,
+        "source": source_meta(device),
+    }

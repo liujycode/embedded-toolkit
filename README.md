@@ -1,6 +1,10 @@
 # 嵌入式开发工具箱（embedded-toolkit）
 
 [![ci](https://github.com/liujycode/embedded-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/liujycode/embedded-toolkit/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/liujycode/embedded-toolkit?label=release)](https://github.com/liujycode/embedded-toolkit/releases)
+[![license](https://img.shields.io/github/license/liujycode/embedded-toolkit)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
+[![dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](#设计约束)
 
 > Evidence-first embedded dev skills for AI coding agents — register lookup from CMSIS-SVD, offline, every answer cites its source.
 
@@ -10,7 +14,7 @@
 
 | 技能 | 版本 | 状态 | 说明 |
 |---|---|---|---|
-| `embedded-register-lookup`（寄存器百事通） | 1.2.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号；地址反查；寄存器值解码与写入值计算；位域速查与位图；CMSIS 风格宏生成；双芯片寄存器对比；地址区间与 SVD 元信息；关键词搜索 |
+| `embedded-register-lookup`（寄存器百事通） | 1.3.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号；地址反查；寄存器值解码与写入值计算；位域速查与位图；CMSIS 风格宏生成；双芯片寄存器对比；地址区间、SVD 元信息与质量检查；本机芯片清单与环境体检；Markdown 表格输出 |
 
 计划中（按阶段门推进，见总方案）：寄存器核验器、接线排障、时序计算器、原理图审查官。
 
@@ -30,7 +34,12 @@
 ## 快速上手
 
 ```bash
-# 芯片名：会在本机 CMSIS-Pack 中自动查找 SVD（Keil Pack Installer 安装的包）
+# 零配置试一下（内置合成演示芯片，不需要装任何 SVD）
+python skills/embedded-register-lookup/scripts/lookup.py fields GPIOA.MODER --demo
+python skills/embedded-register-lookup/scripts/lookup.py doctor          # 本机 SVD 从哪来、有没有
+python skills/embedded-register-lookup/scripts/lookup.py devices --filter STM32  # 本机有哪些芯片可用
+
+# 芯片名：会在本机 CMSIS-Pack / 项目目录中自动查找 SVD（Keil Pack Installer 安装的包）
 python skills/embedded-register-lookup/scripts/lookup.py lookup USART1.CR1.UE --chip STM32G431
 
 # 没有 Pack 时，直接给 SVD 文件
@@ -50,8 +59,9 @@ python skills/embedded-register-lookup/scripts/lookup.py set TIM1.CR1 CEN=1 DIR=
 python skills/embedded-register-lookup/scripts/lookup.py irq USART1 --chip STM32G431
 python skills/embedded-register-lookup/scripts/lookup.py macros USART1.CR1 --chip STM32G431
 
-# 对比两颗芯片的同一寄存器
+# 对比两颗芯片的同一寄存器；体检 SVD 质量
 python skills/embedded-register-lookup/scripts/lookup.py diff USART1.CR1 --chip-a STM32F103C8 --chip-b STM32G431
+python skills/embedded-register-lookup/scripts/lookup.py lint --chip STM32G431
 ```
 
 每个项目可在根目录放 `.etk/config.json`，省去重复参数：
@@ -60,14 +70,16 @@ python skills/embedded-register-lookup/scripts/lookup.py diff USART1.CR1 --chip-
 { "chip": "STM32G431RB", "svd": "tools/svd/STM32G431xx.svd" }
 ```
 
-输出格式：默认中文文本；`--format json` 输出统一信封，供 Agent 解析；`--out 文件` 保存结果。
+项目目录里的 `.svd` 会被自动扫描（深度 ≤ 6）；也可以用环境变量 `ETK_SVD_DIR` 指向自备 SVD 目录。
+
+输出格式：默认中文文本；`--format json` 输出统一信封，供 Agent 解析；`--format md` 输出 Markdown 表格，可直接粘贴进文档或聊天；`--out 文件` 保存结果。
 
 ## 设计约束
 
 - **零运行时依赖**：只使用 Python 3.9+ 标准库，无需 `pip install`。
 - **离线**：不联网，不调用任何外部 API。
 - **只读**：不修改用户项目文件，写出只发生在 `--out` 指定的路径。
-- **不内置厂商文件**：SVD 由用户本机的 CMSIS-Pack 或自备文件提供。
+- **不内置厂商文件**：SVD 由用户本机的 CMSIS-Pack 或自备文件提供；另附一份自行编写的合成演示数据（`--demo`，不是真实芯片），仅用于零配置试用。
 - **每条结论有出处**：`source` 字段给出文件、设备、版本；`label` 给出证据等级。
 
 ## 开发

@@ -18,6 +18,7 @@ def isolated(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "no-local"))
     monkeypatch.delenv("ETK_PACKS_DIR", raising=False)
+    monkeypatch.delenv("ETK_SVD_DIR", raising=False)
     return tmp_path
 
 
@@ -84,7 +85,9 @@ def test_pack_lookup_strips_package_suffix(isolated, monkeypatch):
     packs = isolated / "packs"
     _copy_svd(packs / "Keil" / "STM32G4xx_DFP" / "1.0.0" / "SVD", "STM32G431xx.svd")
     monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
-    path, how, _ = find_svd(chip="STM32G431RB", project_dir=str(isolated))
+    project = isolated / "proj"
+    project.mkdir()
+    path, how, _ = find_svd(chip="STM32G431RB", project_dir=str(project))
     assert path.endswith("STM32G431xx.svd")
     assert how == "本机 CMSIS-Pack"
 
@@ -95,7 +98,9 @@ def test_pack_prefers_newer_version_and_notes_the_rest(isolated, monkeypatch):
     _copy_svd(packs / "Vendor" / "Pack" / "2.0.0" / "SVD", "CHIPX.svd")
     _copy_svd(packs / "Vendor" / "Pack" / "10.0.0" / "SVD", "CHIPX.svd")
     monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
-    path, _, notes = find_svd(chip="CHIPX", project_dir=str(isolated))
+    project = isolated / "proj"
+    project.mkdir()
+    path, _, notes = find_svd(chip="CHIPX", project_dir=str(project))
     assert os.sep.join(["10.0.0", "SVD", "CHIPX.svd"]) in path
     assert notes and "已选用" in notes[0]
 
@@ -138,12 +143,13 @@ def test_choose_prefers_exact_stem():
     assert others == ["/p/STM32G431xx.svd"]
 
 
-def test_real_keil_pack_when_installed():
+def test_real_keil_pack_when_installed(tmp_path, monkeypatch):
+    monkeypatch.delenv("ETK_SVD_DIR", raising=False)
     packs = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Arm", "Packs")
     if not os.path.isdir(os.path.join(packs, "Keil")):
         pytest.skip("本机没有 Keil CMSIS-Pack")
     try:
-        path, how, _ = find_svd(chip="STM32F103C8", project_dir=os.path.dirname(packs))
+        path, how, _ = find_svd(chip="STM32F103C8", project_dir=str(tmp_path))
     except EtkError as exc:
         if exc.code == E_SVD_NOT_FOUND:
             pytest.skip("本机 Keil 包中没有 STM32F103 的 SVD")
@@ -157,7 +163,9 @@ def test_pack_lookup_finds_cmsis_svd_subdir(isolated, monkeypatch):
     packs = isolated / "packs"
     _copy_svd(packs / "Keil" / "STM32G4xx_DFP" / "1.4.0" / "CMSIS" / "SVD", "STM32G431xx.svd")
     monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
-    path, how, _ = find_svd(chip="STM32G431RB", project_dir=str(isolated))
+    project = isolated / "proj"
+    project.mkdir()
+    path, how, _ = find_svd(chip="STM32G431RB", project_dir=str(project))
     assert path.endswith("STM32G431xx.svd")
     assert how == "本机 CMSIS-Pack"
 
@@ -168,10 +176,12 @@ def test_pack_lookup_matches_wildcard_stem(isolated, monkeypatch):
     _copy_svd(svd_dir, "STM32F40x.svd")
     _copy_svd(svd_dir, "STM32F401x.svd")
     monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
-    path, _, _ = find_svd(chip="STM32F407VE", project_dir=str(isolated))
+    project = isolated / "proj"
+    project.mkdir()
+    path, _, _ = find_svd(chip="STM32F407VE", project_dir=str(project))
     assert path.endswith("STM32F40x.svd")
     # 更具体的文件优先：F401 走前缀匹配，不应落到通配的 F40x
-    path2, _, _ = find_svd(chip="STM32F401CC", project_dir=str(isolated))
+    path2, _, _ = find_svd(chip="STM32F401CC", project_dir=str(project))
     assert path2.endswith("STM32F401x.svd")
 
 
@@ -179,9 +189,106 @@ def test_pack_lookup_wildcard_requires_same_length(isolated, monkeypatch):
     packs = isolated / "packs"
     _copy_svd(packs / "V" / "P" / "1" / "SVD", "WCHIPXY.svd")
     monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
+    project = isolated / "proj"
+    project.mkdir()
     with pytest.raises(EtkError) as info:
-        find_svd(chip="WCHIP123", project_dir=str(isolated))
+        find_svd(chip="WCHIP123", project_dir=str(project))
     assert info.value.code == E_SVD_NOT_FOUND
+
+
+def test_project_scan_finds_unique_svd_without_chip(isolated):
+    project = isolated / "proj"
+    _copy_svd(project / "svd", "ONLYONE.svd")
+    path, how, _ = find_svd(project_dir=str(project))
+    assert path.endswith("ONLYONE.svd")
+    assert how == "项目内扫描"
+
+
+def test_project_scan_matches_chip_name(isolated):
+    project = isolated / "proj"
+    _copy_svd(project / "deps", "CHIPZ.svd")
+    _copy_svd(project / "deps", "OTHERC.svd")
+    path, how, _ = find_svd(chip="CHIPZ", project_dir=str(project))
+    assert path.endswith("CHIPZ.svd")
+    assert how == "项目内扫描"
+
+
+def test_project_scan_multiple_without_chip_asks_to_disambiguate(isolated):
+    project = isolated / "proj"
+    _copy_svd(project, "A.svd")
+    _copy_svd(project, "B.svd")
+    with pytest.raises(EtkError) as info:
+        find_svd(project_dir=str(project))
+    assert info.value.code == E_SVD_NOT_FOUND
+    assert "无法确定" in info.value.message
+    assert sorted(info.value.details["found"]) == ["A.svd", "B.svd"]
+
+
+def test_project_scan_prefers_over_packs(isolated, monkeypatch):
+    project = isolated / "proj"
+    _copy_svd(project / "svd", "STM32G431xx.svd")
+    packs = isolated / "packs"
+    _copy_svd(packs / "Keil" / "P" / "1" / "SVD", "STM32G431xx.svd")
+    monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
+    path, how, _ = find_svd(chip="STM32G431", project_dir=str(project))
+    assert path.startswith(str(project))
+    assert how == "项目内扫描"
+
+
+def test_env_svd_dir_is_searched(isolated, monkeypatch):
+    extra = isolated / "my-svds"
+    _copy_svd(extra, "CHIPQ.svd")
+    monkeypatch.setenv("ETK_SVD_DIR", str(extra))
+    project = isolated / "proj"
+    project.mkdir()
+    path, how, _ = find_svd(chip="CHIPQ", project_dir=str(project))
+    assert path.endswith("CHIPQ.svd")
+    assert how == "环境变量 ETK_SVD_DIR"
+
+
+def test_project_scan_skips_hidden_and_heavy_dirs(isolated):
+    from etk_core.discovery import project_svds
+
+    project = isolated / "proj"
+    _copy_svd(project / "svd", "VISIBLE.svd")
+    _copy_svd(project / ".hidden", "HIDDEN.svd")
+    _copy_svd(project / "node_modules", "DEP.svd")
+    files, truncated = project_svds(str(project))
+    assert [os.path.basename(p) for p in files] == ["VISIBLE.svd"]
+    assert truncated is False
+
+
+def test_list_devices_reports_sources_and_filter(isolated, monkeypatch):
+    from etk_core.discovery import list_devices
+
+    project = isolated / "proj"
+    _copy_svd(project / "svd", "ALPHA123.svd")
+    packs = isolated / "packs"
+    _copy_svd(packs / "V" / "P" / "1" / "SVD", "BETA456.svd")
+    monkeypatch.setenv("ETK_PACKS_DIR", str(packs))
+    res = list_devices(str(project))
+    names = [e["file"] for e in res["entries"]]
+    assert "ALPHA123.svd" in names and "BETA456.svd" in names
+    by_source = {e["file"]: e["source"] for e in res["entries"]}
+    assert by_source["ALPHA123.svd"] == "项目内扫描"
+    assert by_source["BETA456.svd"] == "CMSIS-Pack"
+    res2 = list_devices(str(project), keyword="alpha")
+    assert [e["file"] for e in res2["entries"]] == ["ALPHA123.svd"]
+    assert res2["entries"][0]["device"] == "SYNTH32"
+
+
+def test_doctor_reports_sources_and_advice(isolated):
+    from etk_core.discovery import doctor_report
+
+    project = isolated / "proj"
+    _copy_svd(project / "svd", "X.svd")
+    res = doctor_report(str(project), demo_path=None)
+    assert res["kind"] == "doctor"
+    project_check = next(c for c in res["checks"] if "项目内扫描" in c["name"])
+    assert project_check["count"] == 1
+    assert res["total_svds"] >= 1
+    assert res["advice"]
+    assert any(not c["exists"] for c in res["checks"])
 
 
 def test_wildcard_equal_unit():

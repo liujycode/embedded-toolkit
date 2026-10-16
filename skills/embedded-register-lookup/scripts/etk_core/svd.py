@@ -573,3 +573,25 @@ def load_device(path):
     if note:
         device.warnings.insert(0, note + "（建议向厂商反馈该 SVD 的格式问题）")
     return device
+
+
+def device_name_fast(path):
+    """快速读出 <device> 的第一个 <name>（用于 devices 盘点），失败时返回 None。
+
+    用 iterparse 只读到设备名就停止，几百个文件也能秒级完成。
+    """
+    depth = 0
+    try:
+        for event, el in ET.iterparse(path, events=("start", "end")):
+            if event == "start":
+                depth += 1
+                if depth > 3:
+                    return None
+                continue
+            depth -= 1
+            if depth == 1 and _local(el.tag) == "name":
+                text = (el.text or "").strip()
+                return " ".join(text.split()) or None
+    except (ET.ParseError, OSError, ValueError):
+        return None
+    return None
