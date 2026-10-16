@@ -289,3 +289,22 @@ def test_read_action_is_field_level(device):
     pr = device.peripheral("EXTI").register("PR")
     assert pr.field("P0").read_action == "clear"
     assert pr.field("P1").read_action == ""
+
+
+def test_interrupt_entries_are_parsed(device):
+    usart1 = device.peripheral("USART1")
+    assert [(i.name, i.value, i.description) for i in usart1.interrupts] == [
+        ("USART1_IRQn", 37, "USART1 global interrupt")]
+
+
+def test_derived_peripheral_inherits_interrupts_when_absent(device):
+    assert [(i.name, i.value) for i in device.peripheral("USART2").interrupts] == [("USART1_IRQn", 37)]
+
+
+def test_derived_peripheral_declared_interrupts_replace_inherited(device):
+    assert [(i.name, i.value) for i in device.peripheral("USART3").interrupts] == [("USART3_IRQn", 39)]
+
+
+def test_multiple_interrupts_per_peripheral(device):
+    assert [(i.name, i.value) for i in device.peripheral("DMA1").interrupts] == [
+        ("DMA1_Channel1_IRQn", 11), ("DMA1_Channel2_IRQn", 12)]

@@ -10,7 +10,7 @@
 
 | 技能 | 版本 | 状态 | 说明 |
 |---|---|---|---|
-| `embedded-register-lookup`（寄存器百事通） | 1.1.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值；地址反查；寄存器值解码与写入值计算；位域速查与位图；双芯片寄存器对比；地址区间与 SVD 元信息；关键词搜索 |
+| `embedded-register-lookup`（寄存器百事通） | 1.2.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号；地址反查；寄存器值解码与写入值计算；位域速查与位图；CMSIS 风格宏生成；双芯片寄存器对比；地址区间与 SVD 元信息；关键词搜索 |
 
 计划中（按阶段门推进，见总方案）：寄存器核验器、接线排障、时序计算器、原理图审查官。
 
@@ -45,6 +45,10 @@ python skills/embedded-register-lookup/scripts/lookup.py diagram TIM1.CR1 --chip
 
 # 算寄存器写入值（值可以用枚举名）
 python skills/embedded-register-lookup/scripts/lookup.py set TIM1.CR1 CEN=1 DIR=UP --chip STM32G431
+
+# 中断号与 C 宏
+python skills/embedded-register-lookup/scripts/lookup.py irq USART1 --chip STM32G431
+python skills/embedded-register-lookup/scripts/lookup.py macros USART1.CR1 --chip STM32G431
 
 # 对比两颗芯片的同一寄存器
 python skills/embedded-register-lookup/scripts/lookup.py diff USART1.CR1 --chip-a STM32F103C8 --chip-b STM32G431

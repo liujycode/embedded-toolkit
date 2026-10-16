@@ -420,6 +420,90 @@ def test_device_info_counts_vendor_and_hash(device):
     assert res["counts"]["registers"] == 31
     assert res["counts"]["fields"] == 52
     assert res["counts"]["enums"] == 25
+    assert res["counts"]["interrupts"] == 5
     with open(SYNTH, "rb") as fh:
         assert res["sha256"] == hashlib.sha256(fh.read()).hexdigest()
     assert res["file_size"] > 0
+
+
+def test_find_interrupts_lists_all_sorted(device):
+    res = query.find_interrupts(device)
+    assert res["kind"] == "irq"
+    assert res["total"] == 5
+    assert [m["value"] for m in res["matches"]] == [11, 12, 37, 37, 39]
+
+
+def test_find_interrupts_by_number(device):
+    res = query.find_interrupts(device, "37")
+    assert [m["peripheral"] for m in res["matches"]] == ["USART1", "USART2"]
+
+
+def test_find_interrupts_filter_by_name_substring(device):
+    assert query.find_interrupts(device, "USART")["total"] == 3
+    assert query.find_interrupts(device, "channel2")["total"] == 1
+
+
+def test_find_interrupts_truncates(device):
+    res = query.find_interrupts(device, limit=2)
+    assert res["truncated"] is True
+    assert len(res["matches"]) == 2
+
+
+def test_lookup_peripheral_includes_interrupts(device):
+    res = query.lookup(device, "DMA1")
+    assert [i["value"] for i in res["interrupts"]] == [11, 12]
+
+
+def test_macros_for_register(device):
+    res = query.macros_for(device, "TIM1.CR1", generator="t v0")
+    assert res["kind"] == "macros"
+    code = res["code"]
+    assert "#define TIM1_CR1_OFFSET 0x00UL" in code
+    assert "#define TIM1_CR1_ADDR 0x40012C00UL" in code
+    assert "#define TIM1_CR1_CEN_Pos 0U" in code
+    assert "#define TIM1_CR1_DIR_Pos 4U" in code
+    assert "#define TIM1_CR1_DIR_Msk (0x1UL << TIM1_CR1_DIR_Pos)" in code
+    assert "#define TIM1_CR1_DIR_UP 0x0U" in code
+    assert "#define TIM1_CR1_DIR_DOWN 0x1U" in code
+    assert "由 t v0 生成" in code
+
+
+def test_macros_for_field_filters_other_fields(device):
+    res = query.macros_for(device, "TIM1.CR1.DIR")
+    assert "#define TIM1_CR1_DIR_Pos 4U" in res["code"]
+    assert "#define TIM1_CR1_CEN_Pos" not in res["code"]
+    assert [f["name"] for f in res["registers"][0]["fields"]] == ["DIR"]
+
+
+def test_macros_for_peripheral_covers_all_registers(device):
+    res = query.macros_for(device, "USART1")
+    assert [r["name"] for r in res["registers"]] == ["CR1", "BRR", "SR"]
+    assert "#define USART1_SR_ADDR 0x4001381CUL" in res["code"]
+    assert res["registers"][0]["fields"][0]["macros"]["pos"] == "USART1_CR1_UE_Pos"
+
+
+def test_macros_pattern_enum_is_not_emitted(device):
+    res = query.macros_for(device, "TIM1.CR2.MMS")
+    assert "#define TIM1_CR2_MMS_ENABLE 0x1U" in res["code"]
+    assert "#define TIM1_CR2_MMS_COMPARE" not in res["code"]
+    assert "含任意位" in res["code"]
+
+
+def test_decode_write_mode_flags_read_only_field(device):
+    res = query.decode(device, "TIM1.CNT", 5, as_write=True)
+    assert any("read-only" in n for n in res["write_notes"])
+
+
+def test_decode_write_mode_flags_undefined_bits(device):
+    res = query.decode(device, "USART1.CR1", 0x100, as_write=True)
+    assert any("未定义" in n for n in res["write_notes"])
+
+
+def test_decode_write_mode_reports_write_semantics(device):
+    res = query.decode(device, "EXTI.PR", 0x1, as_write=True)
+    assert any("写 1 清零" in n for n in res["write_notes"])
+
+
+def test_decode_without_write_mode_has_no_notes(device):
+    res = query.decode(device, "USART1.CR1", 0)
+    assert res["write_notes"] == []

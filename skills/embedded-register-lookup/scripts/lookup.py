@@ -26,7 +26,7 @@ from etk_core.svd import load_device  # noqa: E402
 from etk_core.values import parse_number  # noqa: E402
 
 TOOL = "embedded-register-lookup"
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 MAX_WARNINGS_SHOWN = 20
 
 
@@ -44,8 +44,8 @@ def build_parser():
     parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("lookup", parents=[common], help="查外设、寄存器或位域，如 USART1.CR1.UE")
-    p.add_argument("query", help="外设.寄存器.位域，也可写 USART1->CR1")
+    p = sub.add_parser("lookup", parents=[common], help="查外设、寄存器或位域，如 USART1.CR1.UE（可给多个路径）")
+    p.add_argument("paths", nargs="+", metavar="路径", help="外设.寄存器.位域，也可写 USART1->CR1")
 
     p = sub.add_parser("addr", parents=[common], help="地址反查，如 0x4001380C")
     p.add_argument("address", help="十六进制（0x 开头）或十进制地址")
@@ -55,15 +55,20 @@ def build_parser():
     p.add_argument("--kind", choices=("peripheral", "register", "field"), help="只搜索某一层级")
     p.add_argument("--limit", type=int, default=50, help="最多显示条数（默认 50）")
 
+    p = sub.add_parser("irq", parents=[common], help="查中断号：irq USART1 或 irq 37（不给参数则列出全部）")
+    p.add_argument("query", nargs="?", default=None, help="中断名/外设名的一部分，或中断号")
+    p.add_argument("--limit", type=int, default=100, help="最多显示条数（默认 100）")
+
     p = sub.add_parser("decode", parents=[common], help="按位域解码寄存器值，如 RCC.CR 0x00040002（可给多个值）")
     p.add_argument("register", help="外设.寄存器")
     p.add_argument("value", nargs="+", help="寄存器值，十六进制或十进制，可给多个")
+    p.add_argument("--write", action="store_true", help="按写入方视角给提示：只读位域、未定义位、写读语义")
 
-    p = sub.add_parser("fields", parents=[common], help="位域速查表：位范围、掩码、访问、复位", )
-    p.add_argument("register", help="外设.寄存器")
+    p = sub.add_parser("fields", parents=[common], help="位域速查表：位范围、掩码、访问、复位（可给多个寄存器）")
+    p.add_argument("paths", nargs="+", metavar="寄存器", help="外设.寄存器")
 
-    p = sub.add_parser("diagram", parents=[common], help="寄存器位图（符号图 + 图例）")
-    p.add_argument("register", help="外设.寄存器")
+    p = sub.add_parser("diagram", parents=[common], help="寄存器位图（符号图 + 图例，可给多个寄存器）")
+    p.add_argument("paths", nargs="+", metavar="寄存器", help="外设.寄存器")
 
     p = sub.add_parser("set", parents=[common], help="按位域赋值计算寄存器写入值，如 set TIM1.CR1 CEN=1 DIR=UP")
     p.add_argument("register", help="外设.寄存器")
@@ -71,8 +76,11 @@ def build_parser():
     p.add_argument("--from", dest="from_value", default="reset", metavar="VALUE",
                    help="基准值：reset（默认，以复位值为基准）或数字")
 
-    p = sub.add_parser("diff", parents=[io], help="对比两份 SVD 中同一寄存器的差异")
-    p.add_argument("register", help="外设.寄存器")
+    p = sub.add_parser("macros", parents=[common], help="生成 CMSIS 风格参考宏（_Pos/_Msk/枚举值），带出处注释")
+    p.add_argument("path", help="外设、外设.寄存器 或 外设.寄存器.位域")
+
+    p = sub.add_parser("diff", parents=[io], help="对比两份 SVD 中同一寄存器的差异（可给多个寄存器）")
+    p.add_argument("registers", nargs="+", metavar="寄存器", help="外设.寄存器")
     p.add_argument("--svd-a", metavar="PATH", help="A 侧 SVD 文件路径")
     p.add_argument("--chip-a", metavar="NAME", help="A 侧芯片名（在本机 CMSIS-Pack 中查找）")
     p.add_argument("--svd-b", metavar="PATH", help="B 侧 SVD 文件路径")
@@ -88,34 +96,58 @@ def build_parser():
     return parser
 
 
+_PATH_COMMANDS = ("lookup", "fields", "diagram")
+_PATH_FUNCS = {
+    "lookup": query.lookup,
+    "fields": query.register_fields,
+    "diagram": query.diagram,
+}
+
+
 def _run(args):
-    if args.command in ("search", "range") and args.limit < 1:
+    if args.command in ("search", "range", "irq") and args.limit < 1:
         raise EtkError(E_INPUT_INVALID, "--limit 必须大于 0")
     if args.command == "diff":
         return _run_diff(args)
     path, selected_by, notes = find_svd(args.svd, args.chip, args.project_dir)
     device = load_device(path)
     warnings = list(notes) + list(device.warnings)
-    if args.command == "lookup":
-        result = query.lookup(device, args.query)
-    elif args.command == "addr":
+    if args.command in _PATH_COMMANDS:
+        fn = _PATH_FUNCS[args.command]
+        results = []
+        errors = []
+        for item in args.paths:
+            try:
+                res = fn(device, item)
+            except EtkError as exc:
+                errors.append(exc.to_dict())
+                continue
+            res["source"]["selected_by"] = selected_by
+            results.append(res)
+        return results, warnings, errors
+    if args.command == "addr":
         result = query.find_address(device, _parse(args.address, "地址"))
     elif args.command == "search":
         result = query.search(device, args.keyword, args.limit, args.kind)
+    elif args.command == "irq":
+        result = query.find_interrupts(device, args.query, args.limit)
     elif args.command == "decode":
         results = []
+        errors = []
         for raw in args.value:
-            res = query.decode(device, args.register, _parse(raw, "寄存器值"))
+            try:
+                res = query.decode(device, args.register, _parse(raw, "寄存器值"), args.write)
+            except EtkError as exc:
+                errors.append(exc.to_dict())
+                continue
             res["source"]["selected_by"] = selected_by
             results.append(res)
-        return results, warnings
-    elif args.command == "fields":
-        result = query.register_fields(device, args.register)
-    elif args.command == "diagram":
-        result = query.diagram(device, args.register)
+        return results, warnings, errors
     elif args.command == "set":
         source_value = None if args.from_value == "reset" else _parse(args.from_value, "基准值")
         result = query.set_fields(device, args.register, args.assignments, source_value)
+    elif args.command == "macros":
+        result = query.macros_for(device, args.path, generator="%s v%s" % (TOOL, __version__))
     elif args.command == "range":
         result = query.find_in_range(
             device, _parse(args.start, "起始地址"), _parse(args.end, "结束地址"), args.limit)
@@ -124,7 +156,7 @@ def _run(args):
     else:
         result = query.list_peripherals(device)
     result["source"]["selected_by"] = selected_by
-    return [result], warnings
+    return [result], warnings, []
 
 
 def _run_diff(args):
@@ -137,10 +169,18 @@ def _run_diff(args):
     warnings.extend("B 侧：%s" % item for item in list(notes_b) + list(device_b.warnings))
     if os.path.normcase(os.path.abspath(path_a)) == os.path.normcase(os.path.abspath(path_b)):
         warnings.append("两侧解析到同一份 SVD 文件，本次为自比对；要对比两份文件请用 --svd-a / --svd-b。")
-    result = query.diff_registers(device_a, device_b, args.register)
-    result["a"]["source"]["selected_by"] = by_a
-    result["b"]["source"]["selected_by"] = by_b
-    return [result], warnings
+    results = []
+    errors = []
+    for text in args.registers:
+        try:
+            result = query.diff_registers(device_a, device_b, text)
+        except EtkError as exc:
+            errors.append(exc.to_dict())
+            continue
+        result["a"]["source"]["selected_by"] = by_a
+        result["b"]["source"]["selected_by"] = by_b
+        results.append(result)
+    return results, warnings, errors
 
 
 def _parse(text, what):
@@ -195,6 +235,11 @@ def _render_peripheral(res):
     lines = [head]
     if res.get("description"):
         lines.append("说明：%s" % res["description"])
+    if res.get("interrupts"):
+        lines.append("中断：")
+        for item in res["interrupts"]:
+            desc = "  " + item["description"] if item["description"] else ""
+            lines.append("  %-3d %-26s%s" % (item["value"], item["name"], desc))
     lines.append("寄存器（%d 个）：" % len(res["registers"]))
     for r in res["registers"]:
         lines.append("  %-6s %-12s %s  复位 %s  %s" % (
@@ -306,8 +351,29 @@ def _render_decode(res):
             f["bits"], f["name"], f["value_hex"], enum, _desc(f["name"], f["description"])))
     if res["undefined_bits"]:
         lines.append("未定义位（SVD 中没有对应位域）：" + "、".join("bit %d" % b for b in res["undefined_bits"]))
+    for note in res.get("write_notes", []):
+        lines.append("写入提示：%s" % note)
     lines.append(_footer(res))
     return lines
+
+
+def _render_irq(res):
+    head = "中断列表" if not res["query"] else "中断筛选 %s" % res["query"]
+    head += "：共 %d 条" % res["total"]
+    if res["truncated"]:
+        head += "，显示前 %d 条" % len(res["matches"])
+    lines = [head]
+    for m in res["matches"]:
+        desc = "  " + m["description"] if m["description"] else ""
+        lines.append("  %-3d  %-10s %-26s%s" % (m["value"], m["peripheral"], m["name"], desc))
+    if not res["matches"]:
+        lines.append("没有匹配项。可用外设名或中断名的一部分再试。")
+    lines.append(_footer(res))
+    return lines
+
+
+def _render_macros(res):
+    return res["code"].splitlines()
 
 
 def _render_fields(res):
@@ -448,6 +514,8 @@ _RENDERERS = {
     "set": _render_set,
     "diff": _render_diff,
     "range": _render_range,
+    "irq": _render_irq,
+    "macros": _render_macros,
     "info": _render_info,
     "list": _render_list,
     "exact": _render_address,
@@ -495,8 +563,8 @@ def main(argv=None):
             stream.reconfigure(encoding="utf-8", errors="replace")
     args = build_parser().parse_args(argv)
     try:
-        results, warnings = _run(args)
-        env = envelope(TOOL, __version__, results=results, warnings=warnings)
+        results, warnings, errors = _run(args)
+        env = envelope(TOOL, __version__, results=results, warnings=warnings, errors=errors)
     except EtkError as exc:
         env = envelope(TOOL, __version__, errors=[exc.to_dict()])
     except Exception as exc:  # 兜底：避免向用户抛出裸 traceback

@@ -44,6 +44,13 @@ class EnumValue:
 
 
 @dataclass
+class Interrupt:
+    name: str
+    value: int
+    description: str
+
+
+@dataclass
 class Field:
     name: str
     lsb: int
@@ -101,6 +108,7 @@ class Peripheral:
     derived_from: str
     address_span: int
     registers: list = dc_field(default_factory=list)
+    interrupts: list = dc_field(default_factory=list)
 
     def register(self, name):
         key = name.upper()
@@ -186,6 +194,7 @@ class _Builder:
                     derived_from=rec.derived,
                     address_span=rec.span,
                     registers=rec.registers,
+                    interrupts=rec.interrupts,
                 ))
         cpu_el = _kid(self.root, "cpu")
         return Device(
@@ -247,6 +256,29 @@ class _Builder:
                 if _local(node.tag) in _NODE_TAGS and node_name:
                     nodes[node_name] = node
         registers = self._expand(list(nodes.values()), nodes, defaults, 0, "", inst_name)
+        declared = []
+        for el_i in _kids(el, "interrupt"):
+            i_name = _text(el_i, "name")
+            i_value_text = _text(el_i, "value")
+            if not i_name or i_value_text is None:
+                self.warnings.append("%s 有缺少 name 或 value 的 interrupt，已跳过" % where)
+                continue
+            try:
+                i_value = parse_number(i_value_text)
+            except ValueError:
+                self.warnings.append("%s 的中断 %s value=%r 无法解析，已跳过" % (where, i_name, i_value_text))
+                continue
+            declared.append(Interrupt(
+                name=i_name,
+                value=i_value,
+                description=_text(el_i, "description") or "",
+            ))
+        if declared:
+            interrupts = declared
+        elif base is not None:
+            interrupts = list(base.interrupts)
+        else:
+            interrupts = []
         block = self._block_span(el, where)
         if block == 0 and base is not None:
             block = base.block
@@ -260,6 +292,7 @@ class _Builder:
             defaults=defaults,
             nodes=nodes,
             registers=registers,
+            interrupts=interrupts,
             block=block,
             span=max(block, reg_end),
         )

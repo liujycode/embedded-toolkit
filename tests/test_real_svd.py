@@ -234,3 +234,32 @@ def test_real_info_sha256_matches_file():
         assert res["sha256"] == hashlib.sha256(fh.read()).hexdigest()
     assert res["counts"]["peripherals"] > 20
     assert res["counts"]["registers"] > 100
+
+
+def test_real_f103_usart1_irq_number():
+    dev = load_device(_find("STM32F103xx.svd"))
+    irq_map = {i.name.upper(): i.value for p in dev.peripherals for i in p.interrupts}
+    # ST 的 SVD 里中断名就是 "USART1"（无 _IRQn 后缀），向量号 37 是硬件事实
+    assert irq_map.get("USART1") == 37
+
+
+def test_real_g431_irq_lookup_and_macros():
+    dev = load_device(_find("STM32G431xx.svd"))
+    res = query.find_interrupts(dev, "USART1")
+    assert any(m["name"].upper().startswith("USART1") for m in res["matches"])
+    assert any(m["value"] == 37 for m in res["matches"])
+    macros = query.macros_for(dev, "USART1.CR1")
+    assert "#define USART1_CR1_UE_Pos 0U" in macros["code"]
+    assert "#define USART1_CR1_UE_Msk (0x1UL << USART1_CR1_UE_Pos)" in macros["code"]
+
+
+def test_real_f103_macros_ue_is_bit13():
+    dev = load_device(_find("STM32F103xx.svd"))
+    res = query.macros_for(dev, "USART1.CR1")
+    assert "#define USART1_CR1_UE_Pos 13U" in res["code"]
+
+
+def test_real_f103_write_notes_on_read_only_idr():
+    dev = load_device(_find("STM32F103xx.svd"))
+    res = query.decode(dev, "GPIOA.IDR", 0xFFFF, as_write=True)
+    assert any("read-only" in n for n in res["write_notes"])

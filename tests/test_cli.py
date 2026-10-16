@@ -206,3 +206,73 @@ def test_search_kind_filter():
     res = json.loads(r.stdout)["results"][0]
     assert res["total"] == 3
     assert all(m["kind"] == "peripheral" for m in res["matches"])
+
+
+def test_irq_command_filters_by_name():
+    r = run_cli("irq", "USART", "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stderr
+    res = json.loads(r.stdout)["results"][0]
+    assert res["kind"] == "irq"
+    assert res["total"] == 3
+
+
+def test_irq_command_by_number():
+    r = run_cli("irq", "39", "--svd", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "USART3_IRQn" in r.stdout
+
+
+def test_irq_command_lists_all_without_query():
+    r = run_cli("irq", "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["results"][0]["total"] == 5
+
+
+def test_macros_command_emits_c_defines():
+    r = run_cli("macros", "TIM1.CR1", "--svd", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "#define TIM1_CR1_CEN_Pos 0U" in r.stdout
+    assert "#define TIM1_CR1_ADDR 0x40012C00UL" in r.stdout
+
+
+def test_macros_unknown_path_is_error():
+    r = run_cli("macros", "TIM1.CR9", "--svd", SYNTH)
+    assert r.returncode == 1
+    assert "E_REG_NOT_FOUND" in r.stdout
+
+
+def test_decode_write_flag_text():
+    r = run_cli("decode", "TIM1.CNT", "5", "--write", "--svd", SYNTH)
+    assert r.returncode == 0, r.stderr
+    assert "写入提示" in r.stdout
+
+
+def test_lookup_accepts_multiple_paths():
+    r = run_cli("lookup", "USART1.CR1", "USART1.BRR", "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stderr
+    env = json.loads(r.stdout)
+    assert [res["kind"] for res in env["results"]] == ["register", "register"]
+    assert [res["register"]["name"] for res in env["results"]] == ["CR1", "BRR"]
+
+
+def test_lookup_partial_failure_keeps_other_results():
+    r = run_cli("lookup", "USART1.CR1", "USART1.CR9", "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1
+    env = json.loads(r.stdout)
+    assert env["ok"] is False
+    assert len(env["results"]) == 1
+    assert env["errors"][0]["code"] == "E_REG_NOT_FOUND"
+
+
+def test_fields_accepts_multiple_registers():
+    r = run_cli("fields", "USART1.CR1", "USART1.BRR", "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stderr
+    assert len(json.loads(r.stdout)["results"]) == 2
+
+
+def test_diff_accepts_multiple_registers():
+    r = run_cli("diff", "USART1.CR1", "USART1.BRR", "--svd-a", SYNTH, "--svd-b", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stderr
+    env = json.loads(r.stdout)
+    assert [res["path"] for res in env["results"]] == ["USART1.CR1", "USART1.BRR"]
+    assert all(res["identical"] for res in env["results"])

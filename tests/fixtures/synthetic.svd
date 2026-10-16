@@ -27,6 +27,11 @@
         <size>0x400</size>
         <usage>registers</usage>
       </addressBlock>
+      <interrupt>
+        <name>USART1_IRQn</name>
+        <description>USART1 global interrupt</description>
+        <value>37</value>
+      </interrupt>
       <registers>
         <register>
           <name>CR1</name>
@@ -127,6 +132,10 @@
     <peripheral derivedFrom="USART1">
       <name>USART3</name>
       <baseAddress>0x40004800</baseAddress>
+      <interrupt>
+        <name>USART3_IRQn</name>
+        <value>39</value>
+      </interrupt>
       <registers>
         <register>
           <name>SR</name>
@@ -201,6 +210,15 @@
     <peripheral>
       <name>DMA1</name>
       <baseAddress>0x40020000</baseAddress>
+      <interrupt>
+        <name>DMA1_Channel1_IRQn</name>
+        <description>DMA1 channel 1 interrupt</description>
+        <value>11</value>
+      </interrupt>
+      <interrupt>
+        <name>DMA1_Channel2_IRQn</name>
+        <value>12</value>
+      </interrupt>
       <registers>
         <register>
           <name>ISR</name>

@@ -212,6 +212,10 @@ def _periph_result(periph, source):
         "derived_from": periph.derived_from,
         "description": periph.description,
         "address_span": periph.address_span,
+        "interrupts": [
+            {"name": item.name, "value": item.value, "description": item.description}
+            for item in periph.interrupts
+        ],
         "registers": [_reg_dict(periph, r) for r in periph.registers],
         "label": LABEL_VERIFIED,
         "source": source,
@@ -341,7 +345,7 @@ def search(device, keyword, limit=50, kind=None):
     }
 
 
-def decode(device, text, value):
+def decode(device, text, value, as_write=False):
     periph, reg = resolve_register(device, text)
     size_mask = (1 << reg.size) - 1
     if value < 0 or value > size_mask:
@@ -366,6 +370,21 @@ def decode(device, text, value):
             "description": fld.description,
         })
     undefined = [i for i in range(reg.size) if (value >> i) & 1 and not (covered >> i) & 1]
+    write_notes = []
+    if as_write:
+        for fld, row in zip(reg.fields, rows):
+            fv = row["value"]
+            reset_fv = (reg.reset_value >> fld.lsb) & fld.mask
+            if fld.access == "read-only" and fv != reset_fv:
+                write_notes.append("位域 %s 的访问类型是只读（read-only），写入 0x%X 不会生效" % (fld.name, fv))
+            if fld.access == "read-writeOnce":
+                write_notes.append("位域 %s 只能写入一次（read-writeOnce）" % fld.name)
+            if fld.modified_write_values and fv:
+                write_notes.append("位域 %s 写 0x%X：%s（modifiedWriteValues=%s）" % (
+                    fld.name, fv, write_semantics(fld.modified_write_values), fld.modified_write_values))
+        if undefined:
+            write_notes.append("有 %d 个 SVD 未定义的位被置 1（bit %s），写入行为未在 SVD 中定义" % (
+                len(undefined), "、".join(str(b) for b in undefined[:8]) + ("…" if len(undefined) > 8 else "")))
     return {
         "kind": "decode",
         "peripheral": periph.name,
@@ -375,6 +394,7 @@ def decode(device, text, value):
         "value_hex": hex_reset(value, reg.size),
         "fields": rows,
         "undefined_bits": undefined,
+        "write_notes": write_notes,
         "label": LABEL_VERIFIED,
         "source": source_meta(device),
     }
@@ -747,10 +767,12 @@ def device_info(device):
     registers = 0
     fields = 0
     enums = 0
+    interrupts = 0
     derived = 0
     for periph in device.peripherals:
         if periph.derived_from:
             derived += 1
+        interrupts += len(periph.interrupts)
         for reg in periph.registers:
             registers += 1
             fields += len(reg.fields)
@@ -759,10 +781,7 @@ def device_info(device):
     try:
         size = os.path.getsize(device.path)
         mtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(device.path)))
-        digest = hashlib.sha256()
-        with open(device.path, "rb") as fh:
-            for chunk in iter(lambda: fh.read(1 << 20), b""):
-                digest.update(chunk)
+        digest = _sha256(device.path)
     except OSError as exc:
         raise EtkError(
             E_SVD_NOT_FOUND,
@@ -777,15 +796,160 @@ def device_info(device):
         "description": device.description,
         "file_size": size,
         "mtime": mtime,
-        "sha256": digest.hexdigest(),
+        "sha256": digest,
         "counts": {
             "peripherals": len(device.peripherals),
             "derived_peripherals": derived,
             "registers": registers,
             "fields": fields,
             "enums": enums,
+            "interrupts": interrupts,
             "warnings": len(device.warnings),
         },
         "label": LABEL_VERIFIED,
         "source": source_meta(device),
+    }
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _comment_safe(text):
+    """避免描述文本提前结束 C 注释。"""
+    return (text or "").replace("*/", "* /")
+
+
+def _macro_sanitize(name):
+    out = []
+    for ch in name:
+        out.append(ch if (ch.isalnum() or ch == "_") else "_")
+    return "".join(out).upper()
+
+
+def find_interrupts(device, query=None, limit=100):
+    """查中断号：给数字按号精确匹配，给文字按名称/外设/描述子串匹配；不给则列出全部。"""
+    entries = []
+    for periph in device.peripherals:
+        for item in periph.interrupts:
+            entries.append({
+                "value": item.value,
+                "peripheral": periph.name,
+                "name": item.name,
+                "description": item.description,
+            })
+    entries.sort(key=lambda e: (e["value"], e["peripheral"], e["name"]))
+    text = (query or "").strip()
+    if not text:
+        matched = entries
+    else:
+        try:
+            number = parse_number(text)
+        except ValueError:
+            key = text.lower()
+            matched = [
+                e for e in entries
+                if key in e["name"].lower()
+                or key in e["peripheral"].lower()
+                or key in (e["description"] or "").lower()
+            ]
+        else:
+            matched = [e for e in entries if e["value"] == number]
+    return {
+        "kind": "irq",
+        "query": text or None,
+        "total": len(matched),
+        "truncated": len(matched) > limit,
+        "matches": matched[:limit],
+        "label": LABEL_VERIFIED,
+        "source": source_meta(device),
+    }
+
+
+def macros_for(device, text, generator=None):
+    """生成 CMSIS 风格的参考宏：外设/寄存器/位域均可，含出处头注释。"""
+    parts = split_query(text)
+    periph = _periph_or_raise(device, parts[0])
+    res = lookup(device, text)
+    field_sel = None
+    if res["kind"] == "peripheral":
+        regs = list(periph.registers)
+    elif res["kind"] == "register":
+        regs = [periph.register(res["register"]["name"])]
+    elif res["kind"] == "field":
+        regs = [periph.register(res["register"]["name"])]
+        field_sel = regs[0].field(res["field"]["name"])
+    else:  # cluster
+        regs = [periph.register(item["name"]) for item in res["registers"]]
+    src = source_meta(device)
+    try:
+        short_hash = _sha256(device.path)[:12]
+    except OSError:
+        short_hash = "?"
+    lines = [
+        "/* 由 %s 生成；来源：%s（设备 %s，版本 %s，sha256 前缀 %s） */" % (
+            _comment_safe(generator or "embedded-register-lookup"),
+            _comment_safe(src["file"]), _comment_safe(src["device"]),
+            _comment_safe(src["version"]), short_hash),
+        "/* 宏名含外设实例名（%s_...）；厂商头文件常用外设类型名，对照时注意命名差异。 */" % periph.name,
+    ]
+    entries = []
+    for reg in regs:
+        prefix = _macro_sanitize("%s_%s" % (periph.name, reg.name))
+        addr = periph.base_address + reg.offset
+        lines.append("")
+        reg_desc = _comment_safe(reg.description)
+        lines.append("/* %s */" % (
+            ("%s: %s" % (reg.name, reg_desc)) if reg_desc and reg_desc != reg.name else reg.name))
+        lines.append("#define %s_OFFSET %sUL" % (prefix, hex_offset(reg.offset)))
+        lines.append("#define %s_ADDR %sUL" % (prefix, hex_addr(addr)))
+        fields = []
+        for fld in reg.fields:
+            if field_sel is not None and fld.name != field_sel.name:
+                continue
+            fprefix = "%s_%s" % (prefix, _macro_sanitize(fld.name))
+            fld_desc = _comment_safe(fld.description)
+            lines.append("/* %s（位 %s） */" % (
+                ("%s: %s" % (fld.name, fld_desc)) if fld_desc and fld_desc != fld.name else fld.name,
+                fld.bit_text))
+            lines.append("#define %s_Pos %dU" % (fprefix, fld.lsb))
+            lines.append("#define %s_Msk (0x%XUL << %s_Pos)" % (fprefix, fld.mask, fprefix))
+            enums = []
+            for enum in fld.enums:
+                if not enum.name:
+                    continue
+                if enum.mask == fld.mask:
+                    macro = "%s_%s" % (fprefix, _macro_sanitize(enum.name))
+                    lines.append("#define %s 0x%XU" % (macro, enum.value))
+                    enums.append({"name": enum.name, "value": enum.value, "macro": macro})
+                else:
+                    lines.append("/* 枚举 %s 含任意位（模式 %s），未生成宏 */" % (
+                        enum.name, _pattern(enum.value, enum.mask, fld.width)))
+            fields.append({
+                "name": fld.name,
+                "bits": fld.bit_text,
+                "pos": fld.lsb,
+                "msk": hex_mask(fld.mask << fld.lsb, reg.size),
+                "macros": {"pos": "%s_Pos" % fprefix, "msk": "%s_Msk" % fprefix},
+                "enums": enums,
+            })
+        entries.append({
+            "name": reg.name,
+            "offset": hex_offset(reg.offset),
+            "address": hex_addr(addr),
+            "macros": {"offset": "%s_OFFSET" % prefix, "address": "%s_ADDR" % prefix},
+            "fields": fields,
+        })
+    return {
+        "kind": "macros",
+        "peripheral": periph.name,
+        "path": text.strip(),
+        "registers": entries,
+        "code": "\n".join(lines),
+        "label": LABEL_VERIFIED,
+        "source": src,
     }
