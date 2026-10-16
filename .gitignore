@@ -4,5 +4,6 @@ __pycache__/
 .etk/
 *.svd
 !tests/fixtures/*.svd
+!skills/embedded-register-lookup/assets/*.svd
 .vscode/
 .idea/
