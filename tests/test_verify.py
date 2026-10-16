@@ -295,6 +295,38 @@ def test_finding_carries_lookup_hint(device):
     assert hint["action"] == "lookup" and hint["path"] == "USART1.CR1"
 
 
+def test_nrf_prefix_alias_resolves(device):
+    res = crules.Verifier(device).check_file("nrf.c", "NRF_USART1->CR1 |= USART_CR1_UE;\n")
+    assert res["counts"]["report"] == 0
+    assert res["counts"]["passed"] == 1
+
+
+def test_nrf_prefix_alias_still_checks_fields(device):
+    res = crules.Verifier(device).check_file("nrf.c", "NRF_USART1->CR1 |= USART_CR1_XXX;\n")
+    assert res["findings"][0]["class"] == "E03"
+
+
+def test_nrf_prefix_alias_unknown_peripheral_still_reported(device):
+    res = crules.Verifier(device).check_file("nrf.c", "NRF_TIM2->CR1 |= 0x1;\n")
+    assert res["findings"][0]["class"] == "E01"
+
+
+def test_numeric_readonly_field_in_macro_path(device):
+    res = crules.Verifier(device).check_file("ro.c", "SET_BIT(RCC->CR, 0x00000400);\n")
+    assert [f["class"] for f in res["findings"]] == ["E10"]
+    assert "HSIRDY" in res["findings"][0]["message"]
+
+
+def test_numeric_readonly_field_in_modify_set_value(device):
+    res = crules.Verifier(device).check_file("ro.c", "MODIFY_REG(RCC->CR, 0xFFFF, 0x00000400);\n")
+    assert [f["class"] for f in res["findings"]] == ["E10"]
+
+
+def test_modify_clear_mask_alone_not_reported(device):
+    res = crules.Verifier(device).check_file("ro.c", "MODIFY_REG(RCC->CR, 0xFFFF, 0x00000001);\n")
+    assert res["counts"]["report"] == 0
+
+
 def test_cli_attaches_next_commands():
     r = run_py(VERIFY_CLI, "check", VERIFY_BAD, "--svd", SYNTH, "--format", "json")
     findings = json.loads(r.stdout)["results"][0]["findings"]

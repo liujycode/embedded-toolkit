@@ -76,8 +76,8 @@
 - 判定（三种都算）：
   1. 目标寄存器 `access` 为 `read-only`；
   2. 写入表达式中映射到的位域 `access` 为 `read-only`（含 `SET_BIT/CLEAR_BIT/MODIFY_REG` 的参数）；
-  3. 直接写的数值命中了寄存器中只读位域的位（如 `RCC->CR = 0x400` 命中只读的 `HSIRDY`）。
-- 会报：`USART1->SR = 0x20;`（SR 只读）；`RCC->CR = 0x400;`（HSIRDY 只读）。
+  3. 数值参数命中寄存器中只读位域的位（结构体写、`SET_BIT/CLEAR_BIT/WRITE_REG` 的掩码/值、`MODIFY_REG` 的置位值；如 `RCC->CR = 0x400` 或 `SET_BIT(RCC->CR, 0x400)` 命中只读的 `HSIRDY`）。
+- 会报：`USART1->SR = 0x20;`（SR 只读）；`RCC->CR = 0x400;`（HSIRDY 只读）；`SET_BIT(RCC->CR, 0x400);`。
 
 ## 输出分桶
 

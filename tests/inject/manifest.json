@@ -1,0 +1,1584 @@
+{
+  "kind": "verify-inject",
+  "version": 1,
+  "device": "SYNTH32（合成芯片；tests/fixtures/synthetic.svd）",
+  "generator": "python tools/verify_bench.py generate",
+  "note": "每一处注入对应一条 ground truth：期望该行触发该规则（class 与行号都必须命中）。",
+  "cases": [
+    {
+      "id": "e01-01",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 8,
+      "note": "未知外设 TIM2（近似已存在的 TIM1）"
+    },
+    {
+      "id": "e01-02",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 13,
+      "note": "未知外设 TIM3"
+    },
+    {
+      "id": "e01-03",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 18,
+      "note": "未知外设 TIM4"
+    },
+    {
+      "id": "e01-04",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 23,
+      "note": "未知外设 SPI1"
+    },
+    {
+      "id": "e01-05",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 28,
+      "note": "未知外设 SPI2"
+    },
+    {
+      "id": "e01-06",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 33,
+      "note": "未知外设 I2C1"
+    },
+    {
+      "id": "e01-07",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 38,
+      "note": "未知外设 I2C2"
+    },
+    {
+      "id": "e01-08",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 43,
+      "note": "未知外设 ADC1"
+    },
+    {
+      "id": "e01-09",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 48,
+      "note": "未知外设 ADC2"
+    },
+    {
+      "id": "e01-10",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 53,
+      "note": "未知外设 DAC1"
+    },
+    {
+      "id": "e01-11",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 58,
+      "note": "未知外设 RTC"
+    },
+    {
+      "id": "e01-12",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 63,
+      "note": "未知外设 CRC"
+    },
+    {
+      "id": "e01-13",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 68,
+      "note": "未知外设 RNG"
+    },
+    {
+      "id": "e01-14",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 73,
+      "note": "未知外设 CAN1"
+    },
+    {
+      "id": "e01-15",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 78,
+      "note": "未知外设 WWDG"
+    },
+    {
+      "id": "e01-16",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 83,
+      "note": "未知外设 IWDG"
+    },
+    {
+      "id": "e01-17",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 88,
+      "note": "未知外设 UART4"
+    },
+    {
+      "id": "e01-18",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 93,
+      "note": "未知外设 UART5"
+    },
+    {
+      "id": "e01-19",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 98,
+      "note": "未知外设 GPIOD（同族 GPIO 存在）"
+    },
+    {
+      "id": "e01-20",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 103,
+      "note": "未知外设 GPIOE（同族 GPIO 存在）"
+    },
+    {
+      "id": "e01-21",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 108,
+      "note": "未知外设 SDMMC1"
+    },
+    {
+      "id": "e01-22",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 113,
+      "note": "未知外设 ETH"
+    },
+    {
+      "id": "e01-23",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 118,
+      "note": "未知外设 SPI3（宏形态 SET_BIT）"
+    },
+    {
+      "id": "e01-24",
+      "rule": "E01",
+      "file": "tests/inject/e01_injections.c",
+      "line": 123,
+      "note": "未知外设 ADC3（宏形态 WRITE_REG）"
+    },
+    {
+      "id": "e02-01",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 8,
+      "note": "USART1.CR2 不存在（SVD 只定义 CR1/BRR/SR）"
+    },
+    {
+      "id": "e02-02",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 13,
+      "note": "USART1.CR3 不存在"
+    },
+    {
+      "id": "e02-03",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 18,
+      "note": "USART1.GTPR 不存在"
+    },
+    {
+      "id": "e02-04",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 23,
+      "note": "USART1.RQR 不存在"
+    },
+    {
+      "id": "e02-05",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 28,
+      "note": "USART1.ICR 不存在"
+    },
+    {
+      "id": "e02-06",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 33,
+      "note": "USART2.ISR 不存在"
+    },
+    {
+      "id": "e02-07",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 38,
+      "note": "USART2.TDR 不存在"
+    },
+    {
+      "id": "e02-08",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 43,
+      "note": "TIM1.CR3 不存在"
+    },
+    {
+      "id": "e02-09",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 48,
+      "note": "TIM1.SMCR 不存在"
+    },
+    {
+      "id": "e02-10",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 53,
+      "note": "TIM1.DIER 不存在"
+    },
+    {
+      "id": "e02-11",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 58,
+      "note": "TIM1.EGR 不存在"
+    },
+    {
+      "id": "e02-12",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 63,
+      "note": "TIM1.PSC 不存在"
+    },
+    {
+      "id": "e02-13",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 68,
+      "note": "TIM1.ARR 不存在"
+    },
+    {
+      "id": "e02-14",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 73,
+      "note": "GPIOA.IDR 被当输出写（SVD 未定义）"
+    },
+    {
+      "id": "e02-15",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 78,
+      "note": "GPIOA.BSRR 不存在"
+    },
+    {
+      "id": "e02-16",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 83,
+      "note": "GPIOA.AFRL 不存在"
+    },
+    {
+      "id": "e02-17",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 88,
+      "note": "RCC.CFGR 不存在"
+    },
+    {
+      "id": "e02-18",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 93,
+      "note": "RCC.AHB1ENR 不存在"
+    },
+    {
+      "id": "e02-19",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 98,
+      "note": "RCC.BDCR 不存在"
+    },
+    {
+      "id": "e02-20",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 103,
+      "note": "DMA1.IFCR 不存在"
+    },
+    {
+      "id": "e02-21",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 108,
+      "note": "DMA1.CSELR 不存在"
+    },
+    {
+      "id": "e02-22",
+      "rule": "E02",
+      "file": "tests/inject/e02_injections.c",
+      "line": 113,
+      "note": "RCC.APB2ENR 不存在（宏形态）"
+    },
+    {
+      "id": "e03-01",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 8,
+      "note": "位域 ZZZ 不存在"
+    },
+    {
+      "id": "e03-02",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 13,
+      "note": "位域 RXNE 不在 CR1"
+    },
+    {
+      "id": "e03-03",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 18,
+      "note": "位域 RE 不存在"
+    },
+    {
+      "id": "e03-04",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 23,
+      "note": "位域 IDLE 不存在"
+    },
+    {
+      "id": "e03-05",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 28,
+      "note": "位域 PE 不存在"
+    },
+    {
+      "id": "e03-06",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 33,
+      "note": "位域 TXEIE 不存在"
+    },
+    {
+      "id": "e03-07",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 38,
+      "note": "位域 ABREN 不存在"
+    },
+    {
+      "id": "e03-08",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 43,
+      "note": "位域 SBRK 不存在（= 形态）"
+    },
+    {
+      "id": "e03-09",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 48,
+      "note": "位域 LBDF 不存在（SET_BIT 形态）"
+    },
+    {
+      "id": "e03-10",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 53,
+      "note": "位域 TXEIE 不存在（CLEAR_BIT 形态）"
+    },
+    {
+      "id": "e03-11",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 58,
+      "note": "宏属于 BRR 却写在 CR1"
+    },
+    {
+      "id": "e03-12",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 63,
+      "note": "宏属于 SR 却写在 CR1（TXE）"
+    },
+    {
+      "id": "e03-13",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 68,
+      "note": "宏属于 SR 却写在 CR1（TC）"
+    },
+    {
+      "id": "e03-14",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 73,
+      "note": "宏属于 CR1 却写在 BRR"
+    },
+    {
+      "id": "e03-15",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 78,
+      "note": "TIM 宏属于 CR1 却写在 CR2"
+    },
+    {
+      "id": "e03-16",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 83,
+      "note": "TIM 宏属于 CR2 却写在 CR1（带 _Msk）"
+    },
+    {
+      "id": "e03-17",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 88,
+      "note": "TIM 宏属于 CR2 却写在 CR1（无后缀）"
+    },
+    {
+      "id": "e03-18",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 93,
+      "note": "TIM 宏属于 CR1 却写在 CR2（= 形态）"
+    },
+    {
+      "id": "e03-19",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 98,
+      "note": "枚举名拼错 EVEEN"
+    },
+    {
+      "id": "e03-20",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 103,
+      "note": "枚举名拼错 OD"
+    },
+    {
+      "id": "e03-21",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 108,
+      "note": "位域名后多写 PS"
+    },
+    {
+      "id": "e03-22",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 113,
+      "note": "枚举名拼错（MODIFY_REG 掩码形态）"
+    },
+    {
+      "id": "e03-23",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 118,
+      "note": "位域名重复 M0_M0"
+    },
+    {
+      "id": "e03-24",
+      "rule": "E03",
+      "file": "tests/inject/e03_injections.c",
+      "line": 123,
+      "note": "枚举名拼错 ODDD（WRITE_REG 形态）"
+    },
+    {
+      "id": "e04-01",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 8,
+      "note": "TIM1.CR1 16 位溢出（=）"
+    },
+    {
+      "id": "e04-02",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 13,
+      "note": "TIM1.CR1 16 位溢出（|=）"
+    },
+    {
+      "id": "e04-03",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 18,
+      "note": "TIM1.CR1 边界外 0x1FFFF"
+    },
+    {
+      "id": "e04-04",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 23,
+      "note": "TIM1.CR1S（派生寄存器）同样 16 位"
+    },
+    {
+      "id": "e04-05",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 28,
+      "note": "GPIOA.ODR 16 位溢出"
+    },
+    {
+      "id": "e04-06",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 33,
+      "note": "GPIOB.ODR 16 位溢出（|=）"
+    },
+    {
+      "id": "e04-07",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 38,
+      "note": "GPIOC.ODR 16 位溢出（0xFFFF1）"
+    },
+    {
+      "id": "e04-08",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 43,
+      "note": "USART1.CR1 32 位溢出"
+    },
+    {
+      "id": "e04-09",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 48,
+      "note": "USART1.BRR 32 位溢出（|=）"
+    },
+    {
+      "id": "e04-10",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 53,
+      "note": "MODIFY_REG 位域溢出 0x8（MMS 3 位）"
+    },
+    {
+      "id": "e04-11",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 58,
+      "note": "MODIFY_REG 位域溢出 0x9"
+    },
+    {
+      "id": "e04-12",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 63,
+      "note": "MODIFY_REG 位域溢出 0xA"
+    },
+    {
+      "id": "e04-13",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 68,
+      "note": "MODIFY_REG 位域溢出 0xB"
+    },
+    {
+      "id": "e04-14",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 73,
+      "note": "MODIFY_REG 位域溢出 0xC"
+    },
+    {
+      "id": "e04-15",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 78,
+      "note": "MODIFY_REG 位域溢出 0xD"
+    },
+    {
+      "id": "e04-16",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 83,
+      "note": "MODIFY_REG 位域溢出 0xE"
+    },
+    {
+      "id": "e04-17",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 88,
+      "note": "MODIFY_REG 位域溢出 0xF"
+    },
+    {
+      "id": "e04-18",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 93,
+      "note": "SET_BIT 数值超过寄存器宽度"
+    },
+    {
+      "id": "e04-19",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 98,
+      "note": "WRITE_REG 数值超过寄存器宽度"
+    },
+    {
+      "id": "e04-20",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 103,
+      "note": "CLEAR_BIT 数值超过寄存器宽度"
+    },
+    {
+      "id": "e04-21",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 108,
+      "note": "MODIFY_REG 置位值超位域（单宏掩码）"
+    },
+    {
+      "id": "e04-22",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 113,
+      "note": "MODIFY_REG 置位值超寄存器宽度（多宏掩码）"
+    },
+    {
+      "id": "e04-23",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 118,
+      "note": "MODIFY_REG 置位值超位域（GPIO MODE0）"
+    },
+    {
+      "id": "e05-01",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 11,
+      "note": "MMS=0x2 不是枚举（0/1/1xx）"
+    },
+    {
+      "id": "e05-02",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 16,
+      "note": "MMS=0x3 不是枚举"
+    },
+    {
+      "id": "e05-03",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 21,
+      "note": "十进制 2"
+    },
+    {
+      "id": "e05-04",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 26,
+      "note": "十进制 3"
+    },
+    {
+      "id": "e05-05",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 31,
+      "note": "二进制 0b10"
+    },
+    {
+      "id": "e05-06",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 36,
+      "note": "二进制 0b11"
+    },
+    {
+      "id": "e05-07",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 41,
+      "note": "表达式 (0x1 + 0x1)"
+    },
+    {
+      "id": "e05-08",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 46,
+      "note": "表达式 (0x1 + 0x2)"
+    },
+    {
+      "id": "e05-09",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 51,
+      "note": "表达式 (0x4 >> 1)"
+    },
+    {
+      "id": "e05-10",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 56,
+      "note": "表达式 (0x6 >> 1)"
+    },
+    {
+      "id": "e05-11",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 61,
+      "note": "表达式 (0x3 & 0x3)"
+    },
+    {
+      "id": "e05-12",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 66,
+      "note": "表达式 (0x7 & 0x2)"
+    },
+    {
+      "id": "e05-13",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 71,
+      "note": "表达式 ~(~0x2)"
+    },
+    {
+      "id": "e05-14",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 76,
+      "note": "后缀字面量 2U"
+    },
+    {
+      "id": "e05-15",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 81,
+      "note": "掩码写法 _MASK"
+    },
+    {
+      "id": "e05-16",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 86,
+      "note": "取模表达式 (0x7 % 5)"
+    },
+    {
+      "id": "e05-17",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 91,
+      "note": "文件内宏 BAD_MMS=0x2"
+    },
+    {
+      "id": "e05-18",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 96,
+      "note": "文件内宏 BAD_MMS_2=(0x1+0x2)"
+    },
+    {
+      "id": "e05-19",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 101,
+      "note": "强制转型 (int)0x2"
+    },
+    {
+      "id": "e05-20",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 106,
+      "note": "位与表达式 0x1F & 0x2"
+    },
+    {
+      "id": "e06-01",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 10,
+      "note": "CLEAR_BIT USART1.CR1.TE"
+    },
+    {
+      "id": "e06-02",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 15,
+      "note": "CLEAR_BIT USART1.CR1.PS"
+    },
+    {
+      "id": "e06-03",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 20,
+      "note": "CLEAR_BIT USART1.CR1.OVER8"
+    },
+    {
+      "id": "e06-04",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 25,
+      "note": "CLEAR_BIT USART2.CR1.UE"
+    },
+    {
+      "id": "e06-05",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 30,
+      "note": "CLEAR_BIT USART2.CR1.M0"
+    },
+    {
+      "id": "e06-06",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 35,
+      "note": "CLEAR_BIT USART3.CR1.TE"
+    },
+    {
+      "id": "e06-07",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 40,
+      "note": "CLEAR_BIT USART3.CR1.M0"
+    },
+    {
+      "id": "e06-08",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 45,
+      "note": "CLEAR_BIT TIM1.CR1.CEN"
+    },
+    {
+      "id": "e06-09",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 50,
+      "note": "CLEAR_BIT TIM1.CR2.MMS（_Msk）"
+    },
+    {
+      "id": "e06-10",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 55,
+      "note": "CLEAR_BIT GPIOA.ODR.OD0"
+    },
+    {
+      "id": "e06-11",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 60,
+      "note": "CLEAR_BIT GPIOB.ODR.OD0"
+    },
+    {
+      "id": "e06-12",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 65,
+      "note": "CLEAR_BIT EXTI.PR.P0"
+    },
+    {
+      "id": "e06-13",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 70,
+      "note": "CLEAR_BIT EXTI.PR.P1"
+    },
+    {
+      "id": "e06-14",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 75,
+      "note": "CLEAR_BIT RCC.APB1ENR.I2C1EN"
+    },
+    {
+      "id": "e06-15",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 80,
+      "note": "CLEAR_BIT TIM1.CR1.DIR"
+    },
+    {
+      "id": "e06-16",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 85,
+      "note": "CLEAR_BIT USART3.CR1.PS"
+    },
+    {
+      "id": "e06-17",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 90,
+      "note": "&= ~ USART1.CR1.UE"
+    },
+    {
+      "id": "e06-18",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 95,
+      "note": "&= ~ USART2.CR1.TE"
+    },
+    {
+      "id": "e06-19",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 100,
+      "note": "&= ~ TIM1.CR1.DIR"
+    },
+    {
+      "id": "e06-20",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 105,
+      "note": "&= ~ GPIOC.ODR.OD0"
+    },
+    {
+      "id": "e06-21",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 110,
+      "note": "&= ~ USART3.CR1.OVER8"
+    },
+    {
+      "id": "e06-22",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 115,
+      "note": "&= ~ RCC.APB1ENR.I2C1EN"
+    },
+    {
+      "id": "e06-23",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 120,
+      "note": "&= ~ USART2.CR1.OVER8"
+    },
+    {
+      "id": "e06-24",
+      "rule": "E06",
+      "file": "tests/inject/e06_injections.c",
+      "line": 125,
+      "note": "&= ~ EXTI.PR.P0"
+    },
+    {
+      "id": "e08-01",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 10,
+      "note": "已知地址 USART1.CR1"
+    },
+    {
+      "id": "e08-02",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 15,
+      "note": "已知地址 USART1.BRR"
+    },
+    {
+      "id": "e08-03",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 20,
+      "note": "已知地址 USART2.CR1"
+    },
+    {
+      "id": "e08-04",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 25,
+      "note": "已知地址 USART2.BRR"
+    },
+    {
+      "id": "e08-05",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 30,
+      "note": "已知地址 GPIOA.MODER"
+    },
+    {
+      "id": "e08-06",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 35,
+      "note": "已知地址 GPIOB.MODER"
+    },
+    {
+      "id": "e08-07",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 40,
+      "note": "已知地址 GPIOC.ODR"
+    },
+    {
+      "id": "e08-08",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 45,
+      "note": "已知地址 TIM1.CR1"
+    },
+    {
+      "id": "e08-09",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 50,
+      "note": "已知地址 TIM1.CR2"
+    },
+    {
+      "id": "e08-10",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 55,
+      "note": "已知地址 RCC.APB1ENR"
+    },
+    {
+      "id": "e08-11",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 60,
+      "note": "已知地址 DMA1.ISR"
+    },
+    {
+      "id": "e08-12",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 65,
+      "note": "已知地址 EXTI.PR（__IO 写法）"
+    },
+    {
+      "id": "e08-13",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 70,
+      "note": "已知地址 RCC.CR"
+    },
+    {
+      "id": "e08-14",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 75,
+      "note": "未知地址 USART1 偏移 +4（寄存器间隙）"
+    },
+    {
+      "id": "e08-15",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 80,
+      "note": "未知地址 USART2 偏移 +4"
+    },
+    {
+      "id": "e08-16",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 85,
+      "note": "未知地址 TIM1 偏移 0x50"
+    },
+    {
+      "id": "e08-17",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 90,
+      "note": "未知地址 0xDEAD0000"
+    },
+    {
+      "id": "e08-18",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 95,
+      "note": "未知地址 0xDEADBEEF"
+    },
+    {
+      "id": "e08-19",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 100,
+      "note": "未知地址 0x20000000（SRAM 区）"
+    },
+    {
+      "id": "e08-20",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 105,
+      "note": "未知地址 0x40000000"
+    },
+    {
+      "id": "e08-21",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 110,
+      "note": "未知地址 0xFFFFF000"
+    },
+    {
+      "id": "e08-22",
+      "rule": "E08",
+      "file": "tests/inject/e08_injections.c",
+      "line": 115,
+      "note": "未知地址 0x48004000（GPIO 区之外）"
+    },
+    {
+      "id": "e10-01",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 8,
+      "note": "USART1.SR 只读寄存器（=）"
+    },
+    {
+      "id": "e10-02",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 13,
+      "note": "USART1.SR 只读寄存器（|=）"
+    },
+    {
+      "id": "e10-03",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 18,
+      "note": "USART1.SR 只读寄存器（&= ~）"
+    },
+    {
+      "id": "e10-04",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 23,
+      "note": "USART1.SR 只读寄存器（SET_BIT）"
+    },
+    {
+      "id": "e10-05",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 28,
+      "note": "USART1.SR 只读寄存器（CLEAR_BIT）"
+    },
+    {
+      "id": "e10-06",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 33,
+      "note": "TIM1.CNT 只读寄存器（=）"
+    },
+    {
+      "id": "e10-07",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 38,
+      "note": "TIM1.CNT 只读寄存器（|=）"
+    },
+    {
+      "id": "e10-08",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 43,
+      "note": "TIM1.CNT 只读寄存器（WRITE_REG）"
+    },
+    {
+      "id": "e10-09",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 48,
+      "note": "TIM1.CNT 只读寄存器（SET_BIT）"
+    },
+    {
+      "id": "e10-10",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 53,
+      "note": "TIM1.CNT 只读寄存器（MODIFY_REG）"
+    },
+    {
+      "id": "e10-11",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 58,
+      "note": "RCC.CR 只读位 HSIRDY（宏 |=）"
+    },
+    {
+      "id": "e10-12",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 63,
+      "note": "RCC.CR 只读位 HSIRDY（数值 =）"
+    },
+    {
+      "id": "e10-13",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 68,
+      "note": "RCC.CR 只读位 HSIRDY（数值 |=）"
+    },
+    {
+      "id": "e10-14",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 73,
+      "note": "RCC.CR 只读位 HSIRDY（移位表达式）"
+    },
+    {
+      "id": "e10-15",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 78,
+      "note": "RCC.CR 只读位 HSIRDY（1U 后缀）"
+    },
+    {
+      "id": "e10-16",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 83,
+      "note": "RCC.CR 只读位 HSIRDY（SET_BIT 宏）"
+    },
+    {
+      "id": "e10-17",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 88,
+      "note": "RCC.CR 只读位 HSIRDY（SET_BIT 数值）"
+    },
+    {
+      "id": "e10-18",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 93,
+      "note": "RCC.CR 只读位 HSIRDY（WRITE_REG 数值）"
+    },
+    {
+      "id": "e10-19",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 98,
+      "note": "RCC.CR 只读位 HSIRDY（MODIFY_REG 宏）"
+    },
+    {
+      "id": "e10-20",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 103,
+      "note": "RCC.CR 只读位 HSIRDY（MODIFY_REG 数值置位）"
+    },
+    {
+      "id": "e10-21",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 108,
+      "note": "RCC.CR 写入等于复位值 0x500（同时含只读位）"
+    },
+    {
+      "id": "e10-22",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 113,
+      "note": "RCC.CR 只读位混在宏组合里"
+    },
+    {
+      "id": "e07-01",
+      "rule": "E07",
+      "file": "tests/inject/e07-01.c",
+      "line": 8,
+      "note": "|= 写 CR1（基线，无任何使能）"
+    },
+    {
+      "id": "e07-02",
+      "rule": "E07",
+      "file": "tests/inject/e07-02.c",
+      "line": 8,
+      "note": "= 写 CR1（宏组合值）"
+    },
+    {
+      "id": "e07-03",
+      "rule": "E07",
+      "file": "tests/inject/e07-03.c",
+      "line": 8,
+      "note": "写 BRR 波特率"
+    },
+    {
+      "id": "e07-04",
+      "rule": "E07",
+      "file": "tests/inject/e07-04.c",
+      "line": 8,
+      "note": "SET_BIT 形态"
+    },
+    {
+      "id": "e07-05",
+      "rule": "E07",
+      "file": "tests/inject/e07-05.c",
+      "line": 8,
+      "note": "MODIFY_REG 形态"
+    },
+    {
+      "id": "e07-06",
+      "rule": "E07",
+      "file": "tests/inject/e07-06.c",
+      "line": 8,
+      "note": "CLEAR_BIT 形态（同时 E06）"
+    },
+    {
+      "id": "e07-07",
+      "rule": "E07",
+      "file": "tests/inject/e07-07.c",
+      "line": 8,
+      "note": "WRITE_REG 形态"
+    },
+    {
+      "id": "e07-08",
+      "rule": "E07",
+      "file": "tests/inject/e07-08.c",
+      "line": 8,
+      "note": "数值 |= 写"
+    },
+    {
+      "id": "e07-09",
+      "rule": "E07",
+      "file": "tests/inject/e07-09.c",
+      "line": 8,
+      "note": "移位表达式"
+    },
+    {
+      "id": "e07-10",
+      "rule": "E07",
+      "file": "tests/inject/e07-10.c",
+      "line": 10,
+      "note": "文件内宏作波特率（|=）"
+    },
+    {
+      "id": "e07-11",
+      "rule": "E07",
+      "file": "tests/inject/e07-11.c",
+      "line": 9,
+      "note": "先写 RCC 但只开 HSION（不是 USART2EN）"
+    },
+    {
+      "id": "e07-12",
+      "rule": "E07",
+      "file": "tests/inject/e07-12.c",
+      "line": 9,
+      "note": "HAL 使能的是 USART1（不是 USART2）"
+    },
+    {
+      "id": "e07-13",
+      "rule": "E07",
+      "file": "tests/inject/e07-13.c",
+      "line": 8,
+      "note": "两处 USART2 写入（首行报）"
+    },
+    {
+      "id": "e07-14",
+      "rule": "E07",
+      "file": "tests/inject/e07-14.c",
+      "line": 9,
+      "note": "GPIO 写在前（GPIO 无使能位）"
+    },
+    {
+      "id": "e07-15",
+      "rule": "E07",
+      "file": "tests/inject/e07-15.c",
+      "line": 9,
+      "note": "TIM1 写在前（TIM1 无使能位）"
+    },
+    {
+      "id": "e07-16",
+      "rule": "E07",
+      "file": "tests/inject/e07-16.c",
+      "line": 8,
+      "note": "写 USART2.SR（只读，同时 E10）"
+    },
+    {
+      "id": "e07-17",
+      "rule": "E07",
+      "file": "tests/inject/e07-17.c",
+      "line": 8,
+      "note": "&= ~ 清位形态（同时 E06）"
+    },
+    {
+      "id": "e07-18",
+      "rule": "E07",
+      "file": "tests/inject/e07-18.c",
+      "line": 8,
+      "note": "^= 形态"
+    },
+    {
+      "id": "e07-19",
+      "rule": "E07",
+      "file": "tests/inject/e07-19.c",
+      "line": 8,
+      "note": "写 M0"
+    },
+    {
+      "id": "e07-20",
+      "rule": "E07",
+      "file": "tests/inject/e07-20.c",
+      "line": 8,
+      "note": "箭头前有空格（词法容错）"
+    },
+    {
+      "id": "e07-21",
+      "rule": "E07",
+      "file": "tests/inject/e07-21.c",
+      "line": 10,
+      "note": "文件内宏作 BRR 值（=）"
+    },
+    {
+      "id": "e07-22",
+      "rule": "E07",
+      "file": "tests/inject/e07-22.c",
+      "line": 8,
+      "note": "MODIFY_REG 置位同名掩码"
+    },
+    {
+      "id": "e09-01",
+      "rule": "E09",
+      "file": "tests/inject/e09-01.c",
+      "line": 8,
+      "note": "两处相同分组（3, 3）"
+    },
+    {
+      "id": "e09-02",
+      "rule": "E09",
+      "file": "tests/inject/e09-02.c",
+      "line": 8,
+      "note": "两处不同分组（3, 4）"
+    },
+    {
+      "id": "e09-03",
+      "rule": "E09",
+      "file": "tests/inject/e09-03.c",
+      "line": 8,
+      "note": "两处相同分组（4, 4）"
+    },
+    {
+      "id": "e09-04",
+      "rule": "E09",
+      "file": "tests/inject/e09-04.c",
+      "line": 8,
+      "note": "两处不同分组（0, 7）"
+    },
+    {
+      "id": "e09-05",
+      "rule": "E09",
+      "file": "tests/inject/e09-05.c",
+      "line": 8,
+      "note": "两处相同分组（2, 2）"
+    },
+    {
+      "id": "e09-06",
+      "rule": "E09",
+      "file": "tests/inject/e09-06.c",
+      "line": 8,
+      "note": "三处分组（3, 3, 3）"
+    },
+    {
+      "id": "e09-07",
+      "rule": "E09",
+      "file": "tests/inject/e09-07.c",
+      "line": 8,
+      "note": "两处之间空行"
+    },
+    {
+      "id": "e09-08",
+      "rule": "E09",
+      "file": "tests/inject/e09-08.c",
+      "line": 8,
+      "note": "两处之间注释"
+    },
+    {
+      "id": "e09-09",
+      "rule": "E09",
+      "file": "tests/inject/e09-09.c",
+      "line": 8,
+      "note": "无符号后缀（3U, 3U）"
+    },
+    {
+      "id": "e09-10",
+      "rule": "E09",
+      "file": "tests/inject/e09-10.c",
+      "line": 8,
+      "note": "括号内空格（ 3 ）"
+    },
+    {
+      "id": "e09-11",
+      "rule": "E09",
+      "file": "tests/inject/e09-11.c",
+      "line": 8,
+      "note": "函数名与括号间空格"
+    },
+    {
+      "id": "e09-12",
+      "rule": "E09",
+      "file": "tests/inject/e09-12.c",
+      "line": 8,
+      "note": "两处不同分组（3, 5）"
+    },
+    {
+      "id": "e09-13",
+      "rule": "E09",
+      "file": "tests/inject/e09-13.c",
+      "line": 8,
+      "note": "两处不同分组（5, 3）"
+    },
+    {
+      "id": "e09-14",
+      "rule": "E09",
+      "file": "tests/inject/e09-14.c",
+      "line": 8,
+      "note": "三处分组（0, 1, 2）"
+    },
+    {
+      "id": "e09-15",
+      "rule": "E09",
+      "file": "tests/inject/e09-15.c",
+      "line": 9,
+      "note": "注释行后两处（3, 4）"
+    },
+    {
+      "id": "e09-16",
+      "rule": "E09",
+      "file": "tests/inject/e09-16.c",
+      "line": 8,
+      "note": "两处相同分组（7, 7）"
+    },
+    {
+      "id": "e09-17",
+      "rule": "E09",
+      "file": "tests/inject/e09-17.c",
+      "line": 8,
+      "note": "两处不同分组（2, 6）"
+    },
+    {
+      "id": "e09-18",
+      "rule": "E09",
+      "file": "tests/inject/e09-18.c",
+      "line": 8,
+      "note": "两处之间夹寄存器写"
+    },
+    {
+      "id": "e09-19",
+      "rule": "E09",
+      "file": "tests/inject/e09-19.c",
+      "line": 8,
+      "note": "空行与注释分隔（2, 2）"
+    },
+    {
+      "id": "e09-20",
+      "rule": "E09",
+      "file": "tests/inject/e09-20.c",
+      "line": 8,
+      "note": "两处相同分组（6, 6）"
+    },
+    {
+      "id": "e09-21",
+      "rule": "E09",
+      "file": "tests/inject/e09-21.c",
+      "line": 8,
+      "note": "行尾注释（3, 3）"
+    },
+    {
+      "id": "e09-22",
+      "rule": "E09",
+      "file": "tests/inject/e09-22.c",
+      "line": 8,
+      "note": "两处相同分组（1, 1）"
+    }
+  ]
+}

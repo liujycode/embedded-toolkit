@@ -80,7 +80,12 @@ class Verifier:
     # ---------- 基础映射 ----------
 
     def _periph(self, name):
-        return self.peripherals.get(name.upper())
+        key = name.upper()
+        periph = self.peripherals.get(key)
+        if periph is None and key.startswith("NRF_"):
+            # Nordic SDK 约定：nrf.h 用 NRF_<外设> 作为 SVD 外设名的别名（如 NRF_USBD → USBD）
+            periph = self.peripherals.get(key[4:])
+        return periph
 
     def _by_address(self):
         if self._addr_map is None:
@@ -565,7 +570,9 @@ class Verifier:
             add_finding(write, "E03",
                         "宏 %s 属于 %s.%s，而此处写入的是 %s" % (
                             macro_name, periph.name, target.name, reg.name),
-                        periph=periph.name, register=reg.name)
+                        periph=periph.name, register=reg.name,
+                        lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                            reason="查看此处写入的寄存器与宏所属寄存器"))
             return
         fields = [f.name for f in reg.fields]
         suggestion = self._suggest_names(info.get("missing") or macro_name, fields)
@@ -584,38 +591,45 @@ class Verifier:
     def _check_macro(self, write, periph, reg, defines, add_finding, add_undet, sets, unknown_set_regs):
         op = write["op"]
         args = write.get("args") or []
+        reported = set()  # 一条语句内 E10 只读位域去重（宏参数与数值两条路径）
         if reg.access == "read-only":
             add_finding(write, "E10", "%s.%s 是只读寄存器，写入不会生效" % (periph.name, reg.name),
-                        periph=periph.name, register=reg.name)
+                        periph=periph.name, register=reg.name,
+                        lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                            reason="查看该寄存器的访问属性"))
         if op in ("set_bit", "clear_bit"):
             if len(args) < 2:
                 add_undet(write, "宏参数不足，无法核验")
                 return
             self._check_macro_mask(write, periph, reg, args[1], op, defines,
-                                   add_finding, add_undet, sets, unknown_set_regs)
+                                   add_finding, add_undet, sets, unknown_set_regs, reported)
         elif op == "modify_reg":
             if len(args) < 3:
                 add_undet(write, "宏参数不足，无法核验")
                 return
             self._check_macro_mask(write, periph, reg, args[1], "modify_clear", defines,
-                                   add_finding, add_undet, sets, unknown_set_regs)
-            self._check_modify_value(write, periph, reg, args[1], args[2], defines, add_finding, add_undet)
+                                   add_finding, add_undet, sets, unknown_set_regs, reported)
+            self._check_modify_value(write, periph, reg, args[1], args[2], defines,
+                                     add_finding, add_undet, reported)
         elif op == "write_reg":
             if len(args) < 2:
                 add_undet(write, "宏参数不足，无法核验")
                 return
             self._check_macro_mask(write, periph, reg, args[1], "write_reg", defines,
-                                   add_finding, add_undet, sets, unknown_set_regs)
+                                   add_finding, add_undet, sets, unknown_set_regs, reported)
 
     def _check_macro_mask(self, write, periph, reg, expr, mode, defines,
-                          add_finding, add_undet, sets, unknown_set_regs):
+                          add_finding, add_undet, sets, unknown_set_regs, reported):
         mapped, missing, unmapped, value = self._fields_for_expr(expr, periph, reg, defines)
         for macro_name, _info in missing:
             self._report_macro_mismatch(write, periph, reg, macro_name, _info, add_finding)
+        mapped_names = set()
         for macro_name, field, _info in mapped:
+            mapped_names.add(field.name.upper())
             if self._report_register_mismatch(write, periph, reg, macro_name, _info, add_finding):
                 continue
             if field.access == "read-only" and reg.access != "read-only":
+                reported.add(field.name.upper())
                 add_finding(write, "E10",
                             "位域 %s.%s.%s 是只读，写入不会生效" % (periph.name, reg.name, field.name),
                             periph=periph.name, register=reg.name, field=field.name,
@@ -631,6 +645,8 @@ class Verifier:
                             periph=periph.name, register=reg.name,
                             lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
                                                 reason="查看该寄存器宽度"))
+            if mode != "modify_clear":  # MODIFY_REG 的清除掩码不算写入，置位值在 _check_modify_value 里查
+                self._report_readonly_value(write, periph, reg, value, add_finding, reported, mapped_names)
             if mode in ("clear_bit", "modify_clear") and value and not any(
                     field.mask << field.lsb & value for field in reg.fields):
                 add_undet(write, "清位掩码 0x%X 不覆盖任何 SVD 位域" % value)
@@ -646,7 +662,8 @@ class Verifier:
                                 lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
                                     periph.name, reg.name, field.name), reason="查看该位域的复位值"))
 
-    def _check_modify_value(self, write, periph, reg, clear_expr, set_expr, defines, add_finding, add_undet):
+    def _check_modify_value(self, write, periph, reg, clear_expr, set_expr, defines,
+                            add_finding, add_undet, reported):
         mapped, _missing, _unmapped, _v = self._fields_for_expr(clear_expr, periph, reg, defines)
         value = cscan.eval_int(set_expr, defines)
         if value is None:
@@ -676,6 +693,29 @@ class Verifier:
                         periph=periph.name, register=reg.name,
                         lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
                                             reason="查看该寄存器宽度"))
+        mapped_names = {item[1].name.upper() for item in mapped}
+        self._report_readonly_value(write, periph, reg, value, add_finding, reported, mapped_names)
+
+    def _report_readonly_value(self, write, periph, reg, value, add_finding, reported, mapped_names=None):
+        """数值参数触碰到只读位域 → E10（与结构体写路径同一口径；一条语句内去重）。"""
+        if value is None or value < 0 or reg.access == "read-only":
+            return
+        skip = set(mapped_names or ())
+        for field in reg.fields:
+            if field.access != "read-only":
+                continue
+            key = field.name.upper()
+            if key in skip or key in reported:
+                continue
+            if not (value & (field.mask << field.lsb)):
+                continue
+            reported.add(key)
+            add_finding(write, "E10",
+                        "%s.%s 中的只读位域 %s 被写入（值 0x%X）" % (
+                            periph.name, reg.name, field.name, value),
+                        periph=periph.name, register=reg.name, field=field.name,
+                        lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                            periph.name, reg.name, field.name), reason="查看该位域的访问属性"))
 
     # ---------- E07 ----------
 

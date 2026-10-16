@@ -1,0 +1,284 @@
+{
+  "kind": "verify-normal",
+  "version": 1,
+  "device": "SYNTH32（合成芯片；tests/fixtures/synthetic.svd）",
+  "generator": "python tools/verify_bench.py generate",
+  "note": "预期每个文件 0 条“报”；未判定/芯片默认不视为误报，单独统计。",
+  "files": [
+    {
+      "id": "n01",
+      "file": "tests/normal/n01.c",
+      "note": "USART2：RCC 置位 + 宏 |= 初始化"
+    },
+    {
+      "id": "n02",
+      "file": "tests/normal/n02.c",
+      "note": "USART2：HAL 使能宏 + = 宏组合值"
+    },
+    {
+      "id": "n03",
+      "file": "tests/normal/n03.c",
+      "note": "USART2：SET_BIT/MODIFY_REG + 文件内宏"
+    },
+    {
+      "id": "n04",
+      "file": "tests/normal/n04.c",
+      "note": "USART2：轮询读 SR + 写 BRR"
+    },
+    {
+      "id": "n05",
+      "file": "tests/normal/n05.c",
+      "note": "USART1：无使能位字段，宏组合"
+    },
+    {
+      "id": "n06",
+      "file": "tests/normal/n06.c",
+      "note": "USART3：CR1 + BRR"
+    },
+    {
+      "id": "n07",
+      "file": "tests/normal/n07.c",
+      "note": "USART2：数值 |= 初始化"
+    },
+    {
+      "id": "n08",
+      "file": "tests/normal/n08.c",
+      "note": "USART1：PS 枚举名 + 读 SR 条件写"
+    },
+    {
+      "id": "n09",
+      "file": "tests/normal/n09.c",
+      "note": "USART2：宏与数值混合"
+    },
+    {
+      "id": "n10",
+      "file": "tests/normal/n10.c",
+      "note": "USART3：SET_BIT + BRR 字面量"
+    },
+    {
+      "id": "n11",
+      "file": "tests/normal/n11.c",
+      "note": "GPIOA：SET_BIT MODER"
+    },
+    {
+      "id": "n12",
+      "file": "tests/normal/n12.c",
+      "note": "GPIOA：MODIFY_REG MODER=OUTPUT（数值）"
+    },
+    {
+      "id": "n13",
+      "file": "tests/normal/n13.c",
+      "note": "GPIOB：MODIFY_REG MODER=ANALOG（数值 3）"
+    },
+    {
+      "id": "n14",
+      "file": "tests/normal/n14.c",
+      "note": "GPIOA：ODR 字面量 + |="
+    },
+    {
+      "id": "n15",
+      "file": "tests/normal/n15.c",
+      "note": "GPIOA：SET/CLEAR 配对"
+    },
+    {
+      "id": "n16",
+      "file": "tests/normal/n16.c",
+      "note": "GPIOA：&= ~ 清位（先置位）"
+    },
+    {
+      "id": "n17",
+      "file": "tests/normal/n17.c",
+      "note": "GPIOC：ODR 异或翻转"
+    },
+    {
+      "id": "n18",
+      "file": "tests/normal/n18.c",
+      "note": "GPIOB：SET_BIT ODR（另一端口）"
+    },
+    {
+      "id": "n19",
+      "file": "tests/normal/n19.c",
+      "note": "TIM1：|= CEN"
+    },
+    {
+      "id": "n20",
+      "file": "tests/normal/n20.c",
+      "note": "TIM1：MODIFY_REG MMS 枚举宏名"
+    },
+    {
+      "id": "n21",
+      "file": "tests/normal/n21.c",
+      "note": "TIM1：MODIFY_REG MMS 数值 1（ENABLE）"
+    },
+    {
+      "id": "n22",
+      "file": "tests/normal/n22.c",
+      "note": "TIM1：MODIFY_REG MMS 数值 4（1xx 模式）"
+    },
+    {
+      "id": "n23",
+      "file": "tests/normal/n23.c",
+      "note": "TIM1：CEN 置位后 &= ~ 清位"
+    },
+    {
+      "id": "n24",
+      "file": "tests/normal/n24.c",
+      "note": "TIM1：CR1 = CEN|DIR（数值）"
+    },
+    {
+      "id": "n25",
+      "file": "tests/normal/n25.c",
+      "note": "TIM1：CR2 |= MMS 位（0x10）"
+    },
+    {
+      "id": "n26",
+      "file": "tests/normal/n26.c",
+      "note": "TIM1：MODIFY_REG MMS 数值 7（1xx 模式）"
+    },
+    {
+      "id": "n27",
+      "file": "tests/normal/n27.c",
+      "note": "EXTI：W1C 清挂起 + 分组一次 + 使能中断"
+    },
+    {
+      "id": "n28",
+      "file": "tests/normal/n28.c",
+      "note": "EXTI：|= 置挂起位（掩码组合）"
+    },
+    {
+      "id": "n29",
+      "file": "tests/normal/n29.c",
+      "note": "NVIC：ISER0 写 + 分组一次"
+    },
+    {
+      "id": "n30",
+      "file": "tests/normal/n30.c",
+      "note": "NVIC：ICPR0 清挂起"
+    },
+    {
+      "id": "n31",
+      "file": "tests/normal/n31.c",
+      "note": "SysTick：内核外设写（允许未判定）"
+    },
+    {
+      "id": "n32",
+      "file": "tests/normal/n32.c",
+      "note": "内核写 + 分组一次 + 外设写"
+    },
+    {
+      "id": "n33",
+      "file": "tests/normal/n33.c",
+      "note": "DMA 簇命名（允许未判定）+ 寄存器写"
+    },
+    {
+      "id": "n34",
+      "file": "tests/normal/n34.c",
+      "note": "局部指针写（按惯例静默忽略）"
+    },
+    {
+      "id": "n35",
+      "file": "tests/normal/n35.c",
+      "note": "HAL 函数调用为主（不产生写入）"
+    },
+    {
+      "id": "n36",
+      "file": "tests/normal/n36.c",
+      "note": "读状态 + 条件写 BRR"
+    },
+    {
+      "id": "n37",
+      "file": "tests/normal/n37.c",
+      "note": "外设混合：USART2 + GPIO + TIM1"
+    },
+    {
+      "id": "n38",
+      "file": "tests/normal/n38.c",
+      "note": "寄存器宏 + 文件内常量"
+    },
+    {
+      "id": "n39",
+      "file": "tests/normal/n39.c",
+      "note": "CR1 写复位值 0（芯片默认）"
+    },
+    {
+      "id": "n40",
+      "file": "tests/normal/n40.c",
+      "note": "ODR 写复位值 0"
+    },
+    {
+      "id": "n41",
+      "file": "tests/normal/n41.c",
+      "note": "APB1ENR 写复位值 0"
+    },
+    {
+      "id": "n42",
+      "file": "tests/normal/n42.c",
+      "note": "TIM1.CR2 写复位值 0"
+    },
+    {
+      "id": "n43",
+      "file": "tests/normal/n43.c",
+      "note": "CEN 置位后 CLEAR_BIT"
+    },
+    {
+      "id": "n44",
+      "file": "tests/normal/n44.c",
+      "note": "M0 置位后 CLEAR_BIT"
+    },
+    {
+      "id": "n45",
+      "file": "tests/normal/n45.c",
+      "note": "OD0 置位后 &= ~"
+    },
+    {
+      "id": "n46",
+      "file": "tests/normal/n46.c",
+      "note": "USART2.UE 置位后 &= ~"
+    },
+    {
+      "id": "n47",
+      "file": "tests/normal/n47.c",
+      "note": "完整初始化序列（多外设 + 读 + 中断）"
+    },
+    {
+      "id": "n48",
+      "file": "tests/normal/n48.c",
+      "note": "条件分支写（if/else）"
+    },
+    {
+      "id": "n49",
+      "file": "tests/normal/n49.c",
+      "note": "两个函数：init + set_baud"
+    },
+    {
+      "id": "n50",
+      "file": "tests/normal/n50.c",
+      "note": "注释密集（含伪代码与寄存器名的注释）"
+    },
+    {
+      "id": "n51",
+      "file": "tests/normal/n51.c",
+      "note": "宏计算 BRR 值"
+    },
+    {
+      "id": "n52",
+      "file": "tests/normal/n52.c",
+      "note": "双通道：USART1 + USART3"
+    },
+    {
+      "id": "n53",
+      "file": "tests/normal/n53.c",
+      "note": "GPIO 批量：ODR 多引脚"
+    },
+    {
+      "id": "n54",
+      "file": "tests/normal/n54.c",
+      "note": "混合：内核写 + 簇命名 + HAL 调用 + 正常写"
+    },
+    {
+      "id": "n55",
+      "file": "tests/normal/n55.c",
+      "note": "Nordic 别名约定：NRF_ 前缀（实机为 NRF_USBD→USBD 等）"
+    }
+  ]
+}
