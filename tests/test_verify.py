@@ -14,7 +14,7 @@ if VERIFY_SCRIPTS not in sys.path:
 import cscan  # noqa: E402
 import crules  # noqa: E402
 from etk_core.svd import load_device  # noqa: E402
-from helpers import FIXTURES, SYNTH, run_py  # noqa: E402
+from helpers import FIXTURES, SYNTH, WOSYNTH, run_py  # noqa: E402
 
 VERIFY_BAD = os.path.join(FIXTURES, "verify_bad.c")
 VERIFY_OK = os.path.join(FIXTURES, "verify_ok.c")
@@ -262,12 +262,54 @@ def test_cli_patch_mode():
     assert "第 13 行" in r.stdout and "第 14 行" in r.stdout
 
 
+def test_e12_writeonly_read_modify_write(tmp_path):
+    """E12：只写寄存器上的读改写（|= / SET_BIT）报；直接赋值与读写寄存器不报。"""
+    code = tmp_path / "wo.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "    PORTX->BSRR |= 0x0001;\n"           # E12
+        "    PORTX->BSRR = 0x0002;\n"            # 通过（直接赋值）
+        "    SET_BIT(PORTX->BSRR, 0x0004);\n"    # E12（宏形式）
+        "    CLEAR_BIT(PORTX->ODR, 0x0001);\n"   # 通过（ODR 是读写）
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", WOSYNTH, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["writes"] == 4
+    assert res["counts"]["passed"] == 2
+    assert [f["class"] for f in res["findings"]] == ["E12", "E12"]
+    assert all(f["register"] == "BSRR" for f in res["findings"])
+
+
+def test_fuzz_random_snippets_do_not_crash(device):
+    """模糊测试：随机拼接的片段不应让解析/核验崩溃（只要求不抛异常、结构完整）。"""
+    import random
+    rng = random.Random(20261016)
+    pool = [
+        "PORTX", "USART1", "CR1", "SR", "BRR", "GPIOA", "MODER", "ODR", "DMA1", "CCR1",
+        "foo", "x", "bar_1", "MMIO32", "HWREG", "REG_WRITE", "SET_BIT", "BIT", "_SFR_MEM8",
+        "=", "|=", "&=", "^=", "(", ")", "{", "}", ";", ",", "~", "<<", ">>", "&", "|",
+        "0x1", "1", "0", "255", "0xFFFF0000", "\n", "\t", "#define", "RCC_APB1ENR",
+        "TIMG_RTCCALIFG_REG(0)", "HWREGBITW(&v, 3)", "GPIO_ODR(GPIOA)", "\\", "\"s\"",
+        "//comment\n", "/*c*/", "->", ".", "[0]", "main(void)", "while(1)",
+    ]
+    verifier = crules.Verifier(device)
+    for i in range(150):
+        n = rng.randint(3, 40)
+        text = " ".join(rng.choice(pool) for _ in range(n))
+        res = verifier.check_file("fuzz_%d.c" % i, text)
+        assert set(res["counts"]) >= {"writes", "report", "undetermined", "passed"}
+        for f in res["findings"]:
+            assert f["class"].startswith("E")
+            assert f["line"] >= 1
+
+
 def test_cli_rules_subcommand():
     r = run_py(VERIFY_CLI, "rules", "--format", "json")
     assert r.returncode == 0
     env = json.loads(r.stdout)
     assert env["results"][0]["rules"][0]["class"] == "E01"
-    assert len(env["results"][0]["rules"]) == 11
+    assert len(env["results"][0]["rules"]) == 12
 
 
 def test_cli_demo_example():
@@ -597,11 +639,88 @@ def test_headers_reg_set_field_checks(tmp_path):
 
 
 def test_eval_int_single_param_function_macro():
-    defines = {"F": {"param": "i", "expr": "(0x1000 * (i)) + 0x40"}}
+    defines = {"F": {"params": ["i"], "expr": "(0x1000 * (i)) + 0x40"}}
     assert cscan.eval_int("F(3)", defines) == 0x3040
     assert cscan.eval_int("F(1) + F(2)", defines) == 0x3080
     assert cscan.eval_int("F(N)", defines) is None
-    assert cscan.eval_int("G(1)", {"G": {"param": "x", "expr": "G(x)"}}) is None
+    assert cscan.eval_int("G(1)", {"G": {"params": ["x"], "expr": "G(x)"}}) is None
+    # 旧单参数形式（param）仍兼容
+    assert cscan.eval_int("F(3)", {"F": {"param": "i", "expr": "(0x1000 * (i)) + 0x40"}}) == 0x3040
+
+
+def test_eval_int_multi_param_function_macro():
+    defines = {
+        "BASE": "0x1000",
+        "PAIR": {"params": ["a", "b"], "expr": "(a) * 0x10 + (b)"},
+        "GPIOA": "0x48000000",
+        "GPIO_ODR": {"params": ["port"], "expr": "MMIO32((port) + 0x14)"},
+    }
+    assert cscan.eval_int("PAIR(3, 4)", defines) == 0x34
+    assert cscan.eval_int("PAIR(BASE / 0x1000, 2)", defines) == 0x12
+    assert cscan.eval_int("GPIO_ODR(GPIOA)", defines) == 0x48000014
+
+
+def test_eval_int_accessor_functions():
+    assert cscan.eval_int("MMIO32(0x40000000 + 0x14)", {}) == 0x40000014
+    assert cscan.eval_int("REG32(0x40021058)", {}) == 0x40021058
+    assert cscan.eval_int("HWREGBITW(0x40000000, 3)", {}) == 0x40000000
+    assert cscan.eval_int("_SFR_MEM8(0xC1)", {}) == 0xC1
+    assert cscan.eval_int("HWREG(UART0_BASE + UART_O_CTL)", {"UART0_BASE": "0x4000C000", "UART_O_CTL": "0x30"}) == 0x4000C030
+
+
+def test_alias_define_via_accessor_macro(tmp_path):
+    """libopencm3/GD32 风格：#define RCC_APB1ENR MMIO32(RCC_BASE + 0x58) 的别名写入。"""
+    code = tmp_path / "rcc.c"
+    code.write_text(
+        "#define RCC_BASE 0x40021000\n"
+        "#define RCC_APB1ENR MMIO32(RCC_BASE + 0x58)\n"
+        "void f(void)\n{\n"
+        "    RCC_APB1ENR |= (1 << 17);\n"
+        "    RCC_APB1ENR = 0x00020000;\n"
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["passed"] == 2
+    assert res["counts"]["undetermined"] == 0
+
+
+def test_function_macro_call_as_lvalue(tmp_path):
+    """函数宏调用作左值：GPIO_ODR(GPIOA) |= x（libopencm3 头文件风格）。"""
+    code = tmp_path / "gpio.c"
+    code.write_text(
+        "#define GPIOA 0x48000000\n"
+        "#define GPIO_ODR(port) MMIO32((port) + 0x14)\n"
+        "void f(void)\n{\n"
+        "    GPIO_ODR(GPIOA) |= 0x0001;\n"
+        "    GPIO_ODR(0x48000400) = 0x0002;\n"  # 字面量实参也可解析（GPIOB）
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["passed"] == 2
+    assert res["counts"]["undetermined"] == 0
+
+
+def test_bare_register_names(tmp_path):
+    """AVR/MSP430 风格裸寄存器名：唯一寄存器名才核验，重名/未知静默忽略。"""
+    code = tmp_path / "avr_style.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "    APB1ENR = 0x00020000;\n"      # RCC.APB1ENR（唯一）→ 通过
+        "    CNT = 5;\n"                  # TIM1.CNT（唯一、只读）→ E10
+        "    MODER = 0x1;\n"              # GPIOA/B/C 重名 → 静默忽略
+        "    LOCAL_VAR = 3;\n"            # 不与寄存器重名 → 静默忽略
+        "    ISR |= 0x1;\n"               # DMA1.ISR（唯一）→ 通过
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["writes"] == 3
+    assert res["counts"]["passed"] == 2
+    assert res["counts"]["report"] == 1
+    assert res["counts"]["undetermined"] == 0
+    assert res["findings"][0]["class"] == "E10"
 
 
 def test_headers_function_macro_address(tmp_path):

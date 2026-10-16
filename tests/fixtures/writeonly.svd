@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  E12 测试夹具：含一个 write-only 寄存器（BSRR）与一个读写寄存器（ODR）。
+  仅用于 tests/test_verify.py 的 E12 用例。
+-->
+<device schemaVersion="1.1">
+  <name>WOSYNTH</name>
+  <version>1.0</version>
+  <description>Write-only register fixture</description>
+  <vendor>SYNTH-Corp</vendor>
+  <cpu>
+    <name>CM4</name>
+    <revision>r0p1</revision>
+    <endian>little</endian>
+  </cpu>
+  <width>32</width>
+  <resetValue>0x00000000</resetValue>
+  <resetMask>0xFFFFFFFF</resetMask>
+  <peripherals>
+    <peripheral>
+      <name>PORTX</name>
+      <description>Write-only test port</description>
+      <baseAddress>0x50000000</baseAddress>
+      <addressBlock>
+        <offset>0</offset>
+        <size>0x100</size>
+        <usage>registers</usage>
+      </addressBlock>
+      <registers>
+        <register>
+          <name>BSRR</name>
+          <description>Bit set/reset register</description>
+          <addressOffset>0x00</addressOffset>
+          <size>16</size>
+          <access>write-only</access>
+          <resetValue>0x0000</resetValue>
+        </register>
+        <register>
+          <name>ODR</name>
+          <description>Output data register</description>
+          <addressOffset>0x04</addressOffset>
+          <size>16</size>
+          <access>read-write</access>
+          <resetValue>0x0000</resetValue>
+          <fields>
+            <field>
+              <name>OD0</name>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+          </fields>
+        </register>
+      </registers>
+    </peripheral>
+  </peripherals>
+</device>

@@ -31,7 +31,7 @@ from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkErr
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -116,7 +116,8 @@ _INCLUDE_RE = re.compile(r'^\s*#\s*include\s*[<"]([^>"]+)[>"]', re.M)
 
 
 def _resolve_include(token, base_dirs, roots, index):
-    """把 `#include` 里的路径解析为实际文件：① 相对当前/被核验文件目录 ② 相对搜索根 ③ 按文件名唯一匹配。"""
+    """把 `#include` 里的路径解析为实际文件：① 相对当前/被核验文件目录 ② 相对搜索根
+    ③ 按文件名匹配（同名多个时按 --headers 给定顺序优先）。"""
     rel = token.replace("\\", "/")
     for base in base_dirs:
         candidate = os.path.normpath(os.path.join(base, rel))
@@ -128,7 +129,7 @@ def _resolve_include(token, base_dirs, roots, index):
             return candidate
     hits = index.get(os.path.basename(rel).lower())
     if hits:
-        return sorted(hits)[0]
+        return hits[0]
     return None
 
 
@@ -169,22 +170,25 @@ def _collect_header_defines(paths, requested=None, source_dirs=None):
         texts[path] = text
         return text
 
-    # 收集目录树里的全部候选文件（闭包解析与补足共用）
+    # 收集目录树里的全部候选文件（闭包解析与补足共用）；index 按 --headers 顺序构建，
+    # 同名头文件（如各芯片家族的 rtc.h）先给哪个目录就优先用哪个
     all_files = list(explicit)
+    index = {}
+    for path in explicit:
+        index.setdefault(os.path.basename(path).lower(), []).append(path)
     for root in roots:
         for dirpath, dirs, names in os.walk(root):
             dirs[:] = [d for d in dirs if not d.startswith(".") and d not in SKIP_DIRS]
             for name in sorted(names):
                 if name.lower().endswith(HEADER_EXTS):
-                    all_files.append(os.path.join(dirpath, name))
+                    full = os.path.join(dirpath, name)
+                    all_files.append(full)
+                    index.setdefault(name.lower(), []).append(full)
     all_files = sorted(set(all_files))
 
     note = None
     closure = []
     if requested and roots:
-        index = {}
-        for path in all_files:
-            index.setdefault(os.path.basename(path).lower(), []).append(path)
         queue = list(requested)
         seen = set()
         while queue and len(closure) < HEADER_MAX_FILES:

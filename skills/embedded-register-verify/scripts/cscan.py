@@ -14,9 +14,11 @@ DISPLAY_MAX_CHARS = 200
 DEFINE_DEPTH_MAX = 8
 
 _DEFINE_RE = re.compile(r"^\s*#\s*define\s+([A-Za-z_]\w*)\s+(.+?)\s*$")
-# 单参数函数宏：#define NAME(i) <表达式>（IDF 里 TIMG_RTCCALICFG_REG(i) 这类带实例参数的寄存器宏；
-# 按 C 规范要求函数名与 "(" 之间无空格，避免把 `#define X (Y) ...` 误判为函数宏）
-_FUNC_DEFINE_RE = re.compile(r"^\s*#\s*define\s+([A-Za-z_]\w*)\(\s*([A-Za-z_]\w*)\s*\)\s+(.+?)\s*$")
+# 函数宏：#define NAME(p1, p2, ...) <表达式>（IDF 里 TIMG_RTCCALICFG_REG(i) 这类带实例参数的寄存器宏、
+# libopencm3 的 GPIO_ODR(port) 这类"外设参数"宏；按 C 规范要求函数名与 "(" 之间无空格，
+# 避免把 `#define X (Y) ...` 误判为函数宏）
+_FUNC_DEFINE_RE = re.compile(
+    r"^\s*#\s*define\s+([A-Za-z_]\w*)\(\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*\)\s+(.+?)\s*$")
 _MEMBER_RE = re.compile(r"([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*(\|=|&=|\^=|=)(?!=)")
 _ADDR_QUAL = r"(?:volatile|const|__IO|__I|__O|__IM|__OM)"
 _ADDR_TYPE = (r"(?:" + _ADDR_QUAL + r"\s+)*(?:unsigned\s+(?:int|long)|unsigned|"
@@ -29,18 +31,46 @@ _ADDR_RE = re.compile(
     r"(?:\*\s*\(\s*\(?\s*" + _ADDR_TYPE + r"\s*\*\s*\)\s*" + _ADDR_VALUE + r"\s*\)?"
     r"|reinterpret_cast\s*<\s*" + _ADDR_TYPE + r"\s*\*\s*>\s*\(\s*" + _ADDR_VALUE + r"\s*\))"
 )
-# 厂商风格寄存器宏：TI TivaWare 的 HWREG/HWREGB/HWREGH(x)（x 为地址常量表达式）
-_HWREG_RE = re.compile(r"\bHWREG(?:B|H)?\s*\(")
-# 地址别名对象宏：#define NAME (*(volatile uint32_t *)0xADDR)；之后 NAME = / |= 视为对该地址的写入
+# 厂商风格地址访问宏（x 为地址常量表达式）：
+#   TI TivaWare  HWREG/HWREGB/HWREGH(x)、HWREGBITW/H/B(x, bit)
+#   libopencm3   MMIO8/MMIO16/MMIO32(x)
+#   GD32 等      REG8/REG16/REG32(x)
+#   AVR          _SFR_MEM8/16/32(x)（_SFR_IO8 不含偏移换算，靠头文件展开）
+ACCESSOR_FUNCS = ("HWREG", "HWREGB", "HWREGH", "MMIO8", "MMIO16", "MMIO32",
+                  "REG8", "REG16", "REG32", "_SFR_MEM8", "_SFR_MEM16", "_SFR_MEM32")
+ACCESSOR_BIT_FUNCS = ("HWREGBITW", "HWREGBITH", "HWREGBITB")
+_ACCESSOR_RE = re.compile(
+    r"\b(?:HWREG(?:B|H)?|HWREGBIT[WBH]|MMIO(?:8|16|32)|REG(?:8|16|32)|_SFR_MEM(?:8|16|32))\s*\(")
+# 对象宏的值是"地址访问宏 / 指针解引用 / 函数宏调用"形式
+# （--headers 头文件里的寄存器宏，如 #define RCC_APB1ENR MMIO32(...)、
+#  #define SYSCTL_RCGC2_R (*((volatile uint32_t *)(...)))、#define ADC1_CR1 ADC_CR1(ADC1)）
+_ALIAS_VALUE_RE = re.compile(
+    r"^\s*\(*\s*(?:"
+    r"(?:HWREG(?:B|H)?|MMIO(?:8|16|32)|REG(?:8|16|32)|_SFR_MEM(?:8|16|32))\s*\("
+    r"|[A-Za-z_]\w*\s*\("
+    r"|\*\s*\(\s*\(?"
+    r"|\*\s*reinterpret_cast\b"
+    r")")
+# 地址别名对象宏（两种写法）：
+#   #define NAME (*(volatile uint32_t *)0xADDR)      直接指针字面量
+#   #define NAME MMIO32(外设_BASE + 偏移)             访问宏 + 表达式（libopencm3/GD32 头文件风格）
+# 之后 NAME = / |= / &= 按该地址的寄存器写入核验。
 _ALIAS_DEFINE_RE = re.compile(
     r"^\s*#\s*define\s+([A-Za-z_]\w*)\s+"
     r"\(?\s*\(\s*\*\s*\(\s*" + _ADDR_TYPE + r"\s*\*\s*\)\s*" + _ADDR_VALUE + r"\s*\)\s*\)?\s*$")
+_ACCESSOR_ALIAS_DEFINE_RE = re.compile(
+    r"^\s*#\s*define\s+([A-Za-z_]\w*)\s+\(?\s*"
+    r"(?:HWREG(?:B|H)?|MMIO(?:8|16|32)|REG(?:8|16|32)|_SFR_MEM(?:8|16|32))"
+    r"\s*\((.+)\)\s*\)?\s*$")
 _ALIAS_USE_RE = re.compile(r"\s*([A-Za-z_]\w*)\s*(\|=|&=|\^=|=)(?!=)")
 _MACRO_CALL_RE = re.compile(
     r"\b(SET_BIT|CLEAR_BIT|MODIFY_REG|WRITE_REG|READ_REG"
     r"|REG_WRITE|REG_SET_BIT|REG_CLR_BIT|REG_SET_FIELD|REG_CLR_FIELD|WRITE_PERI_REG"
     r"|SET_PERI_REG_MASK|CLEAR_PERI_REG_MASK)\s*\(")
 _HAL_ENABLE_RE = re.compile(r"__HAL_RCC_([A-Za-z0-9_]+?)_CLK_ENABLE\s*\(")
+# libopencm3 风格时钟使能：rcc_periph_clock_enable(RCC_ADC1)；rcc_enable_rtc_clock()
+_LOCM3_ENABLE_RE = re.compile(r"\brcc_periph_clock_enable\s*\(\s*(?:RCC_)?([A-Z][A-Z0-9_]+)\s*\)")
+_LOCM3_RTC_ENABLE_RE = re.compile(r"\brcc_enable_rtc_clock\s*\(")
 _GROUPING_RE = re.compile(r"\bNVIC_SetPriorityGrouping\s*\(")
 # ESP-IDF 风格寄存器宏 → 写入形态（地址可由 --headers 提供的寄存器常量宏解析时）
 ESP_IDF_TO_ALIAS = {
@@ -59,8 +89,10 @@ ESP_IDF_FIELD_OPS = {
 # 常见"位函数"宏：按参数求值（BIT(n)=1<<n、BIT_MASK(n)=2^n-1、_BV(n)=1<<n，Arduino/AVR 风格）
 BIT_FUNCS = frozenset({"BIT", "BIT_MASK", "_BV", "BIT64", "BIT_MASK64"})
 _CAST_RE = re.compile(
-    r"\(\s*(?:unsigned\s+)?(?:u?int(?:8|16|32|64)_t|uint\d+_t|int|long|short|char|"
-    r"u8|u16|u32|u64|s8|s16|s32|s64|unsigned)\s*\)"
+    r"\(\s*(?:(?:volatile|const|__IO|__I|__O|__IM|__OM)\s+)*"
+    r"(?:unsigned\s+)?(?:u?int(?:8|16|32|64)_t|uint\d+_t|int|long|short|char|"
+    r"u8|u16|u32|u64|s8|s16|s32|s64|unsigned)"
+    r"(?:\s+(?:volatile|const|__IO|__I|__O|__IM|__OM))*\s*\*{0,2}\s*\)"
 )
 _NUM_START_RE = re.compile(r"0[xX][0-9A-Fa-f]+|0[bB][01]+|\d+")
 _IDENT_RE = re.compile(r"[A-Za-z_]\w*")
@@ -139,16 +171,18 @@ def collect_defines(clean):
     """收集宏定义。
 
     - 对象宏 #define NAME <表达式> → {NAME: "表达式"}
-    - 单参数函数宏 #define NAME(p) <表达式> → {NAME: {"param": "p", "expr": "表达式"}}
-      （供 eval_int 在调用点代入实参求值；多参数/复杂函数宏跳过）
+    - 函数宏 #define NAME(p1, p2, ...) <表达式> → {NAME: {"params": [...], "expr": "表达式"}}
+      （供 eval_int 在调用点代入实参求值；变参/复杂函数宏跳过）
     """
     out = {}
     for line in clean.split("\n"):
         m = _FUNC_DEFINE_RE.match(line)
         if m:
-            name, param, expr = m.group(1), m.group(2), m.group(3).strip()
+            name = m.group(1)
+            params = [p.strip() for p in m.group(2).split(",")]
+            expr = m.group(3).strip()
             if expr:
-                out[name] = {"param": param, "expr": expr}
+                out[name] = {"params": params, "expr": expr}
             continue
         m = _DEFINE_RE.match(line)
         if m:
@@ -230,19 +264,24 @@ def _op_after(stmt, pos):
 
 
 def collect_addr_aliases(clean):
-    """收集"地址别名"对象宏：#define NAME (*(volatile uint32_t *)0xADDR)。
+    """收集"地址别名"对象宏（两种写法）。
 
-    返回 {NAME: address}；之后的 `NAME = / |= / &=` 按该地址的寄存器写入核验。
+    - #define NAME (*(volatile uint32_t *)0xADDR)  → {"expr": "0xADDR"}
+    - #define NAME MMIO32(外设_BASE + 偏移)         → {"expr": "外设_BASE + 偏移"}
+
+    返回 {NAME: {"expr": 地址表达式}}；之后的 `NAME = / |= / &=` 在调用点解析地址后按寄存器写入核验。
     """
     out = {}
     for line in clean.split("\n"):
         m = _ALIAS_DEFINE_RE.match(line)
-        if not m:
+        if m:
+            out[m.group(1)] = {"expr": m.group(2)}
             continue
-        try:
-            out[m.group(1)] = int(m.group(2), 0)
-        except (TypeError, ValueError):
-            continue
+        m = _ACCESSOR_ALIAS_DEFINE_RE.match(line)
+        if m:
+            inner = m.group(2).strip()
+            if "," not in inner:  # 带位号的 HWREGBIT 别名暂不支持（地址取第一个实参）
+                out[m.group(1)] = {"expr": inner}
     return out
 
 
@@ -261,6 +300,7 @@ def extract_all(text, extra_defines=None):
     aliases = collect_addr_aliases(clean_all)
     clean = blank_preprocessor(clean_all)
     writes = []
+    mentions = set()
     for start, end in split_statements(clean):
         if end - start > STATEMENT_MAX_CHARS:
             continue
@@ -307,7 +347,7 @@ def extract_all(text, extra_defines=None):
         if macros:
             writes.extend(macros)
             continue
-        hw = _HWREG_RE.search(stmt)
+        hw = _ACCESSOR_RE.search(stmt)
         if hw:
             parsed = _parse_macro_args(stmt, hw.end() - 1)
             if parsed:
@@ -318,6 +358,11 @@ def extract_all(text, extra_defines=None):
                     value = eval_int(expr, defines) if expr else None
                     rhs = stmt[close_pos + 1:].lstrip().lstrip(op).rstrip().rstrip(";").strip()
                     if value is None:
+                        # 位带访问（HWREGBIT*）的地址是 &变量 / 裸指针变量时，是 RAM 位带操作，不是外设寄存器写入
+                        if hw.group(0).startswith("HWREGBIT") and (
+                                expr.strip().startswith("&")
+                                or re.match(r"^[A-Za-z_]\w*$", expr.strip())):
+                            continue
                         writes.append({
                             "kind": "addr_expr", "op": op, "line": line, "code": display,
                             "expr": expr[:80], "rhs": rhs,
@@ -348,12 +393,46 @@ def extract_all(text, extra_defines=None):
         alias = _ALIAS_USE_RE.match(stmt)
         if alias and alias.group(1) in aliases:
             name = alias.group(1)
-            writes.append({
-                "kind": "alias", "op": alias.group(2), "line": line, "code": display,
-                "name": name, "address": aliases[name],
-                "rhs": stmt[alias.end():].rstrip().rstrip(";").strip(),
-            })
+            entry = aliases[name]
+            expr_text = entry["expr"] if isinstance(entry, dict) else str(entry)
+            value = eval_int(expr_text, defines)
+            rhs = stmt[alias.end():].rstrip().rstrip(";").strip()
+            if value is None:
+                writes.append({
+                    "kind": "addr_expr", "op": alias.group(2), "line": line, "code": display,
+                    "expr": name,
+                })
+            else:
+                writes.append({
+                    "kind": "alias", "op": alias.group(2), "line": line, "code": display,
+                    "name": name, "address": value, "rhs": rhs,
+                })
             continue
+        call = re.match(r"\s*([A-Za-z_]\w*)\s*\(", stmt)
+        if call:
+            # 函数宏调用作左值：libopencm3 的 GPIO_ODR(GPIOA) |= x、GD32 的 GPIO_OCTL(GPIOA) = x
+            parsed = _parse_macro_args(stmt, call.end() - 1)
+            if parsed:
+                _call_args, close_pos = parsed
+                op = _op_after(stmt, close_pos + 1)
+                if op:
+                    call_text = stmt[:close_pos + 1].strip()
+                    value = eval_int(call_text, defines)
+                    if value is None and _find_func_define(defines, call.group(1)) is None:
+                        # 不认识的函数调用后接赋值（本身不是合法 C）→ 静默忽略
+                        continue
+                    rhs = stmt[close_pos + 1:].lstrip().lstrip(op).rstrip().rstrip(";").strip()
+                    if value is None:
+                        writes.append({
+                            "kind": "addr_expr", "op": op, "line": line, "code": display,
+                            "expr": call_text[:80],
+                        })
+                    else:
+                        writes.append({
+                            "kind": "alias", "op": op, "line": line, "code": display,
+                            "name": call_text[:60], "address": value, "rhs": rhs,
+                        })
+                    continue
         member = _MEMBER_RE.search(stmt)
         if member:
             writes.append({
@@ -361,13 +440,47 @@ def extract_all(text, extra_defines=None):
                 "peripheral": member.group(1), "register": member.group(2),
                 "rhs": stmt[member.end():].rstrip().rstrip(";").strip(),
             })
-    enables = sorted({name.upper() for name in _HAL_ENABLE_RE.findall(clean_all)})
+            continue
+        bare = re.match(r"\s*([A-Z][A-Z0-9_]{1,})\s*(\|=|&=|\^=|=)(?!=)", stmt)
+        if bare:
+            # 裸寄存器名（AVR/MSP430/8051/PIC 风格）：PORTB = / P1OUT |= ...
+            name = bare.group(1)
+            rhs = stmt[bare.end():].rstrip().rstrip(";").strip()
+            entry = defines.get(name)
+            if isinstance(entry, str) and _ALIAS_VALUE_RE.match(entry):
+                # 名字是"地址宏"形式的对象宏（--headers 里的 libopencm3/GD32/TI/AVR 头文件）→ 按地址核验
+                value = eval_int(entry, defines)
+                if value is not None:
+                    writes.append({
+                        "kind": "alias", "op": bare.group(2), "line": line, "code": display,
+                        "name": name, "address": value, "rhs": rhs,
+                    })
+                else:
+                    # 地址宏解析不了：让核验侧决定（若名字是唯一寄存器名则按名核验，否则记未判定）
+                    writes.append({
+                        "kind": "bare_name", "op": bare.group(2), "line": line, "code": display,
+                        "name": name, "rhs": rhs, "alias_expr": name,
+                    })
+                continue
+            # 否则只有与设备 SVD 中唯一寄存器名精确匹配时才算寄存器写入（见 crules 裸名索引），
+            # 其余按普通变量赋值静默忽略。
+            writes.append({
+                "kind": "bare_name", "op": bare.group(2), "line": line, "code": display,
+                "name": name, "rhs": rhs,
+            })
+            continue
+        for ident in _IDENT_RE.findall(stmt):
+            mentions.add(ident)
+    enables = sorted({name.upper() for name in _HAL_ENABLE_RE.findall(clean_all)}
+                     | {name.upper() for name in _LOCM3_ENABLE_RE.findall(clean_all)}
+                     | ({"RTC"} if _LOCM3_RTC_ENABLE_RE.search(clean_all) else set()))
     grouping_lines = [_line_of(clean, m.start(), line_map) for m in _GROUPING_RE.finditer(clean)]
     return {
         "defines": defines,
         "aliases": aliases,
         "writes": writes,
         "enables": enables,
+        "mentions": sorted(mentions),
         "grouping_lines": grouping_lines,
     }
 
@@ -403,7 +516,7 @@ def _tokens(expr):
             out.append(("op", two))
             i += 2
             continue
-        if ch in "-+*/%&|^~()":
+        if ch in "-+*/%&|^~(),":
             out.append(("op", ch))
             i += 1
             continue
@@ -412,13 +525,15 @@ def _tokens(expr):
 
 
 def _find_func_define(defines, name):
-    """在 defines 里找单参数函数宏条目（大小写不敏感）。"""
+    """在 defines 里找函数宏条目（大小写不敏感）。兼容旧的单参数形式 {"param": p}。"""
+    def _ok(entry):
+        return isinstance(entry, dict) and (entry.get("params") or entry.get("param"))
     entry = defines.get(name)
-    if isinstance(entry, dict) and entry.get("param"):
+    if _ok(entry):
         return entry
     key = name.upper()
     for k, v in defines.items():
-        if k.upper() == key and isinstance(v, dict) and v.get("param"):
+        if k.upper() == key and _ok(v):
             return v
     return None
 
@@ -468,18 +583,38 @@ def eval_int(expr, defines, depth=0, seen=None):
                 if upper in ("BIT_MASK", "BIT_MASK64"):
                     return (1 << arg) - 1
                 return 1 << arg
+            if nxt[0] == "op" and nxt[1] == "(" and upper in ACCESSOR_FUNCS:
+                # 地址访问宏：MMIO32(addr) / REG32(addr) / HWREG(addr) / _SFR_MEM8(addr) → 地址即实参
+                advance()  # 函数名
+                advance()  # "("
+                result = parse_or()
+                expect(")")
+                return result
+            if nxt[0] == "op" and nxt[1] == "(" and upper in ACCESSOR_BIT_FUNCS:
+                # 位带访问宏：HWREGBITW(addr, bit) → 地址取第一个实参
+                advance()  # 函数名
+                advance()  # "("
+                result = parse_or()
+                expect(",")
+                parse_or()  # 位号（求地址时忽略）
+                expect(")")
+                return result
             if nxt[0] == "op" and nxt[1] == "(":
-                # 单参数函数宏（如 TIMG_RTCCALICFG_REG(i)）：调用点代入实参求值
+                # 函数宏（单/多参数，如 TIMG_RTCCALICFG_REG(i)、GPIO_ODR(port)）：调用点代入实参求值
                 entry = _find_func_define(defines, value)
                 if entry is not None:
                     if upper in (seen or set()):
                         raise _EvalError()
                     advance()  # 函数名
                     advance()  # "("
-                    arg = parse_or()
-                    expect(")")
+                    params = entry.get("params") or [entry["param"]]
                     sub = dict(defines)
-                    sub[entry["param"]] = str(arg)
+                    for idx, pname in enumerate(params):
+                        if idx:
+                            expect(",")
+                        arg = parse_or()
+                        sub[pname] = str(arg)
+                    expect(")")
                     result = eval_int(entry["expr"], sub, depth + 1, (seen or set()) | {upper})
                     if result is None:
                         raise _EvalError()
@@ -495,6 +630,10 @@ def eval_int(expr, defines, depth=0, seen=None):
 
     def parse_unary():
         kind, value = peek()
+        if kind == "op" and value == "*":
+            # 解引用（求地址时等价于取被解引用的地址）：*(volatile uint32_t *)0xADDR、*((...))
+            advance()
+            return parse_unary()
         if kind == "op" and value in ("~", "-", "+"):
             advance()
             operand = parse_unary()
@@ -583,7 +722,10 @@ def eval_int(expr, defines, depth=0, seen=None):
         key = name.upper()
         entry = defines.get(name)
         if entry is None:
-            match = next((k for k in defines if k.upper() == key), None)
+            # 大小写不敏感回退只用于全大写名字（宏风格）；避免小写变量（如 adc）误撞宏（如 ADC）
+            match = None
+            if name == key:
+                match = next((k for k in defines if k.upper() == key), None)
             if match is None:
                 raise _EvalError()
             entry = defines[match]

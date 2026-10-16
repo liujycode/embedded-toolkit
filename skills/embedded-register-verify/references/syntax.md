@@ -7,22 +7,35 @@
 3. 跳过预处理行；收集对象宏 `#define NAME <表达式>`。
 4. 按分号切分语句：圆括号内不分号；`{` / `}` 视为语句边界（函数体不会被当成一条巨语句）。
 5. 在每条语句里按顺序找：CMSIS 宏调用（`SET_BIT/CLEAR_BIT/MODIFY_REG/WRITE_REG/READ_REG`）
-   → `HWREG(地址) op 值`（TI 风格）：地址为**纯字面量**时按直接地址（报 E08）；由宏表达式组合
-   （`HWREG(UART0_BASE + UART_O_CTL)`、`HWREG(FLASH_FMA)`）且可求值时按**具名地址**核验
-   （与地址别名宏同口径，不报 E08）→ 直接地址（C 风格 `*(volatile uint32_t *)0xADDR`、
-   C++ `*reinterpret_cast<...>(0xADDR)`）→ 文件内地址别名宏（`#define REG (*(...)0xADDR)` 后的
-   `REG op 值`）→ `外设->寄存器 op 表达式`。
+   → 地址访问宏（TI `HWREG/HWREGB/HWREGH`、`HWREGBITW/H/B(x, bit)`；libopencm3 `MMIO8/16/32`；
+   GD32 等 `REG8/16/32`；AVR `_SFR_MEM8/16/32`）：地址为**纯字面量**时按直接地址（报 E08）；
+   由宏表达式组合（`HWREG(UART0_BASE + UART_O_CTL)`、`MMIO32(RCC_BASE + 0x1C)`）且可求值时按
+   **具名地址**核验（与地址别名宏同口径，不报 E08）；`HWREGBIT*(&变量, n)` 这类 RAM 位带访问静默忽略
+   → 直接地址（C 风格 `*(volatile uint32_t *)0xADDR`、C++ `*reinterpret_cast<...>(0xADDR)`）
+   → 文件内地址别名宏（`#define REG (*(...)0xADDR)` 后的 `REG op 值`）
+   → **函数宏调用作左值**（libopencm3 `GPIO_ODR(GPIOA) |= x`、GD32 `GPIO_OCTL(GPIOA) = x`）
+   → `外设->寄存器 op 表达式`
+   → **裸寄存器名**（AVR/MSP430/8051/PIC 风格 `PORTB = 0xFF;`、`P1OUT |= BIT0;`）：
+     名字与设备 SVD 中**唯一**寄存器名精确匹配时按寄存器核验；与头文件里的地址宏重名时先按地址核验
+     （见下条）；其余按普通变量赋值静默忽略、不进入统计。
 6. 目录模式收集的扩展名：`.c/.h/.cpp/.cc/.cxx/.hpp/.hh/.ino`（C/C++ 工程与 Arduino 都能核验）。
 7. ESP-IDF 风格寄存器宏（`REG_WRITE/REG_SET_BIT/REG_CLR_BIT/REG_SET_FIELD/REG_CLR_FIELD/...`）：
    寄存器号来自头文件常量。用 `--headers <文件或目录>`（可多次）提供搜索根后，地址可解析 →
    按**具名寄存器**正常核验（与地址别名宏同口径，不报 E08）；未提供头文件时记"未判定"。
    - **`#include` 自动跟随**：被核验文件的 `#include "..."` 会按"相对源文件目录 → 相对搜索根 →
-     文件名唯一匹配"解析，**闭包优先加载**（含嵌套包含链），其余头文件按路径顺序补足上限——
-     因此给项目/SDK 的 include 根即可，无需精确到 `soc` 子目录，也不会被大目录截断误伤；
+     文件名匹配（同名多个时按 `--headers` 给定顺序优先）"解析，**闭包优先加载**（含嵌套包含链），
+     其余头文件按路径顺序补足上限——因此给项目/SDK 的 include 根即可，无需精确到 `soc` 子目录，
+     也不会被大目录截断误伤；
+   - **头文件里的寄存器宏按地址核验**：对象宏值为地址访问宏（`MMIO32(...)`）、指针解引用
+     （`(*((volatile uint32_t *)0x400FE108))`，TI TivaWare 直寄存器风格）或函数宏调用
+     （`ADC_CR1(ADC1)`）时，`宏名 op 值` 会解析出地址后核验；
    - `REG_SET_FIELD/REG_CLR_FIELD` 进一步做**字段级核验**：字段宏存在性（E03）、只读（E10）、
      值位宽与枚举（E04/E05）；
-   - 地址解析支持算术表达式链、`BIT(n)`/`BIT_MASK(n)`/`_BV(n)` 位函数、以及**单参数函数宏**
-     调用点代入（`TIMG_RTCCALICFG_REG(0)` 这类 IDF 实例寄存器宏）。
+   - 地址解析支持算术表达式链、前缀解引用（`*`）、`BIT(n)`/`BIT_MASK(n)`/`_BV(n)` 位函数、
+     访问宏恒等（`MMIO32(x)`→x）、以及**函数宏调用点代入**（单/多参数，
+     `TIMG_RTCCALICFG_REG(0)`、`GPIO_ODR(port)`）。
+   - E12：`|=`/`&=`/`^=`/`SET_BIT`/`CLEAR_BIT`/`REG_SET_FIELD` 作用于 SVD 中 `access="write-only"`
+     的寄存器时，提示读改写可能不可靠（需查手册）。
 
 ## 外设名解析（别名约定）
 
@@ -64,20 +77,21 @@ CMSIS 命名约定（`外设家族_寄存器_位域`），按下面顺序尝试�
 
 ## E07 时钟检查的边界
 
-- 使能判定来源：对 RCC 中 `<外设>EN` 位域的置位（宏或可求值数值），或 `__HAL_RCC_<外设>_CLK_ENABLE()`。
+- 使能判定来源：对 RCC 中 `<外设>EN` 位域的置位（宏或可求值数值）、`__HAL_RCC_<外设>_CLK_ENABLE()`，
+  或 libopencm3 的 `rcc_periph_clock_enable(RCC_<外设>)` / `rcc_enable_rtc_clock()`。
 - RCC 中找不到 `<外设>EN` 字段时跳过（不报）。
-- 只做**文件内**判定；跨文件使能请用 `--no-clock-check`。
+- 只做**文件内**判定；库文件（时钟由调用方管理）会有已知误报，跨文件使能请用 `--no-clock-check`。
 
-## 不支持的形态（进"未判定"，不报错）
+## 不支持的形态（进"未判定"或静默忽略，不报错）
 
-| 形态 | 例子 | 原因 |
+| 形态 | 例子 | 处理 |
 |---|---|---|
-| HAL/LL 调用 | `HAL_UART_Init(&huart1);` | 语义不在 SVD 里 |
-| 结构体成员赋值 | `hi2c1.Init.ClockSpeed = 400000;` | 不是外设寄存器 |
-| 簇寄存器的分离命名 | `DMA1_Channel1->CCR`（SVD 中是 `DMA1` 的 `CH1.CCR`） | 命名无法自动对应 |
-| 内核外设 | `SysTick->CTRL`、`SCB->AIRCR` | 不在设备 SVD 中 |
-| 无法映射的宏 | `FOO_BAR`、厂商私有宏 | 不在 CMSIS 约定内 |
-| 运行时地址 | `*(volatile uint32_t *)base` | 地址无法求值 |
+| HAL/LL 调用 | `HAL_UART_Init(&huart1);` | 不在范围内（无寄存器写入） |
+| 局部变量/指针成员 | `p->tx_len = 0;`、`base->C1 = x;` | 静默忽略，**不计入统计** |
+| 簇寄存器的分离命名 | `DMA1_Channel1->CCR`（SVD 中是 `DMA1` 的 `CH1.CCR`） | 进"未判定"（附说明） |
+| 内核外设 | `SysTick->CTRL`、`SCB->AIRCR` | 进"未判定" |
+| 无法映射的宏 | `FOO_BAR`、厂商私有宏 | 进"未判定"（列名字） |
+| 运行时地址 | `*(volatile uint32_t *)base`、`ADC_CR2(adc)` | 进"未判定"（地址无法求值） |
 
 ## 补丁模式（--patch）
 

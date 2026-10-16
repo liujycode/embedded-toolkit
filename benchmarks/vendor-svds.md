@@ -27,6 +27,10 @@
 
 合计：**16** 家厂商 SVD，核验冒烟通过 **15**，失败 0，跳过 1（命名约定不符）。
 
+> v1.8.0 追加：AVR `ATmega328P`（`felias-fogg/PyAvrOCD` 的 `svd/atmega328p.svd`，Atmel 包同源）
+> 也通过同一套冒烟（lint + 查询 + 基础核验），即 **17 家 / 通过 16**。该 SVD 使用 AVR 数据空间
+> 地址口径（`0x800000 + 数据地址`），工具自动探测匹配（见 `benchmarks/verify-dogfood.md` 的 AVR 一节）。
+
 ## 过程中发现并修掉的问题（均在本轮修复）
 
 1. **带下划线的外设名导致字段宏漏报**（Espressif `RTC_CNTL`）：

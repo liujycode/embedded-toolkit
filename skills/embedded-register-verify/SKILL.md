@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件（查找规则同 embedded-register-lookup）；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.7.0"
+  version: "1.8.0"
 ---
 
 # 寄存器核验器
@@ -84,7 +84,7 @@ python scripts/verify.py rules
 
 **不支持（一律进"未判定"，不当作错误）**：HAL/LL 调用、结构体成员赋值（`hi2c1.Init.X`）、运行时计算的地址、无法映射的字段宏、簇寄存器命名（如 `DMA1_Channel1->CCR` 对应 SVD 里 `DMA1` 的 `CH1` 簇）、内核外设（SysTick/NVIC 等在设备 SVD 之外）。
 
-## 判定口径（E01–E11）
+## 判定口径（E01–E12）
 
 | 编号 | 判定 | 标签 | 严重度 |
 |---|---|---|---|
@@ -99,6 +99,7 @@ python scripts/verify.py rules
 | E09 | 中断分组多处设置（`NVIC_SetPriorityGrouping`） | 需查手册 | 中 |
 | E10 | 写只读寄存器或位域 | 已核验 | 高 |
 | E11 | 使能（EN=1）后写 DMA 计数/地址寄存器（CNDTR/CMAR/CPAR 等） | 需查手册 | 中 |
+| E12 | 只写寄存器上的读改写（`\|=`/`&=`/`SET_BIT` 等，读回值不可靠） | 需查手册 | 中 |
 
 完整判定细节与示例见 `references/rules.md`；支持形态与限制见 `references/syntax.md`。
 

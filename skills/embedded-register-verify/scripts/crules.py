@@ -45,10 +45,11 @@ def macro_words(expr):
             if looks_like_macro(m.group(1))]
 
 _SEVERITY = {"E01": "高", "E02": "高", "E03": "高", "E04": "高", "E05": "中",
-             "E06": "低", "E07": "中", "E08": "高", "E09": "中", "E10": "高", "E11": "中"}
+             "E06": "低", "E07": "中", "E08": "高", "E09": "中", "E10": "高", "E11": "中",
+             "E12": "中"}
 _LABELS = {"E01": "已核验", "E02": "已核验", "E03": "已核验", "E04": "已核验", "E05": "已核验",
            "E06": "需查手册", "E07": "需查手册", "E08": "已核验", "E09": "需查手册",
-           "E10": "已核验", "E11": "需查手册"}
+           "E10": "已核验", "E11": "需查手册", "E12": "需查手册"}
 
 RULES = [
     {"class": "E01", "name": "外设不存在", "verdict": "SVD 中查外设名", "bucket": "报", "label": "已核验", "severity": "高"},
@@ -62,12 +63,26 @@ RULES = [
     {"class": "E09", "name": "中断分组多处设置", "verdict": "NVIC_SetPriorityGrouping 出现次数", "bucket": "报", "label": "需查手册", "severity": "中"},
     {"class": "E10", "name": "写只读寄存器或位域", "verdict": "SVD access 为 read-only", "bucket": "报", "label": "已核验", "severity": "高"},
     {"class": "E11", "name": "使能后写 DMA 配置寄存器", "verdict": "使能（EN=1）后写 CNDTR/CMAR/CPAR 等", "bucket": "报", "label": "需查手册", "severity": "中"},
+    {"class": "E12", "name": "只写寄存器的读改写", "verdict": "|= / &= / SET_BIT 等作用于 SVD access 为 write-only 的寄存器", "bucket": "报", "label": "需查手册", "severity": "中"},
 ]
 
 
 def _lookup_hint(action, **kwargs):
     """核验结果 → 寄存器百事通 的查证提示（CLI 会把它物化成可直接执行的 next 命令）。"""
     return dict(action=action, **kwargs)
+
+
+def _hardware_flag_like(field):
+    """位域像"硬件置位的状态标志"（名字如 RSF/UIF、描述含 Flag/标志）。
+
+    这类位的复位值通常是 0 而由硬件置位，软件清除是有意义的，
+    不参与 E06"无效清位"检查。
+    """
+    name = (field.name or "").upper()
+    desc = (field.description or "").upper()
+    if "FLAG" in desc or "标志" in desc:
+        return True
+    return name.endswith("F") and not name.endswith("EN")
 
 
 def rule_table():
@@ -86,6 +101,7 @@ class Verifier:
         self.limit = limit
         self.peripherals = {p.name.upper(): p for p in device.peripherals}
         self._addr_map = None
+        self._reg_by_name = None
 
     # ---------- 基础映射 ----------
 
@@ -122,6 +138,20 @@ class Verifier:
                 for reg in periph.registers:
                     self._addr_map.setdefault(periph.base_address + reg.offset, (periph, reg))
         return self._addr_map
+
+    def _register_by_name(self):
+        """裸寄存器名索引（AVR/MSP430/8051 风格：PORTB = ...、P1OUT |= ...）。
+
+        只收录在整颗芯片中**唯一**的寄存器名（精确大小写）——重名（SR、CTL 等）无法确定外设，
+        保持静默忽略；与唯一寄存器名撞名的普通变量赋值会被当作寄存器写入核验。
+        """
+        if self._reg_by_name is None:
+            index = {}
+            for periph in self.device.peripherals:
+                for reg in periph.registers:
+                    index.setdefault(reg.name, []).append((periph, reg))
+            self._reg_by_name = {k: v[0] for k, v in index.items() if len(v) == 1}
+        return self._reg_by_name
 
     def _suggest_names(self, name, names, limit=3):
         by_upper = {}
@@ -221,7 +251,14 @@ class Verifier:
         返回 (None, None, None) 表示按本地指针处理（静默忽略）。
         """
         if write["kind"] == "alias":
-            hit = self._by_address().get(write.get("address"))
+            addr = write.get("address")
+            hit = self._by_address().get(addr)
+            if hit is None and isinstance(addr, int) and 0 < addr < 0x10000:
+                # AVR 等 SVD 用"0x800000 + 数据地址"的地址口径，做一次偏移探测
+                hit = self._by_address().get(addr + 0x800000)
+            if hit is None:
+                # 地址口径对不上时按宏名回退（宏名与设备中唯一寄存器名精确匹配，如 AVR 的 UCSR0B）
+                hit = self._register_by_name().get((write.get("name") or "").strip())
             if hit is None:
                 return None, None, {"alias_addr": (write.get("name") or "?", write.get("address") or 0)}
             return hit[0], hit[1], None
@@ -232,6 +269,15 @@ class Verifier:
             return hit[0], hit[1], None
         if write["kind"] == "addr_expr":
             return None, None, {"addr_expr": write.get("expr") or "?"}
+        if write["kind"] == "bare_name":
+            # 裸寄存器名：命中唯一寄存器才核验；地址宏解析失败的按"地址表达式无法解析"记未判定；
+            # 其余是普通变量赋值，静默忽略
+            hit = self._register_by_name().get(write.get("name"))
+            if hit is not None:
+                return hit[0], hit[1], None
+            if write.get("alias_expr"):
+                return None, None, {"addr_expr": write["name"]}
+            return None, None, None
         if write["kind"] == "addr":
             hit = self._by_address().get(write["address"])
             if hit is None:
@@ -306,6 +352,7 @@ class Verifier:
 
     def check_file(self, name, text):
         parsed = cscan.extract_all(text, self.extra_defines)
+        self._mentions = {m.upper() for m in parsed.get("mentions") or []}
         defines = dict(parsed["defines"])
         defines.update(self.extra_defines)
         findings = []
@@ -409,9 +456,18 @@ class Verifier:
                 clock_lines.add(item["line"])
 
         # 第二遍：逐条核验
+        # （裸寄存器名：只有与设备中唯一寄存器重名才算寄存器写入，其余按普通变量处理、不进入统计）
+        reg_names = self._register_by_name()
+        counted_writes = [w for w in parsed["writes"]
+                          if w["kind"] != "bare_name"
+                          or w.get("name") in reg_names or w.get("alias_expr")]
         index = 0
-        for write in parsed["writes"]:
+        for write in counted_writes:
             if write["kind"] == "macro" and write["op"] == "read_reg":
+                continue
+            # 局部变量/指针成员访问（无法对应任何外设）：不是寄存器写入，不进入统计
+            t_periph, t_reg, t_problem = self._target(write)
+            if t_periph is None and t_reg is None and t_problem is None:
                 continue
             state["report"] = write["line"] in clock_lines
             state["undet"] = False
@@ -550,6 +606,17 @@ class Verifier:
                         lookup=_lookup_hint("lookup", path=periph.name,
                                             reason="查看该外设的寄存器清单"))
             return
+        # E12：只写寄存器上的读改写（|= / &= / ^= / SET_BIT / CLEAR_BIT / REG_SET_FIELD）
+        compound = (op in ("|=", "&=", "^=")
+                    or (write["kind"] == "macro" and op in ("set_bit", "clear_bit"))
+                    or (write["kind"] == "field_write" and op in ("set_field", "clr_field")))
+        if compound and reg.access == "write-only":
+            add_finding(write, "E12",
+                        "对只写寄存器 %s.%s 做读改写（%s），读回值不可靠（可能为 0 或未定义）；"
+                        "建议直接赋值或改用置位/清位寄存器" % (periph.name, reg.name, op),
+                        periph=periph.name, register=reg.name,
+                        lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                            reason="查看该寄存器的访问属性"))
         if write["kind"] == "field_write":
             self._check_field_write(write, periph, reg, defines, add_finding)
             return
@@ -615,7 +682,8 @@ class Verifier:
             if m:
                 info = self._map_macro(m.group(1), periph, reg)
                 field = info.get("field") if info else None
-                if field is not None:
+                if field is not None and not _hardware_flag_like(field) \
+                        and reg.name.upper() not in self._mentions:
                     reset_bits = (reg.reset_value >> field.lsb) & field.mask
                     key = (periph.name.upper(), reg.name.upper(), field.name.upper())
                     if reset_bits == 0 and key not in sets and (periph.name.upper(), reg.name.upper()) not in unknown_set_regs:
@@ -830,6 +898,8 @@ class Verifier:
                 add_undet(write, "清位掩码 0x%X 不覆盖任何 SVD 位域" % value)
         if mode == "clear_bit":
             for macro_name, field, _info in mapped:
+                if _hardware_flag_like(field) or reg.name.upper() in self._mentions:
+                    continue
                 reset_bits = (reg.reset_value >> field.lsb) & field.mask
                 key = (periph.name.upper(), reg.name.upper(), field.name.upper())
                 if reset_bits == 0 and key not in sets and (periph.name.upper(), reg.name.upper()) not in unknown_set_regs:
