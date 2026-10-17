@@ -473,15 +473,18 @@ def test_sfr_io_accessor_and_avr_address_space(tmp_path):
         "    _SFR_IO8(0x05) = 0xFF;\n"
         "    _SFR_MEM8(0x25) = 0x0F;\n"
         "    *(volatile uint8_t *)0x25 = 0x01;\n"
+        "    *(volatile unsigned char *)0x25 = 0x02;\n"
+        "    *(char *)0x30 = 0x04;\n"
         "}\n", encoding="utf-8")
     r = run_py(VERIFY_CLI, "check", str(code), "--svd", AVR_SVD, "--format", "json")
     assert r.returncode == 1
     res = json.loads(r.stdout)["results"][0]
-    assert res["counts"]["writes"] == 3
-    assert res["counts"]["report"] == 3
+    assert res["counts"]["writes"] == 5
+    assert res["counts"]["report"] == 5
     msgs = [f["message"] for f in res["findings"]]
-    assert all("PORTB.PORTB" in m for m in msgs)
-    assert any("SVD 地址 0x00800025" in m for m in msgs)
+    assert all("PORTB." in m for m in msgs)
+    assert sum("SVD 地址 0x00800025" in m for m in msgs) == 4
+    assert any("PORTB.CTRL" in m for m in msgs)
 
     # 缺 __SFR_OFFSET：不猜地址，记未判定（仍计入统计）
     code2 = tmp_path / "avr_io2.c"

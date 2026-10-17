@@ -268,6 +268,9 @@ EFM32GG990F1024（Series 0）、EFR32MG12P（Series 1）、EFR32MG21（Series 2�
 - **`--headers` 支持分号分隔多目录**（真实工程多 include 路径）；**`irq` 带优先级字节**
   （`NVIC.IPR9 第 1 字节`）。
 - 九生态语料复测**零回归**；召回集扩到 **229/229**（新增位域直写 E04/E05、只读位直写 E10 注入）。
+- **补丁（v1.13.1）**：`_ADDR_TYPE` 指针类型放宽——`*(volatile unsigned char *)0x25`、
+  `*(char *)0x30`、`*(short *)...`、`uint_fast8_t` 等此前**不被识别为写入（静默漏检）**，
+  现在按直接地址核验（AVR/8051 风格代码常用 `unsigned char` 指针）；九生态复测仍零回归。
 
 ## 试跑中发现并修掉的问题
 

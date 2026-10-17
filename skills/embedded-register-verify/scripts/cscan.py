@@ -21,8 +21,10 @@ _FUNC_DEFINE_RE = re.compile(
     r"^\s*#\s*define\s+([A-Za-z_]\w*)\(\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*\)\s+(.+?)\s*$")
 _MEMBER_RE = re.compile(r"([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*(\|=|&=|\^=|=)(?!=)")
 _ADDR_QUAL = r"(?:volatile|const|__IO|__I|__O|__IM|__OM)"
-_ADDR_TYPE = (r"(?:" + _ADDR_QUAL + r"\s+)*(?:unsigned\s+(?:int|long)|unsigned|"
-              r"u?int(?:8|16|32|64)_t|uint\d+_t|u(?:8|16|32|64)|int|long)"
+_ADDR_TYPE = (r"(?:" + _ADDR_QUAL + r"\s+)*"
+              r"(?:unsigned\s+(?:char|short|int|long(?:\s+long)?)|signed\s+(?:char|short|int|long)|"
+              r"unsigned|u?int(?:_fast|_least)?(?:8|16|32|64)_t|uint\d+_t|u(?:8|16|32|64)|"
+              r"char|short|int|long(?:\s+long)?)"
               r"(?:\s+" + _ADDR_QUAL + r")*")
 _ADDR_VALUE = r"(0x[0-9A-Fa-f]+|[0-9]+)"
 # 直接地址写入：C 风格 *(volatile uint32_t *)0xADDR（含双括号），C++ 风格
