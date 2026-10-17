@@ -31,7 +31,7 @@ from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkErr
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.16.0"
+__version__ = "1.16.1"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -77,7 +77,7 @@ def build_parser():
                    help="在报告里内联对应寄存器的定义（来自寄存器百事通的同一份 SVD）")
     p.add_argument("--limit", type=int, default=200, help="每个文件最多列出条数（默认 200）")
 
-    sub.add_parser("rules", parents=[io], help="列出核验规则 E01–E11")
+    sub.add_parser("rules", parents=[io], help="列出核验规则 E01–E13")
     return parser
 
 
@@ -357,6 +357,7 @@ def _run(args):
         if not sep or not name.strip():
             raise EtkError(E_INPUT_INVALID, "--define 需要 NAME=VALUE 形式：%r" % item)
         defines[name.strip()] = value.strip()
+    user_defines = dict(defines)
     if args.headers:
         requested = []
         source_dirs = set()
@@ -377,6 +378,13 @@ def _run(args):
         merged = dict(header_defines)
         merged.update(defines)  # --define 显式指定优先
         defines = merged
+
+    # --define 值明显无法求值（不含任何标识符 → 不可能引用其它宏）：给出警告（不静默丢）
+    for name, value in user_defines.items():
+        if re.search(r"[A-Za-z_]", value):
+            continue  # 可能引用其它宏：留给核验阶段求值
+        if cscan.eval_int(value, defines) is None:
+            warnings.append("--define %s=%s 的值无法求值（该宏按未定义处理）" % (name, value))
 
     verifier = crules.Verifier(device, extra_defines=defines,
                                clock_check=not args.no_clock_check, limit=args.limit)
@@ -524,7 +532,7 @@ def _format_addr(data):
 # ---------- 渲染 ----------
 
 def _render_rules(res):
-    lines = ["核验规则（E01–E11）："]
+    lines = ["核验规则（E01–E13）："]
     for item in res["rules"]:
         lines.append("  %s %s（%s）｜桶：%s｜标签：%s｜严重度：%s" % (
             item["class"], item["name"], item["verdict"], item["bucket"], item["label"], item["severity"]))

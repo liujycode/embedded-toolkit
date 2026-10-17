@@ -26,7 +26,7 @@ from etk_core.output import envelope  # noqa: E402
 from etk_core.values import parse_number  # noqa: E402
 
 TOOL = "embedded-register-lookup"
-__version__ = "1.10.0"
+__version__ = "1.11.0"
 MAX_WARNINGS_SHOWN = 20
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 
@@ -316,6 +316,8 @@ def _render_register(res):
     sib_line = _sibling_line(res)
     if sib_line:
         lines.append(sib_line)
+    for note in res.get("notes", []):
+        lines.append("读改写提示：%s" % note)
     if res["fields"]:
         lines.append("位域：")
         for f in res["fields"]:

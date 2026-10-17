@@ -317,6 +317,7 @@ def sibling_registers(periph, reg):
 
 
 def _register_result(periph, reg, source):
+    note = _rmw_note(reg)
     return {
         "kind": "register",
         "peripheral": periph.name,
@@ -324,6 +325,7 @@ def _register_result(periph, reg, source):
         "register": _reg_dict(periph, reg),
         "fields": [_field_dict(f, reg.reset_value, reg.size) for f in reg.fields],
         "siblings": sibling_registers(periph, reg),
+        "notes": [note] if note else [],
         "label": LABEL_VERIFIED,
         "source": source,
     }
@@ -471,6 +473,10 @@ def _effective_write_semantics(reg):
 def _rmw_note(reg):
     """读-改-写（reg |= x）陷阱提示：寄存器带 clear/set 类写语义、或读时可能被硬件修改时给出。"""
     semantic = _effective_write_semantics(reg)
+    if semantic == "oneToClear":
+        return ("寄存器是写 1 清零（modifiedWriteValues=oneToClear）语义：读改写（reg |= x）会把读回时"
+                "已置位的标志一并写回（写 1 = 清零），可能顺带清掉没提到的标志；清标志请直写目标标志"
+                "（REG = <标志>）。")
     if semantic in _RMW_SEMANTICS:
         return ("寄存器含 %s（modifiedWriteValues=%s）语义：用 reg |= x 改其它位可能误改状态位，"
                 "建议直接写完整目标值。" % (write_semantics(semantic) or semantic, semantic))

@@ -353,16 +353,17 @@ def test_cli_patch_mode():
 
 
 def test_e13_one_clear_read_modify_write(tmp_path):
-    """E13：写 1 清零（oneToClear）寄存器上的读改写会把当前已置位标志全部清零。"""
+    """E13：写 1 清零位域未被掩码覆盖时，读改写会把当前已置位标志顺带清零。"""
     code = tmp_path / "e13.c"
     code.write_text(
         "void f(void)\n{\n"
-        "    UART0->UARTICR |= 0x10;\n"                    # E13
+        "    UART0->UARTICR |= 0x10;\n"                    # E13：RTIC（bit6）未被覆盖
         "    UART0->UARTICR = 0x10;\n"                     # 通过：直写（正确写法）
-        "    CLEAR_BIT(UART0->UARTICR, 0x10);\n"           # E13
-        "    MODIFY_REG(UART0->UARTICR, 0x10, 0x10);\n"    # E13
-        "    UART0->UARTICR &= ~0x10;\n"                   # E13
-        "    UART0->ADSR |= 0x1;\n"                        # E13：混存寄存器含 W1C 位
+        "    CLEAR_BIT(UART0->UARTICR, 0x10);\n"           # E13：RTIC 未被覆盖
+        "    MODIFY_REG(UART0->UARTICR, 0x10, 0x10);\n"    # E13：RTIC 未被覆盖
+        "    UART0->UARTICR &= ~0x10;\n"                   # E13：RTIC 未被覆盖
+        "    UART0->ADSR |= 0x1;\n"                        # 通过：唯一 W1C 位域 ADF 被掩码覆盖
+        "    UART0->ADSR |= 0x100;\n"                      # E13：ADF 未被覆盖（VALID 是普通位域）
         "    UART0->PERF = 0x1;\n"                         # 通过：寄存器级 oneToClear 的直写
         "    UART0->UARTDR = 0x55;\n"                      # 通过：普通读写寄存器
         "}\n", encoding="utf-8")
@@ -370,12 +371,27 @@ def test_e13_one_clear_read_modify_write(tmp_path):
     assert r.returncode == 1
     res = json.loads(r.stdout)["results"][0]
     assert [f["class"] for f in res["findings"]] == ["E13"] * 5
-    assert res["counts"]["passed"] == 3
+    assert res["counts"]["passed"] == 4
     assert "写 1 清零" in res["findings"][0]["message"]
-    assert "oneToClear" in res["findings"][0]["message"]
+    assert "不在本次写入掩码内" in res["findings"][0]["message"]
     # 文本输出带 next 命令（查看写语义）
     r2 = run_py(VERIFY_CLI, "check", str(code), "--svd", MW_SVD)
     assert "E13" in r2.stdout and "modifiedWriteValues" in r2.stdout
+
+
+def test_e13_mask_unknown_undetermined(tmp_path):
+    """E13：读改写掩码无法静态求值 → 未判定（不猜覆盖范围）。"""
+    code = tmp_path / "e13v.c"
+    code.write_text(
+        "void f(uint32_t flags)\n{\n"
+        "    UART0->UARTICR |= flags;\n"
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", MW_SVD, "--format", "json")
+    assert r.returncode == 0
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["report"] == 0
+    assert res["counts"]["undetermined"] == 1
+    assert "掩码无法静态求值" in res["undetermined"][0]["reason"]
 
 
 def test_e13_conditional_block_downgraded(tmp_path):

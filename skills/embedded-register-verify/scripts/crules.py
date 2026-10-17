@@ -1,4 +1,4 @@
-"""核验规则 E01–E11：用 SVD 检查 C 源码里的寄存器写入。
+"""核验规则 E01–E13：用 SVD 检查 C 源码里的寄存器写入。
 
 判定口径（规格 §2.5）：不确定时一律进"未判定"，宁可漏报不误报。
 标签：E01–E05、E08、E10 = 已核验；E06、E07、E09 = 需查手册。
@@ -68,7 +68,7 @@ RULES = [
     {"class": "E10", "name": "写只读寄存器或位域", "verdict": "SVD access 为 read-only", "bucket": "报", "label": "已核验", "severity": "高"},
     {"class": "E11", "name": "使能后写 DMA 配置寄存器", "verdict": "使能（EN=1）后写 CNDTR/CMAR/CPAR 等", "bucket": "报", "label": "需查手册", "severity": "中"},
     {"class": "E12", "name": "只写寄存器的读改写", "verdict": "|= / &= / SET_BIT / MODIFY_REG 等作用于 SVD access 为 write-only 的寄存器", "bucket": "报", "label": "需查手册", "severity": "中"},
-    {"class": "E13", "name": "写 1 清零寄存器的读改写", "verdict": "|= / &= / SET_BIT / MODIFY_REG 等作用于 modifiedWriteValues 为 oneToClear 的寄存器", "bucket": "报", "label": "需查手册", "severity": "中"},
+    {"class": "E13", "name": "写 1 清零寄存器的读改写", "verdict": "读改写作用于 modifiedWriteValues 为 oneToClear 的寄存器，且其位域未被本次掩码覆盖（掩码未知记未判定）", "bucket": "报", "label": "需查手册", "severity": "中"},
 ]
 
 
@@ -900,18 +900,39 @@ class Verifier:
                         periph=periph.name, register=reg.name,
                         lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
                                             reason="查看该寄存器的访问属性"))
-        one_clear = (reg.modified_write_values == "oneToClear"
-                     or any(f.modified_write_values == "oneToClear" for f in reg.fields))
-        if compound and one_clear and reg.access != "write-only":
+        one_clear_bits = 0
+        one_clear_names = []
+        for field in reg.fields:
+            if field.modified_write_values == "oneToClear":
+                one_clear_bits |= field.mask << field.lsb
+                one_clear_names.append(field.name)
+        if reg.modified_write_values == "oneToClear":
+            one_clear_bits |= (1 << reg.size) - 1
+        if compound and one_clear_bits and reg.access != "write-only":
             op_display = _OP_DISPLAY.get(op, op)
-            add_finding(write, "E13",
-                        "对写 1 清零（oneToClear）寄存器 %s.%s 做读改写（%s）：读回的已置位标志会"
-                        "一并写回，把当前所有已置位的标志清零（含非本意清除的）；只想清某个标志"
-                        "请直接写该标志（%s = <标志>;）" % (
-                            periph.name, reg.name, op_display, reg.name),
-                        periph=periph.name, register=reg.name,
-                        lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
-                                            reason="查看该寄存器的写语义（modifiedWriteValues）"))
+            masks = self._e13_masks(write, periph, reg, defines, target_field)
+            if masks is None:
+                add_undet(write, "对写 1 清零（oneToClear）寄存器 %s.%s 的读改写（%s）掩码无法静态求值，"
+                          "无法确认是否覆盖全部写 1 清零位域，未判定" % (
+                              periph.name, reg.name, op_display))
+            else:
+                and_mask, or_mask = masks
+                # 读改写写回的值 = (读回值 & and_mask) | or_mask：
+                # 未被 or_mask 覆盖的写 1 清零位会被写回\"读回值\"（置位的会被写 1 顺带清零）
+                uncovered = one_clear_bits & and_mask & ~or_mask
+                if uncovered:
+                    uncovered_names = [f.name for f in reg.fields
+                                       if f.modified_write_values == "oneToClear"
+                                       and (f.mask << f.lsb) & uncovered]
+                    what = "位域 %s" % "、".join(uncovered_names) if uncovered_names else "整个寄存器"
+                    add_finding(write, "E13",
+                                "对写 1 清零（oneToClear）寄存器 %s.%s 做读改写（%s）：%s 不在本次写入"
+                                "掩码内，读回的已置位标志会一并写回（写 1 = 清零）——当前已置位的标志会被"
+                                "顺带清零（可能丢中断）；只想清某个标志请直接写该标志（%s = <标志>;）" % (
+                                    periph.name, reg.name, op_display, what, reg.name),
+                                periph=periph.name, register=reg.name,
+                                lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                                    reason="查看该寄存器的写语义（modifiedWriteValues）"))
         if write["kind"] == "field_write":
             self._check_field_write(write, periph, reg, defines, add_finding)
             return
@@ -1171,6 +1192,45 @@ class Verifier:
                     periph=periph.name, register=reg.name,
                     lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
                                         reason="查看该寄存器的全部位域"))
+
+    def _e13_masks(self, write, periph, reg, defines, target_field):
+        """E13 覆盖判定：把读改写形态折算成 (and_mask, or_mask)——写回值 = (读回值 & and) | or。
+
+        掩码无法静态求值时返回 None（调用方记未判定）。
+        """
+        op = write["op"]
+        if write["kind"] == "field_write":
+            if target_field is None:
+                return None
+            field_mask = target_field.mask << target_field.lsb
+            return (~field_mask, field_mask) if op == "set_field" else (~field_mask, 0)
+        if write["kind"] == "macro":
+            args = write.get("args") or []
+            if op in ("set_bit", "clear_bit") and len(args) >= 2:
+                value = self._fields_for_expr(args[1], periph, reg, defines)[4]
+                if value is None:
+                    return None
+                return (-1, value) if op == "set_bit" else (value, 0)
+            if op == "modify_reg" and len(args) >= 3:
+                clear = self._fields_for_expr(args[1], periph, reg, defines)[4]
+                set_value = self._fields_for_expr(args[2], periph, reg, defines)[4]
+                if clear is None or set_value is None:
+                    return None
+                return (~clear, set_value)
+            return None
+        rhs = write.get("rhs") or ""
+        if not rhs:
+            return None
+        value = self._fields_for_expr(rhs, periph, reg, defines)[4]
+        if value is None:
+            return None
+        if op == "|=":
+            return (-1, value)
+        if op == "&=":
+            return (value, 0)
+        if op == "^=":
+            return (~value, value)
+        return None
 
     def _check_macro(self, write, periph, reg, defines, add_finding, add_undet, sets, unknown_set_regs):
         op = write["op"]
