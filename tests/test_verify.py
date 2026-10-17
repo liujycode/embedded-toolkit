@@ -264,6 +264,87 @@ def test_cli_directory_scan(tmp_path):
     assert json.loads(r.stdout)["results"][0]["counts"]["report"] == 1
 
 
+def test_enum_constants_resolve_values(tmp_path):
+    """文件内 enum 常量：值参与核验（E04 宽度），隐式自增按 C 语义。"""
+    code = tmp_path / "enum_vals.c"
+    code.write_text(
+        "enum { MODE_FAST = 0x2, MODE_SLOW, MODE_MAX = 0x10000 };\n"
+        "void f(void)\n{\n"
+        "    TIM1->CR1 = MODE_FAST;\n"     # 通过：2 在 16 位内
+        "    TIM1->CR1 = MODE_SLOW;\n"     # 通过：隐式自增 = 3
+        "    TIM1->CR1 = MODE_MAX;\n"      # E04：0x10000 超 16 位
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["report"] == 1
+    assert res["counts"]["passed"] == 2
+    assert res["counts"]["undetermined"] == 0
+    assert res["findings"][0]["class"] == "E04"
+    assert "0x10000" in res["findings"][0]["message"]
+
+
+def test_enum_constants_from_headers(tmp_path):
+    """--headers 里的 enum 常量同样可求值（typedef enum 形式）。"""
+    hdr = tmp_path / "vals.h"
+    hdr.write_text("typedef enum { LEVEL_LOW = 1, LEVEL_HIGH = 0x10000 } adc_level_t;\n",
+                   encoding="utf-8")
+    code = tmp_path / "use.c"
+    code.write_text("void f(void)\n{\n    TIM1->CR1 = LEVEL_LOW;\n    TIM1->CR1 = LEVEL_HIGH;\n}\n",
+                    encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH,
+               "--headers", str(hdr), "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["report"] == 1
+    assert res["counts"]["passed"] == 1
+    assert res["findings"][0]["class"] == "E04"
+
+
+def test_patch_mode_uses_full_file_context(tmp_path):
+    """补丁模式：磁盘上有完整文件时，E07/E06 能看到未改动的上下文（不误报）。"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    full = (
+        "void init(void)\n"
+        "{\n"
+        "    RCC->APB2ENR |= RCC_APB2ENR_USART1EN;\n"
+        "    USART1->CR1 |= USART_CR1_UE;\n"
+        "    USART1->CR1 |= USART_CR1_XXX;\n"
+        "}\n")
+    (repo / "uart.c").write_text(full, encoding="utf-8")
+    diff = (
+        "diff --git a/uart.c b/uart.c\n"
+        "--- a/uart.c\n"
+        "+++ b/uart.c\n"
+        "@@ -3,3 +3,4 @@\n"
+        "     RCC->APB2ENR |= RCC_APB2ENR_USART1EN;\n"
+        "     USART1->CR1 |= USART_CR1_UE;\n"
+        "+    USART1->CR1 |= USART_CR1_XXX;\n"
+        " }\n")
+    patch_file = repo / "changes.diff"
+    patch_file.write_text(diff, encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", "--patch", str(patch_file), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    classes = [f["class"] for f in res["findings"]]
+    assert classes == ["E03"]  # 只有新增行的 E03；E07 不报（使能在整文件里可见）
+    assert res["counts"]["writes"] == 1
+    assert res["findings"][0]["line"] == 5  # 行号对齐新文件
+
+
+def test_patch_mode_warns_when_full_file_missing(tmp_path):
+    """补丁模式找不到完整文件时给出提示（文件级检查可能有误报）。"""
+    patch_file = tmp_path / "changes.diff"
+    patch_file.write_text(
+        "diff --git a/nope.c b/nope.c\n--- a/nope.c\n+++ b/nope.c\n"
+        "@@ -1,1 +1,2 @@\n void f(void) {\n+    USART1->CR1 |= USART_CR1_XXX;\n }\n",
+        encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", "--patch", str(patch_file), "--svd", SYNTH)
+    assert r.returncode == 1
+    assert "未找到完整文件" in r.stdout
+
+
 def test_cli_patch_mode():
     r = run_py(VERIFY_CLI, "check", "--patch", VERIFY_PATCH, "--svd", SYNTH)
     assert r.returncode == 1

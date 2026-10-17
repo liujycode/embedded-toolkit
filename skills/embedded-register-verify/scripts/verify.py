@@ -31,7 +31,7 @@ from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkErr
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.14.1"
+__version__ = "1.15.0"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -235,30 +235,40 @@ def _collect_header_defines(paths, requested=None, source_dirs=None):
         clean = cscan.strip_comments_and_strings(joined)
         for name, expr in cscan.collect_defines(clean).items():
             defines.setdefault(name, expr)
+        for name, expr in cscan.collect_enum_constants(clean, defines).items():
+            defines.setdefault(name, expr)  # 头文件里的 enum 常量（#define 优先）
     return defines, note
 
 
 def _patch_sources(text):
-    """把 unified diff 还原成"只含新增行、行号对齐新文件"的合成文本。"""
+    """把 unified diff 还原成"只含新增行、行号对齐新文件"的合成文本。
+
+    返回 (sources, added)：sources 为 (名称, 文本, 相对路径) 列表；
+    added 为 {相对路径: {新增行号}}——补丁模式只核验新增行，上下文优先取磁盘上的整文件。
+    """
     files = {}
-    current = None
+    added = {}
+    current_name = None
     new_line = 0
     for raw in text.split("\n"):
         if raw.startswith("+++ "):
             name = raw[4:].strip()
             if name.startswith(("b/", "a/")):
                 name = name[2:]
-            current = files.setdefault(name, {})
+            current_name = name
+            files.setdefault(name, {})
+            added.setdefault(name, set())
             continue
         if raw.startswith("@@ "):
             m = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw)
             if m:
                 new_line = int(m.group(1))
             continue
-        if current is None:
+        if current_name is None:
             continue
         if raw.startswith("+"):
-            current[new_line] = raw[1:]
+            files[current_name][new_line] = raw[1:]
+            added[current_name].add(new_line)
             new_line += 1
         elif raw.startswith(("-", "\\")):
             continue
@@ -272,7 +282,7 @@ def _patch_sources(text):
         for no, content in lines.items():
             buf[no - 1] = content
         out.append(("%s (patch)" % name, "\n".join(buf), name))
-    return out
+    return out, added
 
 
 # ---------- 运行 ----------
@@ -303,10 +313,36 @@ def _run(args):
 
     if args.patch:
         with open(args.patch, encoding="utf-8", errors="replace") as fh:
-            sources = _patch_sources(fh.read())
-        if not sources:
+            patch_sources, patch_added = _patch_sources(fh.read())
+        if not patch_sources:
             raise EtkError(E_INPUT_INVALID, "补丁里没有可核验的新增行：%s" % args.patch)
+        # 优先用磁盘上的完整文件做上下文（E06/E07/E11 需要看未改动的使能/置位）
+        base_dirs = [os.getcwd(), os.path.dirname(os.path.abspath(args.patch))]
+        sources = []
+        missing_full = []
+        for item in patch_sources:
+            relpath = item[2]
+            full = None
+            for base in base_dirs:
+                candidate = os.path.join(base, relpath)
+                if os.path.isfile(candidate):
+                    try:
+                        with open(candidate, encoding="utf-8", errors="replace") as fh:
+                            full = fh.read()
+                    except OSError:
+                        full = None
+                    break
+            if full is not None:
+                sources.append((item[0], full, relpath))
+            else:
+                sources.append(item)
+                missing_full.append(relpath)
+        if missing_full:
+            warnings.append(
+                "补丁模式：未找到完整文件（%s）——文件级检查（E06/E07/E11）看不到未改动的上下文，"
+                "可能有误报；建议在仓库目录内运行或加 --no-clock-check。" % "、".join(missing_full[:3]))
     else:
+        patch_added = None
         if not args.paths:
             raise EtkError(E_INPUT_INVALID, "请给出要核验的文件、目录，或用 --patch 指定补丁文件。")
         sources, truncated = _collect_sources(args.paths)
@@ -351,7 +387,9 @@ def _run(args):
     selection = _selection_args(args)
     for name, text, path_hint in sources:
         try:
-            res = verifier.check_file(name, text)
+            res = verifier.check_file(
+                name, text,
+                patch_lines=(patch_added.get(path_hint) if patch_added else None))
         except EtkError as exc:
             errors.append(exc.to_dict())
             continue

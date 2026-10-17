@@ -347,6 +347,8 @@ def extract_all(text, extra_defines=None):
     joined, line_map = join_continuations(text)
     clean_all = strip_comments_and_strings(joined)
     defines = collect_defines(clean_all)
+    for _enum_name, _enum_expr in collect_enum_constants(clean_all, defines).items():
+        defines.setdefault(_enum_name, _enum_expr)  # #define 优先于 enum 常量
     if extra_defines:
         for name, expr in extra_defines.items():
             defines[name] = expr
@@ -685,6 +687,67 @@ def _tokens(expr):
             continue
         return None
     return out or None
+
+
+def _split_top_commas(text):
+    """按顶层逗号切分（括号内不切）：enum 体、参数表等用。"""
+    parts = []
+    depth = 0
+    current = []
+    for ch in text:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current))
+    return parts
+
+
+_ENUM_BODY_RE = re.compile(r"\benum\b[A-Za-z0-9_:\s]*\{([^{}]*)\}")
+_ENUM_ITEM_RE = re.compile(r"^\s*([A-Za-z_]\w*)\s*(?:=\s*(.+))?$", re.S)
+
+
+def collect_enum_constants(text, defines=None):
+    """收集文件内 C/C++ enum 常量：{NAME: 表达式}。
+
+    隐式自增按 C 语义（`enum { A, B = 5, C }` → A=0、B=5、C=6）；某项表达式算不出时，
+    其后的隐式项跳过（不猜）。只用于数值求值（值核验），不参与位域宏映射。
+    """
+    out = {}
+    ctx = dict(defines or {})
+    for m in _ENUM_BODY_RE.finditer(text):
+        next_value = 0
+        known = True
+        for item in _split_top_commas(m.group(1)):
+            item = item.strip()
+            if not item:
+                continue
+            im = _ENUM_ITEM_RE.match(item)
+            if im is None:
+                known = False
+                continue
+            name, expr = im.group(1), (im.group(2) or "").strip()
+            if expr:
+                value = eval_int(expr, ctx)
+                if name not in ctx:
+                    out.setdefault(name, expr)
+                    ctx[name] = expr
+                if value is None:
+                    known = False
+                else:
+                    next_value = value + 1
+            elif known:
+                out.setdefault(name, str(next_value))
+                ctx[name] = str(next_value)
+                next_value += 1
+            else:
+                known = False
+    return out
 
 
 def _sfr_io_offset(defines):

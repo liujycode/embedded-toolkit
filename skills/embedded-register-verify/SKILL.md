@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件（查找规则同 embedded-register-lookup）；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.14.1"
+  version: "1.15.0"
 ---
 
 # 寄存器核验器
@@ -40,7 +40,10 @@ python scripts/verify.py check main.c --chip ESP32-S3 --headers "$IDF_PATH/compo
 python scripts/verify.py rules
 ```
 
-- `check` 接受文件、目录（递归扫 `.c/.h/.cpp/.hpp/.ino` 等，上限 200 个）或 `--patch`（unified diff 的新增行）。
+- `check` 接受文件、目录（递归扫 `.c/.h/.cpp/.cc/.cxx/.hpp/.hh/.hxx/.ino` 等，上限 200 个）或 `--patch`（unified diff 的新增行）。
+- **补丁模式**：只核验新增行；若磁盘上有完整文件（按当前目录与补丁所在目录查找），文件级检查
+  （E06/E07/E11）用整文件做上下文——未改动的时钟使能/置位可见，不会误报；找不到完整文件时给出
+  明确提示（建议在仓库目录内运行或加 `--no-clock-check`）。
 - `--define NAME=VALUE` 补充宏定义（可多次，常用于从工程配置里带入的常量）。
 - `--headers 文件或目录` 从头文件加载宏定义（可多次）：ESP-IDF 等"寄存器常量宏"风格的代码，
   配合 SVD 可正常核验 `REG_WRITE/REG_SET_BIT/REG_CLR_BIT/REG_SET_FIELD/REG_CLR_FIELD`。

@@ -574,7 +574,12 @@ class Verifier:
 
     # ---------- 主流程 ----------
 
-    def check_file(self, name, text):
+    def check_file(self, name, text, patch_lines=None):
+        """核验一个文件。
+
+        patch_lines 为 None 时核验全部写入；否则只核验"新增行"上的写入（补丁模式），
+        但置位/时钟使能等文件级上下文仍取自整份 text。
+        """
         parsed = cscan.extract_all(text, self.extra_defines)
         self._mentions = {m.upper() for m in parsed.get("mentions") or []}
         defines = dict(parsed["defines"])
@@ -623,7 +628,8 @@ class Verifier:
                 continue
             if periph is None or reg is None:
                 continue
-            periph_first.setdefault(periph.name.upper(), (write["line"], write["code"]))
+            if patch_lines is None or write.get("line") in patch_lines:
+                periph_first.setdefault(periph.name.upper(), (write["line"], write["code"]))
             if write["kind"] == "macro":
                 args = write.get("args") or []
                 if write["op"] == "set_bit" and len(args) >= 2:
@@ -691,6 +697,8 @@ class Verifier:
         counted_writes = [w for w in parsed["writes"]
                           if w["kind"] != "bare_name"
                           or w.get("name") in reg_names or w.get("alias_expr")]
+        if patch_lines is not None:
+            counted_writes = [w for w in counted_writes if w.get("line") in patch_lines]
         index = 0
         for write in counted_writes:
             if write["kind"] == "macro" and write["op"] == "read_reg":
@@ -762,7 +770,8 @@ class Verifier:
                 "measured": [
                     {"line": w["line"], "code": w["code"]}
                     for w in parsed["writes"]
-                    if self._measured_write(w)
+                    if (patch_lines is None or w.get("line") in patch_lines)
+                    and self._measured_write(w)
                 ],
             }
         return {
