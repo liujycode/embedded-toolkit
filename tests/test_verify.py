@@ -14,7 +14,7 @@ if VERIFY_SCRIPTS not in sys.path:
 import cscan  # noqa: E402
 import crules  # noqa: E402
 from etk_core.svd import load_device  # noqa: E402
-from helpers import AVR_SVD, FIXTURES, FSP_SVD, SILABS_SVD, SYNTH, UNION_SVD, WOSYNTH, run_py  # noqa: E402
+from helpers import AVR_SVD, FIXTURES, FSP_SVD, MW_SVD, SILABS_SVD, SYNTH, UNION_SVD, WOSYNTH, run_py  # noqa: E402
 
 VERIFY_BAD = os.path.join(FIXTURES, "verify_bad.c")
 VERIFY_OK = os.path.join(FIXTURES, "verify_ok.c")
@@ -352,6 +352,65 @@ def test_cli_patch_mode():
     assert "第 13 行" in r.stdout and "第 14 行" in r.stdout
 
 
+def test_e13_one_clear_read_modify_write(tmp_path):
+    """E13：写 1 清零（oneToClear）寄存器上的读改写会把当前已置位标志全部清零。"""
+    code = tmp_path / "e13.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "    UART0->UARTICR |= 0x10;\n"                    # E13
+        "    UART0->UARTICR = 0x10;\n"                     # 通过：直写（正确写法）
+        "    CLEAR_BIT(UART0->UARTICR, 0x10);\n"           # E13
+        "    MODIFY_REG(UART0->UARTICR, 0x10, 0x10);\n"    # E13
+        "    UART0->UARTICR &= ~0x10;\n"                   # E13
+        "    UART0->ADSR |= 0x1;\n"                        # E13：混存寄存器含 W1C 位
+        "    UART0->PERF = 0x1;\n"                         # 通过：寄存器级 oneToClear 的直写
+        "    UART0->UARTDR = 0x55;\n"                      # 通过：普通读写寄存器
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", MW_SVD, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert [f["class"] for f in res["findings"]] == ["E13"] * 5
+    assert res["counts"]["passed"] == 3
+    assert "写 1 清零" in res["findings"][0]["message"]
+    assert "oneToClear" in res["findings"][0]["message"]
+    # 文本输出带 next 命令（查看写语义）
+    r2 = run_py(VERIFY_CLI, "check", str(code), "--svd", MW_SVD)
+    assert "E13" in r2.stdout and "modifiedWriteValues" in r2.stdout
+
+
+def test_e13_conditional_block_downgraded(tmp_path):
+    """E13 与其他访问属性类规则一致：条件编译块内 → 未判定（不误报）。"""
+    code = tmp_path / "e13c.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "#ifdef SOME_CONFIG\n"
+        "    UART0->UARTICR |= 0x10;\n"
+        "#endif\n"
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", MW_SVD, "--format", "json")
+    assert r.returncode == 0  # 只有未判定、没有"报"时退出码为 0
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["report"] == 0
+    assert res["counts"]["undetermined"] == 1
+    assert "条件编译块" in res["undetermined"][0]["reason"]
+
+
+def test_modify_reg_positioned_value_not_flagged(tmp_path):
+    """ST 风格 MODIFY_REG(reg, Msk, VALUE << Pos)：带位置取值不报 E04；位域之外才报。"""
+    code = tmp_path / "modify_pos.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "    MODIFY_REG(USART1->CR1, USART_CR1_PS_Msk, 0x200);\n"   # 通过：0x200 = 1 << PS_Pos
+        "    MODIFY_REG(USART1->CR1, USART_CR1_PS_Msk, 0x1);\n"     # 通过：字段相对写法
+        "    MODIFY_REG(USART1->CR1, USART_CR1_PS_Msk, 0x400);\n"   # E04：位 10 不在 PS（bit 9）内
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert [f["class"] for f in res["findings"]] == ["E04"]
+    assert res["counts"]["passed"] == 2
+
+
 def test_e12_writeonly_read_modify_write(tmp_path):
     """E12：只写寄存器上的读改写（|= / SET_BIT）报；直接赋值与读写寄存器不报。"""
     code = tmp_path / "wo.c"
@@ -684,7 +743,7 @@ def test_cli_rules_subcommand():
     assert r.returncode == 0
     env = json.loads(r.stdout)
     assert env["results"][0]["rules"][0]["class"] == "E01"
-    assert len(env["results"][0]["rules"]) == 12
+    assert len(env["results"][0]["rules"]) == 13
 
 
 def test_cli_demo_example():

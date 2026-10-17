@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件（查找规则同 embedded-register-lookup）；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.15.0"
+  version: "1.16.0"
 ---
 
 # 寄存器核验器
@@ -110,6 +110,7 @@ python scripts/verify.py rules
 | E09 | 中断分组多处设置（`NVIC_SetPriorityGrouping`） | 需查手册 | 中 |
 | E10 | 写只读寄存器或位域（含位域直写） | 已核验 | 高 |
 | E11 | 使能（EN=1）后写 DMA 计数/地址寄存器（CNDTR/CMAR/CPAR 等） | 需查手册 | 中 |
+| E13 | 写 1 清零寄存器上的读改写（`\|=`/`SET_BIT`/`MODIFY_REG` 等会把已置位标志全部清零） | 需查手册 | 中 |
 | E12 | 只写寄存器上的读改写（`\|=`/`&=`/`SET_BIT`/`MODIFY_REG`/`REG_SET_FIELD`/`REG_CLR_FIELD`，读回值不可靠） | 需查手册 | 中 |
 
 **条件编译块口径**：目标（外设/寄存器/位域）不存在、或**访问属性类问题（E10/E12）**出现在

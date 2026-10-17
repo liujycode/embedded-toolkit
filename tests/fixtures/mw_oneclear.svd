@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  E13 测试夹具：含写 1 清零（modifiedWriteValues=oneToClear）语义的寄存器。
+  仅用于 tests/test_verify.py 的 E13 用例（RP2040 UARTICR / 新唐 ISRC 风格）。
+-->
+<device schemaVersion="1.1">
+  <name>MWONECLR</name>
+  <version>1.0</version>
+  <description>oneToClear (write-1-to-clear) fixture</description>
+  <vendor>SYNTH-Corp</vendor>
+  <cpu>
+    <name>CM4</name>
+    <revision>r0p1</revision>
+    <endian>little</endian>
+  </cpu>
+  <width>32</width>
+  <resetValue>0x00000000</resetValue>
+  <resetMask>0xFFFFFFFF</resetMask>
+  <peripherals>
+    <peripheral>
+      <name>UART0</name>
+      <description>UART with interrupt-clear register</description>
+      <baseAddress>0x40034000</baseAddress>
+      <addressBlock>
+        <offset>0</offset>
+        <size>0x100</size>
+        <usage>registers</usage>
+      </addressBlock>
+      <registers>
+        <register>
+          <name>UARTICR</name>
+          <description>Interrupt clear register (write 1 to clear)</description>
+          <addressOffset>0x44</addressOffset>
+          <fields>
+            <field>
+              <name>TXIC</name>
+              <description>Clear TX interrupt</description>
+              <bitOffset>4</bitOffset>
+              <bitWidth>1</bitWidth>
+              <modifiedWriteValues>oneToClear</modifiedWriteValues>
+            </field>
+            <field>
+              <name>RTIC</name>
+              <description>Clear RX timeout interrupt</description>
+              <bitOffset>6</bitOffset>
+              <bitWidth>1</bitWidth>
+              <modifiedWriteValues>oneToClear</modifiedWriteValues>
+            </field>
+          </fields>
+        </register>
+        <register>
+          <name>ADSR</name>
+          <description>Mixed-semantics status register</description>
+          <addressOffset>0x00</addressOffset>
+          <fields>
+            <field>
+              <name>ADF</name>
+              <description>ADC finished flag (write 1 to clear)</description>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+              <modifiedWriteValues>oneToClear</modifiedWriteValues>
+            </field>
+            <field>
+              <name>VALID</name>
+              <description>Valid sample</description>
+              <bitOffset>8</bitOffset>
+              <bitWidth>1</bitWidth>
+              <modifiedWriteValues>modify</modifiedWriteValues>
+            </field>
+          </fields>
+        </register>
+        <register>
+          <name>PERF</name>
+          <description>Register-level oneToClear counter</description>
+          <addressOffset>0x10</addressOffset>
+          <modifiedWriteValues>oneToClear</modifiedWriteValues>
+          <fields>
+            <field>
+              <name>CNT</name>
+              <description>Counter</description>
+              <bitOffset>0</bitOffset>
+              <bitWidth>16</bitWidth>
+            </field>
+          </fields>
+        </register>
+        <register>
+          <name>UARTDR</name>
+          <description>Plain read-write data register</description>
+          <addressOffset>0x04</addressOffset>
+        </register>
+      </registers>
+    </peripheral>
+  </peripherals>
+</device>

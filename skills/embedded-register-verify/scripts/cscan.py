@@ -766,6 +766,10 @@ def _sfr_io_offset(defines):
     return eval_int(str(entry), defines)
 
 
+# 单参数"拼贴"宏：宏体形如 `x ## u` / `u ## x`（pico-sdk 的 _u(x) = x ## u 这类字面量后缀包装）
+_PASTE_MACRO_RE = re.compile(r"^(?:\(\s*)?([A-Za-z_]\w*)\s*##\s*([A-Za-z_]\w*)(?:\s*\))?$")
+
+
 def _find_func_define(defines, name):
     """在 defines 里找函数宏条目（大小写不敏感）。兼容旧的单参数形式 {"param": p}。"""
     def _ok(entry):
@@ -857,12 +861,26 @@ def eval_int(expr, defines, depth=0, seen=None):
                     advance()  # "("
                     params = entry.get("params") or [entry["param"]]
                     sub = dict(defines)
+                    args = []
                     for idx, pname in enumerate(params):
                         if idx:
                             expect(",")
                         arg = parse_or()
+                        args.append(arg)
                         sub[pname] = str(arg)
                     expect(")")
+                    body = (entry.get("expr") or "").strip()
+                    if len(params) == 1:
+                        # 单参数"拼贴"宏（如 pico-sdk 的 _u(x) = x ## u）：按文本拼接后求值
+                        paste = _PASTE_MACRO_RE.match(body)
+                        if paste is not None and params[0] in (paste.group(1), paste.group(2)):
+                            other = paste.group(2) if paste.group(1) == params[0] else paste.group(1)
+                            pasted = (str(args[0]) + other) if paste.group(1) == params[0] \
+                                else (other + str(args[0]))
+                            result = eval_int(pasted, defines, depth + 1, (seen or set()) | {upper})
+                            if result is None:
+                                raise _EvalError()
+                            return result
                     result = eval_int(entry["expr"], sub, depth + 1, (seen or set()) | {upper})
                     if result is None:
                         raise _EvalError()

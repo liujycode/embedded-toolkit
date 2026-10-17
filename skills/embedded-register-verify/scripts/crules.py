@@ -46,10 +46,10 @@ def macro_words(expr):
 
 _SEVERITY = {"E01": "高", "E02": "高", "E03": "高", "E04": "高", "E05": "中",
              "E06": "低", "E07": "中", "E08": "高", "E09": "中", "E10": "高", "E11": "中",
-             "E12": "中"}
+             "E12": "中", "E13": "中"}
 _LABELS = {"E01": "已核验", "E02": "已核验", "E03": "已核验", "E04": "已核验", "E05": "已核验",
            "E06": "需查手册", "E07": "需查手册", "E08": "已核验", "E09": "需查手册",
-           "E10": "已核验", "E11": "需查手册", "E12": "需查手册"}
+           "E10": "已核验", "E11": "需查手册", "E12": "需查手册", "E13": "需查手册"}
 # 写入形态在报告里的显示名（宏操作显示为规范宏名）
 _OP_DISPLAY = {"modify_reg": "MODIFY_REG", "set_bit": "SET_BIT", "clear_bit": "CLEAR_BIT",
                "set_field": "REG_SET_FIELD", "clear_field": "REG_CLR_FIELD",
@@ -67,7 +67,8 @@ RULES = [
     {"class": "E09", "name": "中断分组多处设置", "verdict": "NVIC_SetPriorityGrouping 出现次数", "bucket": "报", "label": "需查手册", "severity": "中"},
     {"class": "E10", "name": "写只读寄存器或位域", "verdict": "SVD access 为 read-only", "bucket": "报", "label": "已核验", "severity": "高"},
     {"class": "E11", "name": "使能后写 DMA 配置寄存器", "verdict": "使能（EN=1）后写 CNDTR/CMAR/CPAR 等", "bucket": "报", "label": "需查手册", "severity": "中"},
-    {"class": "E12", "name": "只写寄存器的读改写", "verdict": "|= / &= / SET_BIT 等作用于 SVD access 为 write-only 的寄存器", "bucket": "报", "label": "需查手册", "severity": "中"},
+    {"class": "E12", "name": "只写寄存器的读改写", "verdict": "|= / &= / SET_BIT / MODIFY_REG 等作用于 SVD access 为 write-only 的寄存器", "bucket": "报", "label": "需查手册", "severity": "中"},
+    {"class": "E13", "name": "写 1 清零寄存器的读改写", "verdict": "|= / &= / SET_BIT / MODIFY_REG 等作用于 modifiedWriteValues 为 oneToClear 的寄存器", "bucket": "报", "label": "需查手册", "severity": "中"},
 ]
 
 
@@ -492,6 +493,15 @@ class Verifier:
                 reg = periph.register(cand.replace("_", "."))
                 if reg is not None:
                     return reg, None
+        # 嵌套结构体成员名 → SVD 扁平名（pico-sdk 的 clocks_hw->resus.ctrl ↔ CLK_SYS_RESUS_CTRL）：
+        # 用"下划线拼接名"做后缀匹配，且必须唯一命中
+        if segments and len(segments) > 1:
+            joined_upper = reg_name.replace(".", "_").upper()
+            hits = [r for r in periph.registers
+                    if r.name.upper() == joined_upper
+                    or r.name.upper().endswith("_" + joined_upper)]
+            if len(hits) == 1:
+                return hits[0], None
         # REG.FIELD 直写：寄存器名在前段、字段名在最后一段
         for cand in candidates:
             if "." not in cand:
@@ -604,8 +614,8 @@ class Verifier:
 
         def add_finding(write, cls, message, suggestion=None, periph=None, register=None,
                         field=None, lookup=None):
-            if cls in ("E10", "E12") and write.get("conditional"):
-                # 访问属性（只读/只写）随型号/配置而异：条件编译块内的写法记未判定（避免跨型号误报）
+            if cls in ("E10", "E12", "E13") and write.get("conditional"):
+                # 访问属性/写语义（只读/只写/写 1 清零）随型号/配置而异：条件编译块内的写法记未判定（避免跨型号误报）
                 add_undet(write, "%s，但写入位于条件编译块（#if/#ifdef）内——可能是其它型号/配置的分支"
                           "（访问属性可能不同），未判定" % message)
                 return
@@ -856,6 +866,11 @@ class Verifier:
                 add_undet(write, "%s 中不存在寄存器 %s，但写入位于条件编译块（#if/#ifdef）内"
                           "——可能是其它型号/配置的分支，未判定" % (periph.name, reg_label or "?"))
                 return
+            if reg_label and "." in reg_label:
+                # 多段成员名（嵌套结构体/簇）在 SVD 中没有同名寄存器：可能是层级结构，记未判定（不误报 E02）
+                add_undet(write, "%s.%s 是多段成员名（可能是嵌套结构体/簇寄存器），"
+                          "SVD 中无同名寄存器，未检查" % (periph.name, reg_label))
+                return
             names = [r.name for r in periph.registers]
             suggestion = self._suggest_names(reg_label or "", names)
             add_finding(write, "E02",
@@ -885,6 +900,18 @@ class Verifier:
                         periph=periph.name, register=reg.name,
                         lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
                                             reason="查看该寄存器的访问属性"))
+        one_clear = (reg.modified_write_values == "oneToClear"
+                     or any(f.modified_write_values == "oneToClear" for f in reg.fields))
+        if compound and one_clear and reg.access != "write-only":
+            op_display = _OP_DISPLAY.get(op, op)
+            add_finding(write, "E13",
+                        "对写 1 清零（oneToClear）寄存器 %s.%s 做读改写（%s）：读回的已置位标志会"
+                        "一并写回，把当前所有已置位的标志清零（含非本意清除的）；只想清某个标志"
+                        "请直接写该标志（%s = <标志>;）" % (
+                            periph.name, reg.name, op_display, reg.name),
+                        periph=periph.name, register=reg.name,
+                        lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                            reason="查看该寄存器的写语义（modifiedWriteValues）"))
         if write["kind"] == "field_write":
             self._check_field_write(write, periph, reg, defines, add_finding)
             return
@@ -1239,17 +1266,23 @@ class Verifier:
             return
         if len(mapped) == 1:
             field = mapped[0][1]
-            if value > field.mask:
+            cmp_value = value
+            out_of_range = value > field.mask
+            if out_of_range and field.lsb > 0 and (value & ~(field.mask << field.lsb)) == 0:
+                # ST 风格 MODIFY_REG(reg, Msk, VALUE << Pos)：置位值带位置（位域之外的位为 0）时同样合法
+                cmp_value = value >> field.lsb
+                out_of_range = False
+            if out_of_range:
                 add_finding(write, "E04",
                             "置位值 0x%X 超出位域 %s 的 %d 位宽度（最大 0x%X）" % (
                                 value, field.name, field.width, field.mask),
                             periph=periph.name, register=reg.name, field=field.name,
                             lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
                                 periph.name, reg.name, field.name), reason="查看该位域宽度与枚举"))
-            elif field.enums and not any((value & e.mask) == e.value for e in field.enums):
+            elif field.enums and not any((cmp_value & e.mask) == e.value for e in field.enums):
                 options = "、".join(e.name for e in field.enums if e.name)
                 add_finding(write, "E05",
-                            "值 0x%X 不是位域 %s 的合法枚举（可选：%s）" % (value, field.name, options),
+                            "值 0x%X 不是位域 %s 的合法枚举（可选：%s）" % (cmp_value, field.name, options),
                             periph=periph.name, register=reg.name, field=field.name,
                             lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
                                 periph.name, reg.name, field.name), reason="查看该位域的枚举取值"))
@@ -1260,6 +1293,10 @@ class Verifier:
                         lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
                                             reason="查看该寄存器宽度"))
         mapped_names = {item[1].name.upper() for item in mapped}
+        # 唯一字段 + 字段相对取值（≤ 掩码）时，数值的位位置与寄存器位不对应（可能带位置也可能不带），
+        # 跳过只读位扫描（避免错位误报）；带位置取值照常扫描
+        if len(mapped) == 1 and mapped[0][1].lsb > 0 and value <= mapped[0][1].mask:
+            return
         self._report_readonly_value(write, periph, reg, value, add_finding, reported, mapped_names)
 
     def _report_readonly_value(self, write, periph, reg, value, add_finding, reported, mapped_names=None):
