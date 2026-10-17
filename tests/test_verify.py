@@ -1136,6 +1136,9 @@ def test_e12_modify_reg_and_clear_field(tmp_path):
     assert res["counts"]["passed"] >= 1
     msgs = " ".join(f["message"] for f in res["findings"])
     assert "MODIFY_REG" in msgs and "REG_CLR_FIELD" in msgs
+    # 文本汇总：一处写入命中多条问题时，写清"条问题"
+    r2 = run_py(VERIFY_CLI, "check", str(code), "--svd", WOSYNTH, "--headers", str(hdr))
+    assert "条问题" in r2.stdout
 
 
 def test_cli_collects_cpp_and_ino(tmp_path):

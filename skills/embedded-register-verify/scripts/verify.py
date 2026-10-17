@@ -31,7 +31,7 @@ from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkErr
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.14.0"
+__version__ = "1.14.1"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -521,7 +521,12 @@ def _render_verify(res):
     by_class = c.get("report_by_class") or {}
     report_text = "报 %d" % c["report"]
     if by_class:
-        report_text += "（%s）" % "、".join("%s %d" % (k, v) for k, v in by_class.items())
+        detail = "、".join("%s %d" % (k, v) for k, v in by_class.items())
+        if c.get("findings") and c["findings"] != c["report"]:
+            # 一处写入可能命中多条问题：把"写入数"与"问题条数"都写清楚
+            report_text += "（%d 条问题：%s）" % (c["findings"], detail)
+        else:
+            report_text += "（%s）" % detail
     lines = ["%s：%d 处寄存器写入（%s、未判定 %d、通过 %d）" % (
         res["file"], c["writes"], report_text, c["undetermined"], c["passed"])]
     for item in res["findings"]:
