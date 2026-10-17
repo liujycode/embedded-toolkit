@@ -469,12 +469,16 @@ def _effective_write_semantics(reg):
 
 
 def _rmw_note(reg):
-    """读-改-写（reg |= x）陷阱提示：寄存器带 clear/set 类写语义时会误改其它位。"""
+    """读-改-写（reg |= x）陷阱提示：寄存器带 clear/set 类写语义、或读时可能被硬件修改时给出。"""
     semantic = _effective_write_semantics(reg)
-    if semantic not in _RMW_SEMANTICS:
-        return None
-    return ("寄存器含 %s（modifiedWriteValues=%s）语义：用 reg |= x 改其它位可能误改状态位，"
-            "建议直接写完整目标值。" % (write_semantics(semantic) or semantic, semantic))
+    if semantic in _RMW_SEMANTICS:
+        return ("寄存器含 %s（modifiedWriteValues=%s）语义：用 reg |= x 改其它位可能误改状态位，"
+                "建议直接写完整目标值。" % (write_semantics(semantic) or semantic, semantic))
+    if reg.read_action == "modifyExternal":
+        return ("寄存器的读语义是%s（readAction=modifyExternal）：读改写（reg |= x）会把读取时的"
+                "外部变化一并写回，轮询与读改写需谨慎，建议直接写目标值。"
+                % (read_semantics(reg.read_action) or reg.read_action))
+    return None
 
 
 def decode(device, text, value, as_write=False):
@@ -1197,6 +1201,9 @@ def macros_for(device, text, generator=None):
             enums = []
             for enum in fld.enums:
                 if not enum.name:
+                    continue
+                if getattr(enum, "is_default", False):
+                    lines.append("/* 默认项 %s：其余取值（不生成宏） */" % enum.name)
                     continue
                 if enum.mask == fld.mask:
                     macro = "%s_%s" % (fprefix, _macro_sanitize(enum.name))

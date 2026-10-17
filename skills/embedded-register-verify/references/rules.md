@@ -158,16 +158,21 @@
 
 ## E12 只写寄存器读改写（报 / 需查手册 / 中）
 
-- 判定：`|=` / `&=` / `^=` / `SET_BIT` / `CLEAR_BIT` / `REG_SET_FIELD` 作用于 SVD 中
-  `access="write-only"` 的寄存器（读回值可能为 0 或未定义，读改写不可靠）。
+- 判定：读改写形态作用于 SVD 中 `access="write-only"` 的寄存器（读回值可能为 0 或未定义）：
+  - `|=` / `&=` / `^=`；
+  - `SET_BIT` / `CLEAR_BIT`；
+  - **`MODIFY_REG`**（先读回、改掩码位、再写回——同样是读改写）；
+  - **`REG_SET_FIELD` / `REG_CLR_FIELD`**（ESP-IDF 字段宏，地址可解析时）。
 - 会报：`CRC_CR |= CRC_CR_RESET;`（libopencm3 `crc_common_all.c`——真实库代码的已知限制，
-  按 SVD 数据口径如实报出）。
+  按 SVD 数据口径如实报出）；`MODIFY_REG(PORTX->BSRR, 0x1, 0x1);`（write-only 寄存器）。
 - 不会报/降级：
-  - `=` 直写（正确写法）；
+  - `=` 直写、`WRITE_REG` / `REG_WRITE`（正确写法）；
   - 只读寄存器（走 E10）；
-  - 位于 `#if/#ifdef` 块内 → 未判定（访问属性随型号/配置而异）。
+  - 位于 `#if/#ifdef` 块内 → 未判定（访问属性随型号/配置而异）；
+  - ESP-IDF 寄存器号常量宏无法解析地址时（走未判定，不猜）。
 - 复核：`lookup <寄存器>` 看访问属性；建议改用置位/清位寄存器或直接赋值。
-  `lookup`/`decode --write`/`set` 也会对 `modifiedWriteValues`（写 1 清零等）给出读改写陷阱提示。
+  `lookup`/`decode --write`/`set` 也会给出读改写陷阱提示：`modifiedWriteValues`（写 1 清零等）
+  以及 `readAction=modifyExternal`（读后由硬件修改）两类语义都会提示。
 
 ## 计数口径
 

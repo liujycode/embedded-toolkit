@@ -31,7 +31,7 @@ from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkErr
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.13.1"
+__version__ = "1.14.0"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -90,7 +90,7 @@ def _collect_sources(paths):
             for root, dirs, names in os.walk(item):
                 dirs[:] = [d for d in dirs if not d.startswith(".") and d not in SKIP_DIRS]
                 for name in sorted(names):
-                    if name.lower().endswith((".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".ino")):
+                    if name.lower().endswith((".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx", ".ino")):
                         files.append(os.path.join(root, name))
         elif os.path.isfile(item):
             files.append(item)
@@ -109,7 +109,7 @@ def _collect_sources(paths):
     return sources, truncated
 
 
-HEADER_EXTS = (".h", ".hpp", ".hh", ".inc", ".c")
+HEADER_EXTS = (".h", ".hpp", ".hh", ".hxx", ".inc", ".c")
 HEADER_MAX_FILES = 512
 HEADER_MAX_BYTES = 8 * 1024 * 1024
 _INCLUDE_RE = re.compile(r'^\s*#\s*include\s*[<"]([^>"]+)[>"]', re.M)

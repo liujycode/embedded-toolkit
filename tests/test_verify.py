@@ -1116,14 +1116,37 @@ def test_headers_accepts_semicolon_separated_paths(tmp_path):
     assert res["counts"]["undetermined"] == 0
 
 
+def test_e12_modify_reg_and_clear_field(tmp_path):
+    """E12 补齐：MODIFY_REG（modify_reg）与 REG_CLR_FIELD（clear_field）也是读改写。"""
+    hdr = tmp_path / "wo.h"
+    hdr.write_text("#define WOBASE (*(volatile uint32_t *)0x50000000)\n", encoding="utf-8")
+    code = tmp_path / "wo2.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "    MODIFY_REG(PORTX->BSRR, 0x0001, 0x0001);\n"   # E12：MODIFY_REG 也是读改写
+        "    REG_CLR_FIELD(WOBASE, 0x0001);\n"              # E12：REG_CLR_FIELD（clear_field）
+        "    MODIFY_REG(PORTX->ODR, 0x0001, 0x0001);\n"     # 通过：ODR 是读写寄存器
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", WOSYNTH,
+               "--headers", str(hdr), "--format", "json")
+    assert r.returncode == 1, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    classes = [f["class"] for f in res["findings"]]
+    assert classes.count("E12") == 2
+    assert res["counts"]["passed"] >= 1
+    msgs = " ".join(f["message"] for f in res["findings"])
+    assert "MODIFY_REG" in msgs and "REG_CLR_FIELD" in msgs
+
+
 def test_cli_collects_cpp_and_ino(tmp_path):
     (tmp_path / "main.cpp").write_text("USART1->CR1 |= USART_CR1_XXX;\n", encoding="utf-8")
     (tmp_path / "sketch.ino").write_text("USART1->CR1 |= USART_CR1_ZZZ;\n", encoding="utf-8")
+    (tmp_path / "view.hxx").write_text("USART1->CR1 |= USART_CR1_YYY;\n", encoding="utf-8")
     (tmp_path / "skip.txt").write_text("USART1->CR1 |= USART_CR1_XXX;\n", encoding="utf-8")
     r = run_py(VERIFY_CLI, "check", str(tmp_path), "--svd", SYNTH, "--format", "json")
     env = json.loads(r.stdout)
     names = sorted(os.path.basename(res["path"]) for res in env["results"])
-    assert names == ["main.cpp", "sketch.ino"]
+    assert names == ["main.cpp", "sketch.ino", "view.hxx"]
     assert all(res["counts"]["report"] == 1 for res in env["results"])
 
 

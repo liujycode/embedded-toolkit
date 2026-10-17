@@ -50,6 +50,10 @@ _SEVERITY = {"E01": "高", "E02": "高", "E03": "高", "E04": "高", "E05": "中
 _LABELS = {"E01": "已核验", "E02": "已核验", "E03": "已核验", "E04": "已核验", "E05": "已核验",
            "E06": "需查手册", "E07": "需查手册", "E08": "已核验", "E09": "需查手册",
            "E10": "已核验", "E11": "需查手册", "E12": "需查手册"}
+# 写入形态在报告里的显示名（宏操作显示为规范宏名）
+_OP_DISPLAY = {"modify_reg": "MODIFY_REG", "set_bit": "SET_BIT", "clear_bit": "CLEAR_BIT",
+               "set_field": "REG_SET_FIELD", "clear_field": "REG_CLR_FIELD",
+               "write_reg": "WRITE_REG"}
 
 RULES = [
     {"class": "E01", "name": "外设不存在", "verdict": "SVD 中查外设名", "bucket": "报", "label": "已核验", "severity": "高"},
@@ -862,12 +866,13 @@ class Verifier:
                 return
         # E12：只写寄存器上的读改写（|= / &= / ^= / SET_BIT / CLEAR_BIT / REG_SET_FIELD）
         compound = (op in ("|=", "&=", "^=")
-                    or (write["kind"] == "macro" and op in ("set_bit", "clear_bit"))
-                    or (write["kind"] == "field_write" and op in ("set_field", "clr_field")))
+                    or (write["kind"] == "macro" and op in ("set_bit", "clear_bit", "modify_reg"))
+                    or (write["kind"] == "field_write" and op in ("set_field", "clear_field")))
         if compound and reg.access == "write-only":
+            op_display = _OP_DISPLAY.get(op, op)
             add_finding(write, "E12",
                         "对只写寄存器 %s.%s 做读改写（%s），读回值不可靠（可能为 0 或未定义）；"
-                        "建议直接赋值或改用置位/清位寄存器" % (periph.name, reg.name, op),
+                        "建议直接赋值或改用置位/清位寄存器" % (periph.name, reg.name, op_display),
                         periph=periph.name, register=reg.name,
                         lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
                                             reason="查看该寄存器的访问属性"))

@@ -3,7 +3,7 @@
 import json
 import re
 
-from helpers import LOOKUP, SYNTH, SYNTH_B, UNION_SVD, run_cli
+from helpers import AVR_SVD, LOOKUP, SYNTH, SYNTH_B, UNION_SVD, run_cli
 
 
 def _script_version():
@@ -398,3 +398,19 @@ def test_set_cli_shows_rmw_hazard():
     r = run_cli("set", "EXTI.PR", "P1=1", "--svd", SYNTH)
     assert r.returncode == 0, r.stderr
     assert "reg |=" in r.stdout
+
+
+def test_set_cli_shows_read_action_note():
+    """readAction=modifyExternal（读后由硬件修改）时，读改写提示一并给出。"""
+    r = run_cli("decode", "PORTB.STAT", "0x01", "--write", "--svd", AVR_SVD)
+    assert r.returncode == 0, r.stderr
+    assert "modifyExternal" in r.stdout
+    assert "读改写" in r.stdout
+
+
+def test_macros_default_enum_comment():
+    """macros 输出：isDefault 默认项显示为"默认项：其余取值"，不写成位模式注释。"""
+    r = run_cli("macros", "PORTB.CTRL.SEL", "--svd", AVR_SVD)
+    assert r.returncode == 0, r.stderr
+    assert "默认项 OTHER" in r.stdout
+    assert "含任意位" not in r.stdout

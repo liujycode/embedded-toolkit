@@ -94,6 +94,13 @@
             </field>
           </fields>
         </register>
+        <register>
+          <name>STAT</name>
+          <description>Status register (read may be modified by hardware)</description>
+          <addressOffset>0x31</addressOffset>
+          <size>8</size>
+          <readAction>modifyExternal</readAction>
+        </register>
       </registers>
     </peripheral>
   </peripherals>
