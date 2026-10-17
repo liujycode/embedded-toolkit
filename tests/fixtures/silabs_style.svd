@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Silicon Labs 风格测试夹具（EFM32/EFR32）：
+  - 端口字母命名（GPIO->P[3].DOUT → PD_DOUT）
+  - REG.FIELD 直写拆分（GPIO->CMUROUTE.CLKOUT0ROUTE）
+  - cmsis-svd-data Series 2 的安全别名后缀（CMU → CMU_S）
+  - 只读寄存器（CMU_S.CALCNT）与条件编译块降级
+  仅用于 tests/test_verify.py。
+-->
+<device schemaVersion="1.1">
+  <name>SILABSSYNTH</name>
+  <version>1.0</version>
+  <description>Silicon Labs style fixture</description>
+  <vendor>SYNTH-Corp</vendor>
+  <cpu>
+    <name>CM33</name>
+    <revision>r0p1</revision>
+    <endian>little</endian>
+  </cpu>
+  <width>32</width>
+  <resetValue>0x00000000</resetValue>
+  <resetMask>0xFFFFFFFF</resetMask>
+  <peripherals>
+    <peripheral>
+      <name>GPIO</name>
+      <description>General purpose input output</description>
+      <baseAddress>0x40006000</baseAddress>
+      <addressBlock>
+        <offset>0</offset>
+        <size>0x400</size>
+        <usage>registers</usage>
+      </addressBlock>
+      <registers>
+        <register>
+          <name>PA_DOUT</name>
+          <addressOffset>0x00</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>PD_DOUT</name>
+          <addressOffset>0x30</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>CMUROUTE</name>
+          <description>CMU clock output routing</description>
+          <addressOffset>0x100</addressOffset>
+          <size>32</size>
+          <fields>
+            <field>
+              <name>CLKOUT0ROUTE</name>
+              <bitOffset>0</bitOffset>
+              <bitWidth>2</bitWidth>
+            </field>
+            <field>
+              <name>CLKOUT1ROUTE</name>
+              <bitOffset>2</bitOffset>
+              <bitWidth>2</bitWidth>
+            </field>
+          </fields>
+        </register>
+      </registers>
+    </peripheral>
+    <peripheral>
+      <name>CMU_S</name>
+      <description>Clock management unit (secure alias)</description>
+      <baseAddress>0x50008000</baseAddress>
+      <addressBlock>
+        <offset>0</offset>
+        <size>0x400</size>
+        <usage>registers</usage>
+      </addressBlock>
+      <registers>
+        <register>
+          <name>CALCTRL</name>
+          <addressOffset>0x00</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>CALCNT</name>
+          <description>Calibration result counter</description>
+          <addressOffset>0x04</addressOffset>
+          <size>32</size>
+          <access>read-only</access>
+        </register>
+      </registers>
+    </peripheral>
+  </peripherals>
+</device>

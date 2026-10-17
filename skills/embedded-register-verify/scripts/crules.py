@@ -115,6 +115,12 @@ class Verifier:
             # Renesas RA/FSP 约定：R_<外设> 为 SVD 外设名的别名（如 R_PORT0 → PORT0）
             periph = self.peripherals.get(key[2:])
         if periph is None:
+            # Silicon Labs Series 2（cmsis-svd-data）：外设带安全别名后缀（GPIO → GPIO_S）
+            for suffix in ("_S", "_NS"):
+                periph = self.peripherals.get(key + suffix)
+                if periph is not None:
+                    break
+        if periph is None:
             # 通道命名的同义写法：各厂商 SVD 与头文件常混用 DMA1_CH1 / DMA1_Channel1（反之亦然）
             for candidate in self._channel_candidates(key):
                 periph = self.peripherals.get(candidate)
@@ -355,8 +361,12 @@ class Verifier:
             if EXT_NAME_RE.match(periph_name):
                 return None, None, {"unknown": periph_name}
             return None, None, None
-        reg = self._member_register(periph, write) if write["kind"] != "macro" \
-            else periph.register(reg_name)
+        if write["kind"] != "macro":
+            reg, field_text = self._member_register(periph, write)
+            if field_text:
+                write["resolved_field_text"] = field_text  # REG.FIELD 直写：供字段存在性检查
+        else:
+            reg = periph.register(reg_name)
         if reg is None:
             if periph.name.upper() in CORE_PERIPHERALS:
                 return None, None, {"core_reg": "%s.%s" % (periph.name, reg_name)}
@@ -382,8 +392,15 @@ class Verifier:
         return any(idx and not idx.strip().isdigit() for idx in idxs)
 
     def _member_register(self, periph, write):
-        """成员写法的寄存器名解析：精确 → 组/引脚数字后缀（DIRSET0、PINCFG0_4、CONFIG0）
-        → 点/下划线变体（USART.CTRLA ↔ USART_CTRLA）。"""
+        """成员写法的寄存器名解析。
+
+        顺序：精确 → 段内下标数字（DMAC->CH[0].CTRLA → CH0.CTRLA）→ 端口字母命名
+        （GPIO->P[3].DOUT → PD_DOUT）→ 组/引脚数字后缀（DIRSET0、PINCFG0_4、CONFIG0）
+        → 点/下划线变体（USART.CTRLA ↔ USART_CTRLA）→ REG.FIELD 直写拆分
+        （GPIO->CMUROUTE.CLKOUT0ROUTE → 寄存器 CMUROUTE + 字段 CLKOUT0ROUTE）。
+
+        返回 (register, field_text)：field_text 为 REG.FIELD 拆分出的字段名（无则 None）。
+        """
         reg_name = write.get("register") or ""
         segments = write.get("segments")
         indices = write.get("indices") or []
@@ -391,12 +408,20 @@ class Verifier:
         pin = indices[-1] if (segments and indices and indices[-1]) else None
         candidates = [reg_name]
         if segments:
+            padded = indices + [None] * (len(segments) - len(indices))
             # 段内下标（DMAC->CH[0].CTRLA → CH0.CTRLA）
             joined = ".".join(
                 seg + (idx.strip() if idx and idx.strip().isdigit() else "")
-                for seg, idx in zip(segments, indices + [None] * (len(segments) - len(indices))))
+                for seg, idx in zip(segments, padded))
             if joined != reg_name:
                 candidates.append(joined)
+            # 端口字母命名（EFM32/Gecko：GPIO->P[3].DOUT → PD_DOUT）
+            lettered = ".".join(
+                seg + (chr(ord("A") + int(idx.strip()))
+                       if idx and idx.strip().isdigit() and int(idx.strip()) < 26 else "")
+                for seg, idx in zip(segments, padded))
+            if lettered != reg_name and lettered not in candidates:
+                candidates.append(lettered)
         base = reg_name
         if group and group.isdigit() and pin and pin.isdigit():
             candidates.append(base + group + "_" + pin)
@@ -407,18 +432,27 @@ class Verifier:
         for cand in candidates:
             reg = periph.register(cand)
             if reg is not None:
-                return reg
+                return reg, None
         for cand in list(candidates):
             if "." in cand:
                 reg = periph.register(cand.replace(".", "_"))
                 if reg is not None:
-                    return reg
+                    return reg, None
         for cand in list(candidates):
             if "_" in cand:
                 reg = periph.register(cand.replace("_", "."))
                 if reg is not None:
-                    return reg
-        return None
+                    return reg, None
+        # REG.FIELD 直写：寄存器名在前段、字段名在最后一段
+        for cand in candidates:
+            if "." not in cand:
+                continue
+            head, tail = cand.rsplit(".", 1)
+            for base_cand in (head, head.replace(".", "_"), head.replace("_", ".")):
+                reg = periph.register(base_cand)
+                if reg is not None:
+                    return reg, tail
+        return None, None
 
     @staticmethod
     def _has_suffix_variants(periph, write):
@@ -516,6 +550,11 @@ class Verifier:
 
         def add_finding(write, cls, message, suggestion=None, periph=None, register=None,
                         field=None, lookup=None):
+            if cls in ("E10", "E12") and write.get("conditional"):
+                # 访问属性（只读/只写）随型号/配置而异：条件编译块内的写法记未判定（避免跨型号误报）
+                add_undet(write, "%s，但写入位于条件编译块（#if/#ifdef）内——可能是其它型号/配置的分支"
+                          "（访问属性可能不同），未判定" % message)
+                return
             findings.append({
                 "class": cls, "bucket": "报",
                 "severity": _SEVERITY[cls], "label": _LABELS[cls],
@@ -765,6 +804,11 @@ class Verifier:
                         periph=periph.name, register=reg_label,
                         lookup=_lookup_hint("lookup", path=periph.name,
                                             reason="查看该外设的寄存器清单"))
+            return
+        field_text = write.get("resolved_field_text")
+        if field_text and reg.field(field_text) is None:
+            add_undet(write, "%s.%s 中不存在字段 %s（REG.FIELD 直写；可能是命名差异或拼写错误），未检查"
+                      % (periph.name, reg.name, field_text))
             return
         # E12：只写寄存器上的读改写（|= / &= / ^= / SET_BIT / CLEAR_BIT / REG_SET_FIELD）
         compound = (op in ("|=", "&=", "^=")

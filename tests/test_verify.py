@@ -14,7 +14,7 @@ if VERIFY_SCRIPTS not in sys.path:
 import cscan  # noqa: E402
 import crules  # noqa: E402
 from etk_core.svd import load_device  # noqa: E402
-from helpers import FIXTURES, FSP_SVD, SYNTH, UNION_SVD, WOSYNTH, run_py  # noqa: E402
+from helpers import FIXTURES, FSP_SVD, SILABS_SVD, SYNTH, UNION_SVD, WOSYNTH, run_py  # noqa: E402
 
 VERIFY_BAD = os.path.join(FIXTURES, "verify_bad.c")
 VERIFY_OK = os.path.join(FIXTURES, "verify_ok.c")
@@ -408,6 +408,51 @@ def test_conditional_field_macro_not_reported(tmp_path):
     assert res["counts"]["report"] == 1
     assert res["counts"]["undetermined"] == 1
     assert res["findings"][0]["class"] == "E03"
+
+
+def test_silabs_port_letter_field_split_and_s_alias(tmp_path):
+    """Silicon Labs 风格：端口字母命名（P[3]→PD_DOUT）、REG.FIELD 直写拆分、_S 安全别名。"""
+    code = tmp_path / "silabs.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "    GPIO->P[3].DOUT = 0x1;\n"               # 通过：PD_DOUT（端口字母）
+        "    GPIO->CMUROUTE.CLKOUT0ROUTE = 0x2;\n"   # 通过：REG.FIELD 拆分（寄存器 + 字段）
+        "    GPIO->P[port].DOUT = 0x1;\n"            # 未判定：端口号为运行时变量
+        "    GPIO->CMUROUTE.BOGUS = 0x1;\n"          # 未判定：字段不存在（REG.FIELD 直写）
+        "    CMU->CALCNT = 100U;\n"                  # E10：CMU_S.CALCNT 只读（_S 别名）
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SILABS_SVD, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["writes"] == 5
+    assert res["counts"]["report"] == 1
+    assert res["counts"]["passed"] == 2
+    assert res["counts"]["undetermined"] == 2
+    finding = res["findings"][0]
+    assert finding["class"] == "E10"
+    assert "CMU_S.CALCNT" in finding["message"]
+    reasons = " ".join(u["reason"] for u in res["undetermined"])
+    assert "运行时下标" in reasons
+    assert "REG.FIELD" in reasons
+
+
+def test_conditional_readonly_write_downgraded(tmp_path):
+    """条件编译块内的只读寄存器写入记未判定（访问属性随型号/配置而异）；块外仍报 E10。"""
+    code = tmp_path / "cond_ro.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "#if EFM32_SERIES1\n"
+        "    CMU->CALCNT = 100U;\n"
+        "#endif\n"
+        "    CMU->CALCNT = 100U;\n"
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SILABS_SVD, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["report"] == 1
+    assert res["counts"]["undetermined"] == 1
+    assert res["findings"][0]["class"] == "E10"
+    assert "条件编译块" in res["undetermined"][0]["reason"]
 
 
 def test_fuzz_random_snippets_do_not_crash(device):

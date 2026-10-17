@@ -21,6 +21,8 @@
 | Renesas__R7FA6M4AF.svd | R7FA6M4AF | 0/0 | ok | ✅ |  |
 | SiFive-Community__e310x.svd | FE310 | 3/0 | skip | 跳过 | 寄存器为 RISC-V CSR 小写命名，不符合 CMSIS 大写约定 |
 | SiliconLabs__EFM32GG990F1024.svd | EFM32GG990F1024 | 0/0 | ok | ✅ |  |
+| SiliconLabs__EFR32MG12P132F1024GL125.svd | EFR32MG12P132F1024GL125 | 0/0 | ok | ✅ |  |
+| SiliconLabs__EFR32MG21A020F1024IM32.svd | EFR32MG21A020F1024IM32 | 0/0 | ok | ✅ | cmsis-svd-data 的 Series 2 外设带 `_S` 安全别名后缀（GPIO → GPIO_S），工具自动映射 |
 | Spansion__MB9AF10xN.svd | MB9AF10xN | 1/0 | ok | ✅ | `HWWDT.WDG_RIS` 复位值 0xFF 超出 1 位宽——厂商数据可疑，lint 正确报出 |
 | TexasInstruments__TM4C123GH6PM.svd | TM4C123GH6PM | 0/0 | ok | ✅ |  |
 | Toshiba__M061.svd | M061 | 0/0 | ok | ✅ |  |
@@ -30,6 +32,9 @@
 > v1.8.0 追加：AVR `ATmega328P`（`felias-fogg/PyAvrOCD` 的 `svd/atmega328p.svd`，Atmel 包同源）
 > 也通过同一套冒烟（lint + 查询 + 基础核验），即 **17 家 / 通过 16**。该 SVD 使用 AVR 数据空间
 > 地址口径（`0x800000 + 数据地址`），工具自动探测匹配（见 `benchmarks/verify-dogfood.md` 的 AVR 一节）。
+
+> v1.10.0 追加：Silicon Labs `EFR32MG12P`（Series 1）与 `EFR32MG21`（Series 2）两份 SVD 通过同一套冒烟，
+> 合计 **19 家 / 通过 18**；Series 2 的外设带 `_S` 安全别名后缀（GPIO → GPIO_S），工具自动映射。
 
 ## 过程中发现并修掉的问题（均在本轮修复）
 

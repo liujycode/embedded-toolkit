@@ -218,6 +218,29 @@ WInterrupts.c、wiring_analog.c、delay.c、wiring_shift.c），SVD 为 `ATSAMD2
   （本轮修掉 2 处 E03 误报——编号是字面量时直接映射 `EXTINT(3)`→`EXTINT3`，否则记未判定）。
 - `delay.c`/`wiring_shift.c` 无直接寄存器写入（SysTick 走 CMSIS 函数、移位用端口指针），如实计 0。
 
+## Silicon Labs（Gecko SDK emlib）真实源码试跑（v1.11.0）
+
+日期：2026-10-17 ｜ 语料：Gecko SDK `platform/emlib/src/` **10 个文件**（em_gpio/em_cmu/em_usart/
+em_timer/em_adc/em_i2c/em_letimer/em_wdog/em_dac/em_leuart），同一份代码分别对 **3 份 SVD** 核验：
+EFM32GG990F1024（Series 0）、EFR32MG12P（Series 1）、EFR32MG21（Series 2）。
+
+| SVD（设备） | 写入 | 报 | 未判定 | 通过 |
+|---|---|---|---|---|
+| EFM32GG990F1024 | 318 | **0** | 247 | 71 |
+| EFR32MG12P132F1024GL125 | 309 | **0** | 218 | 91 |
+| EFR32MG21A020F1024IM32 | 309 | **0** | 241 | 68 |
+
+- 覆盖 Silicon Labs 写法：`GPIO->P[3].DOUT`（**端口字母命名** → SVD 的 `PD_DOUT`）、
+  `GPIO->P[port].DOUT`（运行时端口号 → 未判定）、`GPIO->CMUROUTE.CLKOUT0ROUTE`
+  （**REG.FIELD 直写拆分**：寄存器 + 字段）、`CMU->CALCNT`（Series 2 的 `CMU_S`
+  **安全别名后缀**自动映射）、`CMU->HFRCOCTRL`/`USART0->CTRL`/`TIMER0->CMD` 等普通成员写入与字段宏核验。
+- 未判定构成（全部归因）：运行时端口号（`P[port]`）；设备家族分支——emlib 一个文件支持 Series 0/1/2，
+  `#if defined(...)` 分支里的 `CMU->SYSCLKCTRL`、`GPIO->EM4WUPOL_CLR`、`PRS->CONSUMER_USART0_RX`、
+  `HFXO0->CTRL` 等在本型号 SVD 中不存在或命名不同；NVIC/SysTick/CoreDebug 内核外设。
+- **Series 2 只读寄存器**：`CMU->CALCNT = ...` 是 Series 1 的写法（Series 2 改为写 `CALCTRL.CALTOP`，
+  `CALCNT` 只读、设备头标注 `__IM`）；该写法位于 `#if` 家族分支内 → 按"访问属性类问题 + 条件块"
+  记未判定（此前会误报 E10——本轮修掉 2 处）。
+
 ## 试跑中发现并修掉的问题
 
 1. **`SCB->CPACR` 误报 E02**（v1.0.0 试跑）：ST 的 SVD 里 `SCB` 只列了部分内核寄存器，
@@ -266,12 +289,22 @@ WInterrupts.c、wiring_analog.c、delay.c、wiring_shift.c），SVD 为 `ATSAMD2
    `R_TSN_CTRL` → `TSN`）；字段宏的 `R_`/`NRF_` 前缀同步支持。
 19. **FSP 占位符位域组**：`SADMACn_Msk`（`n` 为占位符）原先记"无法映射"。已修正：`n` 占位符
    对应 `SADMAC0…7` 编号组 → 记"位域组宏"未判定（提供设备头时该宏直接按数值解析）。
+20. **条件块内的访问属性误报**（Silicon Labs 试跑发现）：`CMU->CALCNT = ...`（Series 1 写法，
+   位于 `#if` 家族分支内）在 Series 2 SVD 上因 `CALCNT` 只读而误报 E10。已修正：E10/E12 这类
+   **访问属性**问题在条件编译块内一律记"未判定"（属性随型号/配置而异）；块外照常报
+   （libopencm3 的 E12 复测不变）。
+21. **端口字母命名**（Silicon Labs）：`GPIO->P[3].DOUT` 原先无法对应 SVD 的 `PD_DOUT`。已修正：
+   数字端口下标自动补字母候选（`P[3]` → `PD_...`）；运行时端口号记未判定。
+22. **`REG.FIELD` 直写拆分**：`GPIO->CMUROUTE.CLKOUT0ROUTE = v` 原先被当作复合寄存器名（报 E02）。
+   已修正：精确匹配失败时把最后一段当字段拆出（寄存器存在 + 字段存在 → 正常核验；字段不存在 → 未判定）。
+23. **Series 2 `_S` 安全别名**（cmsis-svd-data 约定）：代码写 `GPIO`/`CMU` 而 SVD 里是 `GPIO_S`/`CMU_S`。
+   已修正：外设名自动尝试 `_S`/`_NS` 后缀别名。
 
 ## 未完成事项（下一步）
 
 - 触发评测：`tests/trigger/embedded-register-verify.json`（22 正 + 10 反）结果见 `benchmarks/trigger-results.md`；
 - Trae CN / WorkBuddy：IDE 内人工触发验证（用例已就绪）；
 - 其它厂商真实语料：ESP-IDF、TI TivaWare、libopencm3、AVR（Arduino 核心）、NXP（23 文件）、
-  Microchip SAMD（Arduino SAMD 核心）、Renesas RA（FSP）已补（见上）；跨厂商 SVD 冒烟 16 家见
-  `benchmarks/vendor-svds.md`；Renesas RL78/RX、PIC/8051 的直接寄存器代码语料仍待补
-  （MSP430 无可用 SVD，cmsis-svd-data 仅含 MSP432/TM4C）。
+  Microchip SAMD（Arduino SAMD 核心）、Renesas RA（FSP）、Silicon Labs（Gecko SDK emlib × 3 份 SVD）
+  已补（见上）；跨厂商 SVD 冒烟 19 家见 `benchmarks/vendor-svds.md`；Renesas RL78/RX、PIC/8051 的
+  直接寄存器代码语料仍待补（MSP430 无可用 SVD，cmsis-svd-data 仅含 MSP432/TM4C）。
