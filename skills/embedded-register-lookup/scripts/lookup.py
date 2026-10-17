@@ -26,7 +26,7 @@ from etk_core.output import envelope  # noqa: E402
 from etk_core.values import parse_number  # noqa: E402
 
 TOOL = "embedded-register-lookup"
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 MAX_WARNINGS_SHOWN = 20
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 
@@ -313,6 +313,9 @@ def _render_register(res):
         lines.append("（按裸寄存器名解析：%s.%s；AVR/MSP430 风格）" % (res["peripheral"], r["name"]))
     if r["description"]:
         lines.append("说明：%s" % r["description"])
+    sib_line = _sibling_line(res)
+    if sib_line:
+        lines.append(sib_line)
     if res["fields"]:
         lines.append("位域：")
         for f in res["fields"]:
@@ -750,6 +753,17 @@ def _md_enum_list(fields):
     return lines
 
 
+def _sibling_line(res, fmt="human"):
+    """相关寄存器（置位/清位/翻转视图）提示行；无则返回 None。"""
+    sib = res.get("siblings") or []
+    if not sib:
+        return None
+    parts = "、".join("%s（%s）" % (s["name"], s["kind"]) for s in sib)
+    if fmt == "md":
+        return "相关寄存器：%s —— 位操作建议用它们，避免读改写" % parts
+    return "相关寄存器：%s（位操作建议用置位/清位视图，避免读改写）" % parts
+
+
 def _md_register(res):
     r = res["register"]
     lines = ["## %s.%s" % (res["peripheral"], r["name"]), ""]
@@ -761,6 +775,9 @@ def _md_register(res):
     lines.append("｜".join(meta))
     if r["description"]:
         lines += ["", r["description"]]
+    sib_line = _sibling_line(res, fmt="md")
+    if sib_line:
+        lines += ["", sib_line]
     if res["fields"]:
         lines += ["", "**位域（%d 个）**" % len(res["fields"]), ""]
         lines += _md_field_table(res["fields"])

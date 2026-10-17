@@ -547,10 +547,13 @@ def extract_all(text, extra_defines=None):
                 segments, indices, chain_pos = parsed_chain
                 m_op = re.match(r"\s*(\|=|&=|\^=|=)(?!=)", stmt[chain_pos:])
                 if m_op and segments:
+                    field_candidate = None
                     cut = len(segments)
                     for idx, seg in enumerate(segments):
                         if seg.lower() in ("reg", "bit"):
                             cut = idx  # union/位域选择后缀：其后全部丢弃
+                            if seg.lower() == "bit" and idx + 1 < len(segments):
+                                field_candidate = segments[idx + 1]  # .bit.FIELD → 字段名
                             break
                     segments, indices = segments[:cut], indices[:cut]
                     group_index = None
@@ -563,6 +566,8 @@ def extract_all(text, extra_defines=None):
                         if len(seg) > 2 and seg.lower().endswith("_b"):
                             if idx:
                                 prefix_segments = segments[:idx]  # 层级前缀（如 PFS 的 PORT.PIN）
+                            if idx + 1 < len(segments):
+                                field_candidate = segments[idx + 1]  # REG_b.FIELD → 字段名
                             segments, indices = [seg[:-2]], [indices[idx]]
                             break
                     if segments:
@@ -576,6 +581,8 @@ def extract_all(text, extra_defines=None):
                             entry["group_index"] = group_index
                         if prefix_segments:
                             entry["prefix_segments"] = prefix_segments
+                        if field_candidate:
+                            entry["field_candidate"] = field_candidate
                         writes.append(entry)
                         continue
         bare = re.match(r"\s*([A-Z][A-Z0-9_]{1,})\s*(\|=|&=|\^=|=)(?!=)", stmt)

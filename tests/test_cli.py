@@ -3,12 +3,27 @@
 import json
 import re
 
-from helpers import LOOKUP, SYNTH, SYNTH_B, run_cli
+from helpers import LOOKUP, SYNTH, SYNTH_B, UNION_SVD, run_cli
 
 
 def _script_version():
     with open(LOOKUP, encoding="utf-8") as fh:
         return re.search(r'__version__ = "([^"]+)"', fh.read()).group(1)
+
+
+def test_lookup_sibling_registers():
+    """相关寄存器（置位/清位/翻转视图）按命名自动关联：PORT.OUT0 → OUTSET0/OUTCLR0/OUTTGL0。"""
+    r = run_cli("lookup", "PORT.OUT0", "--svd", UNION_SVD, "--format", "json")
+    assert r.returncode == 0, r.stderr
+    res = json.loads(r.stdout)["results"][0]
+    sib = {(s["name"], s["kind"]) for s in res["siblings"]}
+    assert ("OUTSET0", "置位") in sib
+    assert ("OUTCLR0", "清位") in sib
+    assert ("OUTTGL0", "翻转") in sib
+    # 人类可读输出里也带提示
+    r2 = run_cli("lookup", "PORT.OUT0", "--svd", UNION_SVD)
+    assert "相关寄存器" in r2.stdout
+    assert "OUTSET0（置位）" in r2.stdout
 
 
 def test_lookup_json_envelope_and_field(tmp_path):

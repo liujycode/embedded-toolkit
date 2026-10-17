@@ -8,6 +8,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import os
+import re
 import time
 from collections import OrderedDict
 
@@ -276,6 +277,42 @@ def _periph_result(periph, source):
     }
 
 
+_SIBLING_KINDS = (("_SET", "置位"), ("_CLR", "清位"), ("_TGL", "翻转"))
+
+
+def sibling_registers(periph, reg):
+    """按命名找同族的置位/清位/翻转寄存器。
+
+    覆盖两种命名：Silabs 的 `EM4WUPOL` → `EM4WUPOL_SET/_CLR`，以及 SAMD 的
+    `OUT0` → `OUTSET0/OUTCLR0/OUTTGL0`（后缀插在数字前）。无下划线的后缀（SET/CLR/TGL）
+    要求至少两个兄弟同时存在才认定，避免 `RE` → `RESET` 这类误配。
+    """
+    names = {r.name.upper(): r.name for r in periph.registers}
+    base = reg.name.upper()
+    m = re.match(r"^(.*?)(\d+)$", base)
+    stem, digit = (m.group(1), m.group(2)) if m else (base, "")
+    out = []
+
+    def add(cand, kind):
+        if cand in names and names[cand].upper() != base:
+            out.append({"name": names[cand], "kind": kind})
+
+    for suffix, kind in _SIBLING_KINDS:
+        add(base + suffix, kind)
+        if digit:
+            add(stem + suffix + digit, kind)
+    plain = []
+    for suffix, kind in (("SET", "置位"), ("CLR", "清位"), ("TGL", "翻转")):
+        for cand in ([base + suffix] + ([stem + suffix + digit] if digit else [])):
+            if cand in names and names[cand].upper() != base:
+                plain.append((cand, kind))
+    if len(plain) >= 2:
+        for cand, kind in plain:
+            if not any(item["name"].upper() == cand for item in out):
+                out.append({"name": names[cand], "kind": kind})
+    return out
+
+
 def _register_result(periph, reg, source):
     return {
         "kind": "register",
@@ -283,6 +320,7 @@ def _register_result(periph, reg, source):
         "base_address": hex_addr(periph.base_address),
         "register": _reg_dict(periph, reg),
         "fields": [_field_dict(f, reg.reset_value, reg.size) for f in reg.fields],
+        "siblings": sibling_registers(periph, reg),
         "label": LABEL_VERIFIED,
         "source": source,
     }

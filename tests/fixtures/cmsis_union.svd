@@ -34,6 +34,30 @@
           <size>32</size>
         </register>
         <register>
+          <name>OUT0</name>
+          <description>Port A data output</description>
+          <addressOffset>0x20</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>OUTSET0</name>
+          <description>Port A data output set</description>
+          <addressOffset>0x24</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>OUTCLR0</name>
+          <description>Port A data output clear</description>
+          <addressOffset>0x28</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>OUTTGL0</name>
+          <description>Port A data output toggle</description>
+          <addressOffset>0x2C</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
           <name>DIRSET0</name>
           <description>Port A direction set</description>
           <addressOffset>0x04</addressOffset>
@@ -60,6 +84,13 @@
               <name>PULLEN</name>
               <bitOffset>3</bitOffset>
               <bitWidth>1</bitWidth>
+            </field>
+            <field>
+              <name>LOCK</name>
+              <description>Pin lock (read-only)</description>
+              <bitOffset>7</bitOffset>
+              <bitWidth>1</bitWidth>
+              <access>read-only</access>
             </field>
           </fields>
         </register>

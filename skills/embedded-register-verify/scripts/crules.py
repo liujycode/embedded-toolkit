@@ -363,8 +363,10 @@ class Verifier:
             return None, None, None
         if write["kind"] != "macro":
             reg, field_text = self._member_register(periph, write)
+            if not field_text:
+                field_text = write.get("field_candidate")
             if field_text:
-                write["resolved_field_text"] = field_text  # REG.FIELD 直写：供字段存在性检查
+                write["resolved_field_text"] = field_text  # 位域直写：供字段存在性与值核验
         else:
             reg = periph.register(reg_name)
         if reg is None:
@@ -806,10 +808,13 @@ class Verifier:
                                             reason="查看该外设的寄存器清单"))
             return
         field_text = write.get("resolved_field_text")
-        if field_text and reg.field(field_text) is None:
-            add_undet(write, "%s.%s 中不存在字段 %s（REG.FIELD 直写；可能是命名差异或拼写错误），未检查"
-                      % (periph.name, reg.name, field_text))
-            return
+        target_field = None
+        if field_text:
+            target_field = reg.field(field_text)
+            if target_field is None:
+                add_undet(write, "%s.%s 中不存在位域 %s（位域直写；可能是命名差异或拼写错误），未检查"
+                          % (periph.name, reg.name, field_text))
+                return
         # E12：只写寄存器上的读改写（|= / &= / ^= / SET_BIT / CLEAR_BIT / REG_SET_FIELD）
         compound = (op in ("|=", "&=", "^=")
                     or (write["kind"] == "macro" and op in ("set_bit", "clear_bit"))
@@ -866,28 +871,52 @@ class Verifier:
         if unmapped:
             add_undet(write, "无法映射的标识符（按 CMSIS 命名约定找不到位域）：%s" % "、".join(sorted(set(unmapped))[:6]))
         if value is not None and value >= 0:
-            limit_value = (1 << reg.size) - 1
-            if value > limit_value:
-                add_finding(write, "E04",
-                            "值 0x%X 超出 %s.%s 的 %d 位宽度（最大 0x%X）" % (
-                                value, periph.name, reg.name, reg.size, limit_value),
-                            periph=periph.name, register=reg.name,
-                            lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
-                                                reason="查看该寄存器宽度与位域"))
-            if not register_read_only:
-                for field in reg.fields:
-                    field_bits = value & (field.mask << field.lsb)
-                    if field_bits and field.access == "read-only":
-                        add_finding(write, "E10",
-                                    "%s.%s 中的只读位域 %s 被写入（值 0x%X）" % (
-                                        periph.name, reg.name, field.name, value),
-                                    periph=periph.name, register=reg.name, field=field.name,
-                                    lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
-                                        periph.name, reg.name, field.name),
-                                        reason="查看该位域的访问属性"))
-            if op == "=" and value == reg.reset_value:
-                defaults.append({"line": write["line"], "code": write["code"],
-                                 "note": "写入值与复位值相同，可能等于没写"})
+            if target_field is not None:
+                # 位域直写（REG.FIELD / .bit.FIELD / REG_b.FIELD）：值按位域宽度核验（字段相对）
+                if op == "=" and value > target_field.mask:
+                    add_finding(write, "E04",
+                                "值 0x%X 超出位域 %s.%s.%s 的 %d 位宽度（最大 0x%X）" % (
+                                    value, periph.name, reg.name, target_field.name,
+                                    target_field.width, target_field.mask),
+                                periph=periph.name, register=reg.name, field=target_field.name,
+                                lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                                    periph.name, reg.name, target_field.name),
+                                    reason="查看该位域的宽度与访问属性"))
+                if target_field.access == "read-only" and op in ("=", "|=", "^=") \
+                        and reg.access != "read-only":
+                    add_finding(write, "E10",
+                                "位域 %s.%s.%s 是只读，写入不会生效" % (
+                                    periph.name, reg.name, target_field.name),
+                                periph=periph.name, register=reg.name, field=target_field.name,
+                                lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                                    periph.name, reg.name, target_field.name),
+                                    reason="查看该位域的访问属性"))
+                if op == "=" and value == ((reg.reset_value >> target_field.lsb) & target_field.mask):
+                    defaults.append({"line": write["line"], "code": write["code"],
+                                     "note": "写入值与位域复位值相同，可能等于没写"})
+            else:
+                limit_value = (1 << reg.size) - 1
+                if value > limit_value:
+                    add_finding(write, "E04",
+                                "值 0x%X 超出 %s.%s 的 %d 位宽度（最大 0x%X）" % (
+                                    value, periph.name, reg.name, reg.size, limit_value),
+                                periph=periph.name, register=reg.name,
+                                lookup=_lookup_hint("lookup", path="%s.%s" % (periph.name, reg.name),
+                                                    reason="查看该寄存器宽度与位域"))
+                if not register_read_only:
+                    for field in reg.fields:
+                        field_bits = value & (field.mask << field.lsb)
+                        if field_bits and field.access == "read-only":
+                            add_finding(write, "E10",
+                                        "%s.%s 中的只读位域 %s 被写入（值 0x%X）" % (
+                                            periph.name, reg.name, field.name, value),
+                                        periph=periph.name, register=reg.name, field=field.name,
+                                        lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                                            periph.name, reg.name, field.name),
+                                            reason="查看该位域的访问属性"))
+                if op == "=" and value == reg.reset_value:
+                    defaults.append({"line": write["line"], "code": write["code"],
+                                     "note": "写入值与复位值相同，可能等于没写"})
         if op == "&=" and reg is not None:
             m = TILDE_MACRO_RE.match(rhs.strip())
             if m:

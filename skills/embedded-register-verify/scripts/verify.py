@@ -31,7 +31,7 @@ from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkErr
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.11.0"
+__version__ = "1.12.0"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -421,6 +421,17 @@ def _format_lookup(data):
         reg = data["register"]
         lines = ["寄存器 %s.%s：地址 %s  宽 %d 位  访问 %s  复位 %s" % (
             data["peripheral"], reg["name"], reg["address"], reg["size"], reg["access"], reg["reset"])]
+        sem = []
+        if reg.get("write_semantics"):
+            sem.append("写语义 %s" % reg["write_semantics"])
+        if reg.get("read_semantics"):
+            sem.append("读语义 %s" % reg["read_semantics"])
+        if sem:
+            lines.append("  " + "；".join(sem))
+        sib = data.get("siblings") or []
+        if sib:
+            lines.append("  相关寄存器：" + "、".join("%s（%s）" % (s["name"], s["kind"]) for s in sib)
+                         + "——位操作建议用它们，避免读改写")
         shown = data["fields"][:8]
         for f in shown:
             desc = "（%s）" % f["description"] if f["description"] and f["description"] != f["name"] else ""

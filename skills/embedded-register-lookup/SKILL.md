@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件：厂商 CMSIS-Pack 或用户自备的 .svd；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.7.0"
+  version: "1.8.0"
 ---
 
 # 寄存器百事通
@@ -66,6 +66,7 @@ python scripts/lookup.py fields GPIOA.MODER --demo
   （整颗芯片重名时列出候选让你选外设）；`lookup UCSR0B.UDRIE0` 直接看位域；`decode UCSR0B 0x18` 同样可用。
 - `set` 的值可以是数字（0x/0b/十进制）或字段的枚举名；默认以复位值为基准，`--from 数字` 可换基准。
 - `decode --write` 与 `set` 会提示读-改-写陷阱：寄存器带写 1 清零等语义时，不要用 `reg |= x` 改其它位（回答时务必转告）。
+- `lookup` 寄存器时会列出**相关置位/清位寄存器**（如 `OUT0` → `OUTSET0/OUTCLR0/OUTTGL0`、`EM4WUPOL` → `EM4WUPOL_SET/_CLR`）；回答位操作类问题时优先建议用它们（避免读改写）。
 - `irq` 会自动带出 NVIC 使能/清挂起寄存器与位（SVD 里有 NVIC 数据时）；说"开中断"时把这条一起给用户。
 - `diff` 给"外设.寄存器"做全字段对比；只给"外设名"做整体对比（默认只显示差异，`--all` 看全部）——升级 Pack、移植代码时用。
 - `lint` 检查 SVD 质量问题（重叠、越界、重复名、复位值超宽、中断号冲突），可用 `--peripheral` 限定范围。

@@ -433,7 +433,7 @@ def test_silabs_port_letter_field_split_and_s_alias(tmp_path):
     assert "CMU_S.CALCNT" in finding["message"]
     reasons = " ".join(u["reason"] for u in res["undetermined"])
     assert "运行时下标" in reasons
-    assert "REG.FIELD" in reasons
+    assert "位域直写" in reasons
 
 
 def test_conditional_readonly_write_downgraded(tmp_path):
@@ -453,6 +453,60 @@ def test_conditional_readonly_write_downgraded(tmp_path):
     assert res["counts"]["undetermined"] == 1
     assert res["findings"][0]["class"] == "E10"
     assert "条件编译块" in res["undetermined"][0]["reason"]
+
+
+def test_bitfield_direct_write_value_checks(tmp_path):
+    """.bit.FIELD / REG_b.FIELD 直写：值按位域宽度核验（E04）、字段缺失记未判定。"""
+    first = tmp_path / "bitfield_union.c"
+    first.write_text(
+        "void f(void)\n{\n"
+        "    PORT->Group[0].PINCFG[4].bit.PMUXEN = 1;\n"
+        "    PORT->Group[0].PINCFG[4].bit.PMUXEN = 3;\n"
+        "    PORT->Group[0].PINCFG[4].bit.NOPE = 1;\n"
+        "    PORT->Group[0].PINCFG[4].bit.LOCK = 1;\n"   # E10：只读位域直写
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(first), "--svd", UNION_SVD, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["writes"] == 4
+    assert res["counts"]["report"] == 2
+    assert res["counts"]["undetermined"] == 1
+    assert res["counts"]["passed"] == 1
+    classes = sorted(f["class"] for f in res["findings"])
+    assert classes == ["E04", "E10"]
+    e10 = [f for f in res["findings"] if f["class"] == "E10"][0]
+    assert "LOCK" in e10["message"]
+    assert "位域直写" in res["undetermined"][0]["reason"]
+
+    second = tmp_path / "bitfield_fsp.c"
+    second.write_text(
+        "void f(void)\n{\n"
+        "    R_ICU->IELSR_b[0].IR = 2;\n"
+        "    R_ICU->IELSR_b[0].IR = 1;\n"
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(second), "--svd", FSP_SVD, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["report"] == 1
+    assert res["counts"]["passed"] == 1
+    assert res["findings"][0]["class"] == "E04"
+    assert "IELSR0" in res["findings"][0]["message"]
+
+
+def test_explain_includes_siblings(tmp_path):
+    """--explain：内联寄存器定义，含相关置位/清位寄存器建议。"""
+    code = tmp_path / "explain.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "    PORT->OUT0 = 0x100000000;\n"   # E04：33 位值 → explain 指向 PORT.OUT0
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", UNION_SVD, "--explain", "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    finding = res["findings"][0]
+    assert finding["class"] == "E04"
+    text = " ".join(finding["explain"])
+    assert "OUTSET0（置位）" in text
 
 
 def test_fuzz_random_snippets_do_not_crash(device):
