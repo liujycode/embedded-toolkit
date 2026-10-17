@@ -31,7 +31,7 @@ from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkErr
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -69,7 +69,7 @@ def build_parser():
                    help="C/C++ 源文件、头文件或目录（.c/.h/.cpp/.hpp/.ino 等；用 --patch 时可省略）")
     p.add_argument("--define", action="append", default=[], metavar="NAME=VALUE", help="补充宏定义（可多次）")
     p.add_argument("--headers", action="append", default=[], metavar="路径",
-                   help="从头文件加载宏定义（文件或目录，可多次）：用于 ESP-IDF 等以寄存器常量宏写寄存器的代码")
+                   help="从头文件加载宏定义（文件或目录，可多次；也可用分号分隔多个路径）：用于 ESP-IDF 等以寄存器常量宏写寄存器的代码")
     p.add_argument("--patch", metavar="FILE", help="核验 unified diff / git diff 文件中新增的行")
     p.add_argument("--no-clock-check", action="store_true", help="关闭 E07（时钟使能）检查")
     p.add_argument("--checklist", action="store_true", help="输出复查清单（按复查要求分组）")
@@ -144,7 +144,15 @@ def _collect_header_defines(paths, requested=None, source_dirs=None):
     """
     roots = []
     explicit = []
+    expanded = []
     for item in paths:
+        # 支持一个参数里写多个路径（分号或系统路径分隔符，如 Windows 的 "inc1;inc2"）
+        for part in (item.split(os.pathsep) if os.pathsep in item else [item]):
+            for piece in part.split(";"):
+                piece = piece.strip()
+                if piece:
+                    expanded.append(piece)
+    for item in expanded:
         if os.path.isdir(item):
             roots.append(os.path.abspath(item))
         elif os.path.isfile(item):
@@ -510,8 +518,12 @@ def _render_checklist(res):
 
 def _render_verify(res):
     c = res["counts"]
-    lines = ["%s：%d 处寄存器写入（报 %d、未判定 %d、通过 %d）" % (
-        res["file"], c["writes"], c["report"], c["undetermined"], c["passed"])]
+    by_class = c.get("report_by_class") or {}
+    report_text = "报 %d" % c["report"]
+    if by_class:
+        report_text += "（%s）" % "、".join("%s %d" % (k, v) for k, v in by_class.items())
+    lines = ["%s：%d 处寄存器写入（%s、未判定 %d、通过 %d）" % (
+        res["file"], c["writes"], report_text, c["undetermined"], c["passed"])]
     for item in res["findings"]:
         lines.append("  [报] %s 第 %d 行：%s" % (item["class"], item["line"], item["message"]))
         lines.append("      代码：%s" % item["code"])
@@ -529,6 +541,9 @@ def _render_verify(res):
         lines.append("      代码：%s" % item["code"])
     if res["undetermined_truncated"]:
         lines.append("  （未判定条目过多，仅显示前 %d 条）" % len(res["undetermined"]))
+    by_cat = c.get("undetermined_by_category") or {}
+    if c["undetermined"] >= 2 and by_cat:
+        lines.append("  未判定分布：%s" % "、".join("%s %d" % (k, v) for k, v in by_cat.items()))
     if res.get("checklist"):
         lines.extend(_render_checklist(res))
     src = res.get("source") or {}

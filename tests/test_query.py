@@ -6,6 +6,50 @@ from etk_core import query
 from etk_core.errors import E_FIELD_NOT_FOUND, E_INPUT_INVALID, E_PERIPH_NOT_FOUND, E_REG_NOT_FOUND, EtkError
 
 
+def test_find_address_avr_data_space_probe():
+    """AVR SVD 的 0x800000+偏移 口径：低地址做一次探测并给出说明字段。"""
+    import os
+
+    from etk_core.svd import load_device
+    from helpers import FIXTURES
+
+    dev = load_device(os.path.join(FIXTURES, "avr_style.svd"))
+    res = query.find_address(dev, 0x25)
+    assert res["kind"] == "exact"
+    assert res["matches"][0]["path"] == "PORTB.PORTB"
+    assert res["probed_address"] == "0x00800025"
+    # 完整地址直接命中，不带探测说明
+    res2 = query.find_address(dev, 0x800025)
+    assert res2["kind"] == "exact"
+    assert "probed_address" not in res2
+
+
+def test_field_enum_default_entry_rendering():
+    """isDefault 枚举项：渲染为"（其余值，默认）"，decode 里只做兜底（不抢具体枚举）。"""
+    import os
+
+    from etk_core.svd import load_device
+    from helpers import FIXTURES
+
+    dev = load_device(os.path.join(FIXTURES, "avr_style.svd"))
+    res = query.lookup(dev, "PORTB.CTRL.SEL")
+    enums = res["field"]["enums"]
+    assert enums[-1]["name"] == "OTHER"
+    assert enums[-1]["is_default"] is True
+    assert enums[-1]["pattern"] == "（其余值，默认）"
+    assert enums[0]["is_default"] is False
+    res2 = query.decode(dev, "PORTB.CTRL", 4)   # SEL 在 bit3:2：值 1 → 枚举 B
+    assert res2["fields"][1]["enum"] == "B"
+    res3 = query.decode(dev, "PORTB.CTRL", 8)   # SEL=2：无具体枚举 → 兜底默认项
+    assert res3["fields"][1]["enum"] == "OTHER"
+
+
+def test_find_address_unmapped_keeps_kind(device):
+    """未映射地址仍按 unmapped/gap 返回（不因 AVR 探测改变原有口径）。"""
+    res = query.find_address(device, 0x12345678)
+    assert res["kind"] == "unmapped"
+
+
 def test_lookup_peripheral_lists_registers(device):
     res = query.lookup(device, "USART1")
     assert res["kind"] == "peripheral"
@@ -396,7 +440,7 @@ def test_diff_registers_reports_all_statuses(device, device_b):
     assert rows["TE"]["differences"] == ["位 3 → 4"]
     assert "访问 read-write → read-only" in rows["PS"]["differences"]
     assert "复位 0 → 1" in rows["PS"]["differences"]
-    assert "枚举仅 A 侧有：ODD" in rows["PS"]["differences"]
+    assert "枚举仅 A 侧有：ODD、DEFAULT" in rows["PS"]["differences"]
     assert rows["M0"]["status"] == "only_a"
     assert rows["M0"]["b"] is None
     assert rows["NEWF"]["status"] == "only_b"
@@ -446,9 +490,9 @@ def test_device_info_counts_vendor_and_hash(device):
     assert (res["device"], res["vendor"], res["cpu"]) == ("SYNTH32", "SYNTH-Corp", "CM4")
     assert res["counts"]["peripherals"] == 11
     assert res["counts"]["derived_peripherals"] == 2
-    assert res["counts"]["registers"] == 35
+    assert res["counts"]["registers"] == 36
     assert res["counts"]["fields"] == 52
-    assert res["counts"]["enums"] == 25
+    assert res["counts"]["enums"] == 28
     assert res["counts"]["interrupts"] == 5
     with open(SYNTH, "rb") as fh:
         assert res["sha256"] == hashlib.sha256(fh.read()).hexdigest()

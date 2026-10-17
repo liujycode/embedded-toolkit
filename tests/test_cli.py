@@ -20,6 +20,7 @@ def test_lookup_sibling_registers():
     assert ("OUTSET0", "置位") in sib
     assert ("OUTCLR0", "清位") in sib
     assert ("OUTTGL0", "翻转") in sib
+    assert ("OUT0_XOR", "翻转") in sib  # RP2040 风格 _XOR 视图
     # 人类可读输出里也带提示
     r2 = run_cli("lookup", "PORT.OUT0", "--svd", UNION_SVD)
     assert "相关寄存器" in r2.stdout
@@ -204,7 +205,7 @@ def test_info_command_reports_hash_and_counts():
     res = json.loads(r.stdout)["results"][0]
     assert res["kind"] == "info"
     assert res["vendor"] == "SYNTH-Corp"
-    assert res["counts"]["registers"] == 35
+    assert res["counts"]["registers"] == 36
     assert len(res["sha256"]) == 64
 
 
@@ -390,6 +391,7 @@ def test_irq_cli_shows_nvic_hint():
     assert r.returncode == 0, r.stderr
     assert "NVIC：使能 NVIC.ISER1 bit 5" in r.stdout
     assert "清挂起 NVIC.ICPR1 bit 5" in r.stdout
+    assert "优先级 NVIC.IPR9 第 1 字节" in r.stdout
 
 
 def test_set_cli_shows_rmw_hazard():

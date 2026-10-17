@@ -657,6 +657,13 @@
       "note": "MODIFY_REG 置位值超位域（GPIO MODE0）"
     },
     {
+      "id": "e04-24",
+      "rule": "E04",
+      "file": "tests/inject/e04_injections.c",
+      "line": 123,
+      "note": "TIM1.CR2.MMS 位域直写溢出 0x8（3 位）"
+    },
+    {
       "id": "e05-01",
       "rule": "E05",
       "file": "tests/inject/e05_injections.c",
@@ -795,6 +802,20 @@
       "file": "tests/inject/e05_injections.c",
       "line": 106,
       "note": "位与表达式 0x1F & 0x2"
+    },
+    {
+      "id": "e05-21",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 111,
+      "note": "MMS 位域直写非枚举 0x2"
+    },
+    {
+      "id": "e05-22",
+      "rule": "E05",
+      "file": "tests/inject/e05_injections.c",
+      "line": 116,
+      "note": "MMS 位域直写非枚举 0x3"
     },
     {
       "id": "e06-01",
@@ -1271,6 +1292,13 @@
       "file": "tests/inject/e10_injections.c",
       "line": 113,
       "note": "RCC.CR 只读位混在宏组合里"
+    },
+    {
+      "id": "e10-23",
+      "rule": "E10",
+      "file": "tests/inject/e10_injections.c",
+      "line": 118,
+      "note": "RCC.CR 只读位直写（REG.FIELD）"
     },
     {
       "id": "e07-01",

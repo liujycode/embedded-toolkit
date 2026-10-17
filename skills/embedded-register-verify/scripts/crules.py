@@ -85,6 +85,41 @@ def _hardware_flag_like(field):
     return name.endswith("F") and not name.endswith("EN")
 
 
+def _count_by_class(findings):
+    """按规则号统计问题条数（如 {"E04": 2, "E10": 1}），用于报告汇总。"""
+    counts = {}
+    for item in findings:
+        key = item.get("class") or "?"
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _undet_category(reason):
+    """未判定原因的展示归类（仅用于汇总展示，不参与判定）。"""
+    if "条件编译块" in reason:
+        return "条件编译块内"
+    if "内核外设" in reason:
+        return "内核外设"
+    if "运行" in reason or "无法静态" in reason:
+        return "运行时值/下标"
+    if "地址" in reason or "求值" in reason or "解析" in reason or "表达式" in reason:
+        return "地址/表达式无法解析"
+    if "无法映射" in reason or "不存在" in reason or "簇" in reason:
+        return "命名无法映射"
+    if "置位值" in reason or "掩码" in reason:
+        return "值/掩码无法确定"
+    return "其它"
+
+
+def _count_undet(items):
+    """未判定原因的分布（多者在前）。"""
+    counts = {}
+    for item in items:
+        key = _undet_category(item.get("reason") or "")
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
 def rule_table():
     return {
         "kind": "rules",
@@ -151,6 +186,17 @@ class Verifier:
             if periph.base_address == addr:
                 return periph
         return None
+
+    def _addr_hit(self, addr):
+        """按地址找 (外设, 寄存器)。
+
+        AVR 等 SVD 用"0x800000 + 数据地址"的地址口径（如 PORTB = 0x800025），
+        低地址做一次偏移探测（与别名宏路径同口径）。
+        """
+        hit = self._by_address().get(addr)
+        if hit is None and isinstance(addr, int) and 0 < addr < 0x10000:
+            hit = self._by_address().get(addr + 0x800000)
+        return hit
 
     # 外设指针宏：#define R_GPT0 ((R_GPT0_Type *) R_GPT0_BASE)、#define UART0 ((UART0_Type *)0x40000000)
     _PERIPH_PTR_MACRO_RE = re.compile(
@@ -290,10 +336,7 @@ class Verifier:
         """
         if write["kind"] == "alias":
             addr = write.get("address")
-            hit = self._by_address().get(addr)
-            if hit is None and isinstance(addr, int) and 0 < addr < 0x10000:
-                # AVR 等 SVD 用"0x800000 + 数据地址"的地址口径，做一次偏移探测
-                hit = self._by_address().get(addr + 0x800000)
+            hit = self._addr_hit(addr)
             if hit is None:
                 # 地址口径对不上时按宏名回退（宏名与设备中唯一寄存器名精确匹配，如 AVR 的 UCSR0B）
                 hit = self._register_by_name().get((write.get("name") or "").strip())
@@ -301,7 +344,7 @@ class Verifier:
                 return None, None, {"alias_addr": (write.get("name") or "?", write.get("address") or 0)}
             return hit[0], hit[1], None
         if write["kind"] == "field_write":
-            hit = self._by_address().get(write.get("address"))
+            hit = self._addr_hit(write.get("address"))
             if hit is None:
                 return None, None, {"alias_addr": (write.get("name") or "?", write.get("address") or 0)}
             return hit[0], hit[1], None
@@ -317,7 +360,7 @@ class Verifier:
                 return None, None, {"addr_expr": write["name"]}
             return None, None, None
         if write["kind"] == "addr":
-            hit = self._by_address().get(write["address"])
+            hit = self._addr_hit(write["address"])
             if hit is None:
                 return None, None, {"address": write["address"]}
             return hit[0], hit[1], None
@@ -727,6 +770,8 @@ class Verifier:
                 "undetermined": undetermined_writes,
                 "passed": passed,
                 "findings": len(findings),
+                "report_by_class": _count_by_class(findings),
+                "undetermined_by_category": _count_undet(undetermined),
             },
             "findings": findings[: self.limit],
             "findings_truncated": len(findings) > self.limit,
@@ -830,10 +875,12 @@ class Verifier:
             self._check_field_write(write, periph, reg, defines, add_finding)
             return
         if write["kind"] == "addr":
-            hit = self._by_address()[write["address"]]
+            hit = self._addr_hit(write["address"])
+            svd_addr = hit[0].base_address + hit[1].offset
+            addr_note = "" if svd_addr == write["address"] else "，SVD 地址 0x%08X" % svd_addr
             add_finding(write, "E08",
-                        "硬编码地址 0x%08X（= %s.%s），建议改用外设结构体或宏" % (
-                            write["address"], hit[0].name, hit[1].name),
+                        "硬编码地址 0x%08X（= %s.%s%s），建议改用外设结构体或宏" % (
+                            write["address"], hit[0].name, hit[1].name, addr_note),
                         periph=hit[0].name, register=hit[1].name,
                         lookup=_lookup_hint("addr", address="0x%08X" % write["address"],
                                             reason="用地址反查寄存器（= %s.%s）" % (hit[0].name, hit[1].name)))
@@ -872,7 +919,7 @@ class Verifier:
             add_undet(write, "无法映射的标识符（按 CMSIS 命名约定找不到位域）：%s" % "、".join(sorted(set(unmapped))[:6]))
         if value is not None and value >= 0:
             if target_field is not None:
-                # 位域直写（REG.FIELD / .bit.FIELD / REG_b.FIELD）：值按位域宽度核验（字段相对）
+                # 位域直写（REG.FIELD / .bit.FIELD / REG_b.FIELD）：值按位域宽度与枚举核验（字段相对）
                 if op == "=" and value > target_field.mask:
                     add_finding(write, "E04",
                                 "值 0x%X 超出位域 %s.%s.%s 的 %d 位宽度（最大 0x%X）" % (
@@ -882,6 +929,16 @@ class Verifier:
                                 lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
                                     periph.name, reg.name, target_field.name),
                                     reason="查看该位域的宽度与访问属性"))
+                elif op == "=" and target_field.enums and not any(
+                        (value & e.mask) == e.value for e in target_field.enums):
+                    options = "、".join(e.name for e in target_field.enums if e.name)
+                    add_finding(write, "E05",
+                                "值 0x%X 不是位域 %s.%s.%s 的合法枚举（可选：%s）" % (
+                                    value, periph.name, reg.name, target_field.name, options),
+                                periph=periph.name, register=reg.name, field=target_field.name,
+                                lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
+                                    periph.name, reg.name, target_field.name),
+                                    reason="查看该位域的枚举取值"))
                 if target_field.access == "read-only" and op in ("=", "|=", "^=") \
                         and reg.access != "read-only":
                     add_finding(write, "E10",

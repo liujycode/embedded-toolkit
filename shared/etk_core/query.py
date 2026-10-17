@@ -144,8 +144,10 @@ def _field_dict(item, reg_reset, size):
             {
                 "name": e.name,
                 "value": e.value,
-                "pattern": _pattern(e.value, e.mask, item.width),
+                "pattern": ("（其余值，默认）" if getattr(e, "is_default", False)
+                            else _pattern(e.value, e.mask, item.width)),
                 "description": e.description,
+                "is_default": bool(getattr(e, "is_default", False)),
             }
             for e in item.enums
         ],
@@ -277,15 +279,16 @@ def _periph_result(periph, source):
     }
 
 
-_SIBLING_KINDS = (("_SET", "置位"), ("_CLR", "清位"), ("_TGL", "翻转"))
+_SIBLING_KINDS = (("_SET", "置位"), ("_CLR", "清位"), ("_TGL", "翻转"), ("_XOR", "翻转"))
 
 
 def sibling_registers(periph, reg):
     """按命名找同族的置位/清位/翻转寄存器。
 
-    覆盖两种命名：Silabs 的 `EM4WUPOL` → `EM4WUPOL_SET/_CLR`，以及 SAMD 的
-    `OUT0` → `OUTSET0/OUTCLR0/OUTTGL0`（后缀插在数字前）。无下划线的后缀（SET/CLR/TGL）
-    要求至少两个兄弟同时存在才认定，避免 `RE` → `RESET` 这类误配。
+    覆盖两种命名：Silabs 的 `EM4WUPOL` → `EM4WUPOL_SET/_CLR`、RP2040 的
+    `GPIO_OUT` → `GPIO_OUT_SET/_CLR/_XOR`，以及 SAMD 的 `OUT0` → `OUTSET0/OUTCLR0/OUTTGL0`
+    （后缀插在数字前）。无下划线的后缀（SET/CLR/TGL/XOR）要求至少两个兄弟同时存在才认定，
+    避免 `RE` → `RESET` 这类误配。
     """
     names = {r.name.upper(): r.name for r in periph.registers}
     base = reg.name.upper()
@@ -302,7 +305,7 @@ def sibling_registers(periph, reg):
         if digit:
             add(stem + suffix + digit, kind)
     plain = []
-    for suffix, kind in (("SET", "置位"), ("CLR", "清位"), ("TGL", "翻转")):
+    for suffix, kind in (("SET", "置位"), ("CLR", "清位"), ("TGL", "翻转"), ("XOR", "翻转")):
         for cand in ([base + suffix] + ([stem + suffix + digit] if digit else [])):
             if cand in names and names[cand].upper() != base:
                 plain.append((cand, kind))
@@ -353,21 +356,32 @@ def _cluster_result(periph, cluster, members, source):
 def find_address(device, address):
     source = source_meta(device)
     base = {"address": hex_addr(address), "label": LABEL_VERIFIED, "source": source}
-    matches = []
-    for periph in device.peripherals:
-        for reg in periph.registers:
-            if periph.base_address + reg.offset == address:
-                matches.append({
-                    "path": "%s.%s" % (periph.name, reg.name),
-                    "peripheral": periph.name,
-                    "register": reg.name,
-                    "offset": hex_offset(reg.offset),
-                    "access": reg.access,
-                    "reset": hex_reset(reg.reset_value, reg.size),
-                    "description": reg.description,
-                })
+
+    def _exact(addr):
+        hits = []
+        for periph in device.peripherals:
+            for reg in periph.registers:
+                if periph.base_address + reg.offset == addr:
+                    hits.append({
+                        "path": "%s.%s" % (periph.name, reg.name),
+                        "peripheral": periph.name,
+                        "register": reg.name,
+                        "offset": hex_offset(reg.offset),
+                        "access": reg.access,
+                        "reset": hex_reset(reg.reset_value, reg.size),
+                        "description": reg.description,
+                    })
+        return hits
+
+    matches = _exact(address)
     if matches:
         return dict(base, kind="exact", matches=matches)
+    if isinstance(address, int) and 0 < address < 0x10000:
+        # AVR 等 SVD 用"0x800000 + 数据地址"的地址口径（如 PORTB = 0x800025）：做一次偏移探测
+        probed = address + 0x800000
+        matches = _exact(probed)
+        if matches:
+            return dict(base, kind="exact", matches=matches, probed_address=hex_addr(probed))
     for periph in device.peripherals:
         if periph.address_span <= 0:
             continue
@@ -477,7 +491,11 @@ def decode(device, text, value, as_write=False):
     for fld in reg.fields:
         covered |= fld.mask << fld.lsb
         fv = (value >> fld.lsb) & fld.mask
-        enum = next((e for e in fld.enums if (fv & e.mask) == e.value), None)
+        enum = next((e for e in fld.enums
+                     if not getattr(e, "is_default", False) and (fv & e.mask) == e.value), None)
+        if enum is None:
+            # 没有具体枚举命中时，用"默认项"（isDefault）作为兜底说明
+            enum = next((e for e in fld.enums if getattr(e, "is_default", False)), None)
         rows.append({
             "name": fld.name,
             "bits": fld.bit_text,
@@ -663,7 +681,8 @@ def set_fields(device, text, assignments, source_value=None):
                 hint=hint,
                 details={"suggestions": sugg},
             )
-        enum = next((e for e in fld.enums if e.name.upper() == raw.upper()), None)
+        enum = next((e for e in fld.enums
+                     if not getattr(e, "is_default", False) and e.name.upper() == raw.upper()), None)
         if enum is not None:
             fv = enum.value
         else:
@@ -1069,6 +1088,17 @@ def _nvic_slot(device, value):
             "register": "NVIC.%s" % clear.name,
             "bit": bit,
             "address": hex_addr(nvic.base_address + clear.offset),
+        }
+    # 优先级字节：每个中断占 IPR 的 1 字节（IPR 寄存器按 4 个中断一组）
+    prio = _nvic_register(nvic, "IPR", value // 4)
+    if prio is None:
+        prio = _nvic_register(nvic, "IP", value // 4)
+    if prio is not None:
+        hint["priority"] = {
+            "register": "NVIC.%s" % prio.name,
+            "byte": value % 4,
+            "bit_offset": (value % 4) * 8,
+            "address": hex_addr(nvic.base_address + prio.offset),
         }
     return hint or None
 

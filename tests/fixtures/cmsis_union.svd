@@ -58,6 +58,12 @@
           <size>32</size>
         </register>
         <register>
+          <name>OUT0_XOR</name>
+          <description>Port A data output XOR (RP2040 style)</description>
+          <addressOffset>0x30</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
           <name>DIRSET0</name>
           <description>Port A direction set</description>
           <addressOffset>0x04</addressOffset>

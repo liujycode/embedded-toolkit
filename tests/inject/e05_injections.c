@@ -105,3 +105,13 @@ void e05_case_20(void)
 {
     MODIFY_REG(TIM1->CR2, TIM_CR2_MMS_Msk, 0x1F & 0x2);
 }
+
+void e05_case_21(void)
+{
+    TIM1->CR2.MMS = 0x2;
+}
+
+void e05_case_22(void)
+{
+    TIM1->CR2.MMS = 0x3;
+}

@@ -52,9 +52,13 @@ def test_bit_position_forms(device):
     assert (div.lsb, div.width, div.bit_text) == (0, 16, "15:0")
 
 
-def test_enumerated_values_skip_entries_without_value(device):
+def test_enumerated_values_keep_default_entries(device):
+    """无 value 的枚举项：默认项（isDefault）保留为 is_default（mask=0 匹配任意值），其余跳过。"""
     ps = device.peripheral("USART1").register("CR1").field("PS")
-    assert [(e.name, e.value, e.mask) for e in ps.enums] == [("EVEN", 0, 1), ("ODD", 1, 1)]
+    assert [(e.name, e.value, e.mask) for e in ps.enums] == [
+        ("EVEN", 0, 1), ("ODD", 1, 1), ("DEFAULT", 0, 0)]
+    assert ps.enums[-1].is_default is True
+    assert ps.enums[0].is_default is False
 
 
 def test_field_access_inherits_register_unless_overridden(device):

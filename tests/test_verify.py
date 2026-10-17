@@ -14,7 +14,7 @@ if VERIFY_SCRIPTS not in sys.path:
 import cscan  # noqa: E402
 import crules  # noqa: E402
 from etk_core.svd import load_device  # noqa: E402
-from helpers import FIXTURES, FSP_SVD, SILABS_SVD, SYNTH, UNION_SVD, WOSYNTH, run_py  # noqa: E402
+from helpers import AVR_SVD, FIXTURES, FSP_SVD, SILABS_SVD, SYNTH, UNION_SVD, WOSYNTH, run_py  # noqa: E402
 
 VERIFY_BAD = os.path.join(FIXTURES, "verify_bad.c")
 VERIFY_OK = os.path.join(FIXTURES, "verify_ok.c")
@@ -113,7 +113,11 @@ def test_eval_int_basics():
 
 def test_bad_fixture_full_expectations(device):
     res = crules.Verifier(device).check_file("verify_bad.c", _read(VERIFY_BAD))
-    assert res["counts"] == {"writes": 20, "report": 12, "undetermined": 3, "passed": 5, "findings": 13}
+    counts = res["counts"]
+    assert {k: counts[k] for k in ("writes", "report", "undetermined", "passed", "findings")} == {
+        "writes": 20, "report": 12, "undetermined": 3, "passed": 5, "findings": 13}
+    assert sum(counts["report_by_class"].values()) == 13
+    assert sum(counts["undetermined_by_category"].values()) == 3
     codes = sorted({f["class"] for f in res["findings"]})
     assert codes == ["E01", "E02", "E03", "E04", "E05", "E06", "E07", "E08", "E09", "E10"]
     by_line = {f["line"]: f["class"] for f in res["findings"]}
@@ -161,7 +165,9 @@ def test_clock_enabled_via_numeric_rcc_write(device):
 def test_define_resolves_value_macro(device):
     text = "USART1->BRR = BAUD_VAL;\n"
     res = _check(device, text, extra_defines={"BAUD_VAL": "0x683"})
-    assert res["counts"] == {"writes": 1, "report": 0, "undetermined": 0, "passed": 1, "findings": 0}
+    counts = res["counts"]
+    assert {k: counts[k] for k in ("writes", "report", "undetermined", "passed", "findings")} == {
+        "writes": 1, "report": 0, "undetermined": 0, "passed": 1, "findings": 0}
 
 
 def test_read_only_hit_by_numeric_value(device):
@@ -215,7 +221,10 @@ def test_checklist_groups(device):
 
 def test_core_peripheral_goes_undetermined(device):
     res = _check(device, "SysTick->CTRL = 0x5;\n")
-    assert res["counts"] == {"writes": 1, "report": 0, "undetermined": 1, "passed": 0, "findings": 0}
+    counts = res["counts"]
+    assert {k: counts[k] for k in ("writes", "report", "undetermined", "passed", "findings")} == {
+        "writes": 1, "report": 0, "undetermined": 1, "passed": 0, "findings": 0}
+    assert counts["undetermined_by_category"] == {"内核外设": 1}
     assert "内核外设" in res["undetermined"][0]["reason"]
 
 
@@ -453,6 +462,60 @@ def test_conditional_readonly_write_downgraded(tmp_path):
     assert res["counts"]["undetermined"] == 1
     assert res["findings"][0]["class"] == "E10"
     assert "条件编译块" in res["undetermined"][0]["reason"]
+
+
+def test_sfr_io_accessor_and_avr_address_space(tmp_path):
+    """AVR：_SFR_IO8 按 __SFR_OFFSET 换算；SVD 的 0x800000 口径自动探测；缺偏移记未判定。"""
+    code = tmp_path / "avr_io.c"
+    code.write_text(
+        "#define __SFR_OFFSET 0x20\n"
+        "void f(void)\n{\n"
+        "    _SFR_IO8(0x05) = 0xFF;\n"
+        "    _SFR_MEM8(0x25) = 0x0F;\n"
+        "    *(volatile uint8_t *)0x25 = 0x01;\n"
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", AVR_SVD, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["writes"] == 3
+    assert res["counts"]["report"] == 3
+    msgs = [f["message"] for f in res["findings"]]
+    assert all("PORTB.PORTB" in m for m in msgs)
+    assert any("SVD 地址 0x00800025" in m for m in msgs)
+
+    # 缺 __SFR_OFFSET：不猜地址，记未判定（仍计入统计）
+    code2 = tmp_path / "avr_io2.c"
+    code2.write_text("void f(void)\n{\n    _SFR_IO8(0x05) = 0xFF;\n}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code2), "--svd", AVR_SVD, "--format", "json")
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["writes"] == 1
+    assert res["counts"]["undetermined"] == 1
+    assert "__SFR_OFFSET" in res["undetermined"][0]["reason"]
+
+
+def test_field_direct_write_enum_checks(tmp_path):
+    """位域直写的枚举核验：不匹配报 E05；带 isDefault 默认项的位域不报。"""
+    code = tmp_path / "enum_direct.c"
+    code.write_text(
+        "void f(void)\n{\n"
+        "    PORTB->CTRL.MODE = 1;\n"
+        "    PORTB->CTRL.MODE = 2;\n"
+        "    PORTB->CTRL.SEL = 2;\n"
+        "    PORTB->CTRL.SEL = 3;\n"
+        "}\n", encoding="utf-8")
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", AVR_SVD, "--format", "json")
+    assert r.returncode == 1
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["writes"] == 4
+    assert res["counts"]["report"] == 1
+    assert res["counts"]["passed"] == 3
+    finding = res["findings"][0]
+    assert finding["class"] == "E05"
+    assert "MODE" in finding["message"] and "OFF" in finding["message"]
+    assert res["counts"]["report_by_class"] == {"E05": 1}
+    # 文本输出带按类计数
+    r2 = run_py(VERIFY_CLI, "check", str(code), "--svd", AVR_SVD)
+    assert "报 1（E05 1）" in r2.stdout
 
 
 def test_bitfield_direct_write_value_checks(tmp_path):
@@ -1027,6 +1090,27 @@ def test_headers_missing_path_is_input_error(tmp_path):
                "--headers", str(tmp_path / "nope.h"), "--format", "json")
     assert r.returncode == 1
     assert json.loads(r.stdout)["errors"][0]["code"] == "E_INPUT_INVALID"
+
+
+def test_headers_accepts_semicolon_separated_paths(tmp_path):
+    """一个 --headers 参数里用分号写多个路径（真实工程多 include 目录）。"""
+    inc1 = tmp_path / "inc1"
+    inc2 = tmp_path / "inc2"
+    inc1.mkdir()
+    inc2.mkdir()
+    (inc1 / "a.h").write_text("#define REG_A (*(volatile uint32_t *)0x40013800)\n", encoding="utf-8")
+    (inc2 / "b.h").write_text("#define REG_B (*(volatile uint32_t *)0x40004400)\n", encoding="utf-8")
+    code = tmp_path / "multi.c"
+    code.write_text("void f(void)\n{\n    REG_A = 0x1;\n    REG_B = 0x2;\n}\n", encoding="utf-8")
+    joined = "%s;%s" % (inc1, inc2)
+    r = run_py(VERIFY_CLI, "check", str(code), "--svd", SYNTH,
+               "--headers", joined, "--no-clock-check", "--format", "json")
+    assert r.returncode == 0, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    # REG_A → USART1.CR1（地址别名宏），REG_B → USART2.CR1；两处都解析为"通过"
+    assert res["counts"]["writes"] == 2
+    assert res["counts"]["passed"] == 2
+    assert res["counts"]["undetermined"] == 0
 
 
 def test_cli_collects_cpp_and_ino(tmp_path):

@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件：厂商 CMSIS-Pack 或用户自备的 .svd；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
   author: liujycode
-  version: "1.8.0"
+  version: "1.9.0"
 ---
 
 # 寄存器百事通
@@ -67,7 +67,7 @@ python scripts/lookup.py fields GPIOA.MODER --demo
 - `set` 的值可以是数字（0x/0b/十进制）或字段的枚举名；默认以复位值为基准，`--from 数字` 可换基准。
 - `decode --write` 与 `set` 会提示读-改-写陷阱：寄存器带写 1 清零等语义时，不要用 `reg |= x` 改其它位（回答时务必转告）。
 - `lookup` 寄存器时会列出**相关置位/清位寄存器**（如 `OUT0` → `OUTSET0/OUTCLR0/OUTTGL0`、`EM4WUPOL` → `EM4WUPOL_SET/_CLR`）；回答位操作类问题时优先建议用它们（避免读改写）。
-- `irq` 会自动带出 NVIC 使能/清挂起寄存器与位（SVD 里有 NVIC 数据时）；说"开中断"时把这条一起给用户。
+- `irq` 会自动带出 NVIC 使能/清挂起寄存器与位，以及优先级字节（`NVIC.IPR9 第 1 字节`；SVD 里有 NVIC 数据时）；说"开中断"时把这条一起给用户。
 - `diff` 给"外设.寄存器"做全字段对比；只给"外设名"做整体对比（默认只显示差异，`--all` 看全部）——升级 Pack、移植代码时用。
 - `lint` 检查 SVD 质量问题（重叠、越界、重复名、复位值超宽、中断号冲突），可用 `--peripheral` 限定范围。
 - `search` 可用 `--peripheral` 限定在某个外设内。
@@ -97,7 +97,7 @@ python scripts/lookup.py fields GPIOA.MODER --demo
 - 标签为"已核验"时说明依据是 SVD 本身。
 - 地址落在保留区或没有寄存器定义时，直接说明"SVD 中未定义"，不要推测用途。
 - `set` 结果里有 `notes`（如只读位域、读-改-写陷阱）时，把提醒转告用户。
-- `irq` 结果带 `nvic` 时，连同"使能位/清挂起位"一起告诉用户，方便直接写 NVIC 代码。
+- `irq` 结果带 `nvic` 时，连同"使能位/清挂起位/优先级字节"一起告诉用户，方便直接写 NVIC 代码。
 - `diff` 结论要说明两侧各来自哪份 SVD 文件；外设整体对比（diff_peripheral）要概括"新增/改名/位位置迁移"。
 - 英文描述里的常见术语（如 prescaler、pending、preload）可用 `references/glossary.md` 对照后用中文解释。
 - 结果中有 `warnings` 时，简要告诉用户哪些内容被跳过（如某个位域位置缺失）。

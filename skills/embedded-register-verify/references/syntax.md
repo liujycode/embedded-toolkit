@@ -8,7 +8,8 @@
 4. 按分号切分语句：圆括号内不分号；`{` / `}` 视为语句边界（函数体不会被当成一条巨语句）。
 5. 在每条语句里按顺序找：CMSIS 宏调用（`SET_BIT/CLEAR_BIT/MODIFY_REG/WRITE_REG/READ_REG`）
    → 地址访问宏（TI `HWREG/HWREGB/HWREGH`、`HWREGBITW/H/B(x, bit)`；libopencm3 `MMIO8/16/32`；
-   GD32 等 `REG8/16/32`；AVR `_SFR_MEM8/16/32`）：地址为**纯字面量**时按直接地址（报 E08）；
+   GD32 等 `REG8/16/32`；AVR `_SFR_MEM8/16/32`、`_SFR_IO8/_SFR_IO16`（I/O 空间，按 `__SFR_OFFSET`
+   换算，缺定义记"未判定"不猜））：地址为**纯字面量**时按直接地址（报 E08）；
    由宏表达式组合（`HWREG(UART0_BASE + UART_O_CTL)`、`MMIO32(RCC_BASE + 0x1C)`）且可求值时按
    **具名地址**核验（与地址别名宏同口径，不报 E08）；`HWREGBIT*(&变量, n)` 这类 RAM 位带访问静默忽略
    → 直接地址（C 风格 `*(volatile uint32_t *)0xADDR`、C++ `*reinterpret_cast<...>(0xADDR)`）
@@ -29,8 +30,10 @@
      自动补字母候选 → `PD_DOUT`；运行时端口号记"未判定"）；`GPIO->CMUROUTE.CLKOUT0ROUTE = v`
      精确匹配失败时把最后一段当字段拆出（寄存器 + 字段存在 → 正常核验；字段不存在 → 记"未判定"）。
    - **位域直写核验**：`REG.FIELD = v` / `.bit.FIELD = v` / `REG_b.FIELD = v` 解析出位域后，
-     值按**位域**宽度核验（E04，字段相对，只查 `=`）、只读位域直写报 E10；位域名在 SVD 中
-     不存在 → 记"未判定"（可能是命名差异或拼写错误）。
+     值按**位域**宽度核验（E04，字段相对，只查 `=`）、不匹配枚举报 E05（带 `isDefault` 默认项的
+     位域不报）、只读位域直写报 E10；位域名在 SVD 中不存在 → 记"未判定"（可能是命名差异或拼写错误）。
+   - **AVR 数据空间口径**：SVD 用"0x800000 + 数据地址"时，低地址自动做一次偏移探测
+     （`*(volatile uint8_t *)0x25 = 1` → `PORTB.PORTB`，报告注明 SVD 地址）。
    - **指针表达式写入**：`*(volatile uint32_t *)(外设_BASE + 偏移) = v`——具名表达式按寄存器核验
      （不报 E08）、纯字面量表达式报 E08、运行时基址记"未判定"。
 6. 目录模式收集的扩展名：`.c/.h/.cpp/.cc/.cxx/.hpp/.hh/.ino`（C/C++ 工程与 Arduino 都能核验）。

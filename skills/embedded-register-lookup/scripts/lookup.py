@@ -26,7 +26,7 @@ from etk_core.output import envelope  # noqa: E402
 from etk_core.values import parse_number  # noqa: E402
 
 TOOL = "embedded-register-lookup"
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 MAX_WARNINGS_SHOWN = 20
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 
@@ -364,6 +364,9 @@ def _render_address(res):
     kind = res["kind"]
     if kind == "exact":
         lines = ["%s 是寄存器地址：" % res["address"]]
+        if res.get("probed_address"):
+            lines.append("  （按 AVR 数据空间口径匹配：%s + 0x800000 = %s）" % (
+                res["address"], res["probed_address"]))
         for m in res["matches"]:
             lines.append("  %s  偏移 %s  访问 %s  复位 %s  %s" % (
                 m["path"], m["offset"], m["access"], m["reset"], m["description"]))
@@ -423,6 +426,10 @@ def _nvic_text(item):
     if hint.get("clear_pending"):
         text += "；清挂起 %s bit %d" % (
             hint["clear_pending"]["register"], hint["clear_pending"]["bit"])
+    if hint.get("priority"):
+        prio = hint["priority"]
+        text += "；优先级 %s 第 %d 字节（bit %d-%d）" % (
+            prio["register"], prio["byte"], prio["bit_offset"], prio["bit_offset"] + 7)
     return text
 
 

@@ -35,12 +35,13 @@ _ADDR_RE = re.compile(
 #   TI TivaWare  HWREG/HWREGB/HWREGH(x)、HWREGBITW/H/B(x, bit)
 #   libopencm3   MMIO8/MMIO16/MMIO32(x)
 #   GD32 等      REG8/REG16/REG32(x)
-#   AVR          _SFR_MEM8/16/32(x)（_SFR_IO8 不含偏移换算，靠头文件展开）
+#   AVR          _SFR_MEM8/16/32(x)；_SFR_IO8/_SFR_IO16(x) 按 I/O 空间偏移换算（+__SFR_OFFSET）
 ACCESSOR_FUNCS = ("HWREG", "HWREGB", "HWREGH", "MMIO8", "MMIO16", "MMIO32",
-                  "REG8", "REG16", "REG32", "_SFR_MEM8", "_SFR_MEM16", "_SFR_MEM32")
+                  "REG8", "REG16", "REG32", "_SFR_MEM8", "_SFR_MEM16", "_SFR_MEM32",
+                  "_SFR_IO8", "_SFR_IO16")
 ACCESSOR_BIT_FUNCS = ("HWREGBITW", "HWREGBITH", "HWREGBITB")
 _ACCESSOR_RE = re.compile(
-    r"\b(?:HWREG(?:B|H)?|HWREGBIT[WBH]|MMIO(?:8|16|32)|REG(?:8|16|32)|_SFR_MEM(?:8|16|32))\s*\(")
+    r"\b(?:HWREG(?:B|H)?|HWREGBIT[WBH]|MMIO(?:8|16|32)|REG(?:8|16|32)|_SFR_MEM(?:8|16|32)|_SFR_IO(?:8|16))\s*\(")
 # 指针表达式写入：*(volatile uint32_t *)(EXPR)、reinterpret_cast<...>(EXPR)
 # （纯字面量形式由 _ADDR_RE 先行处理并报 E08）
 _ADDR_CAST_RE = re.compile(
@@ -405,7 +406,16 @@ def extract_all(text, extra_defines=None):
                 op = _op_after(stmt, close_pos + 1)
                 if op and args:
                     expr = args[0]
+                    accessor = hw.group(0).rstrip("(").strip()
                     value = eval_int(expr, defines) if expr else None
+                    if value is not None and accessor in ("_SFR_IO8", "_SFR_IO16"):
+                        offset = _sfr_io_offset(defines)
+                        if offset is None:
+                            # I/O 偏移未知（缺 __SFR_OFFSET）：不猜地址，记未判定
+                            value = None
+                            expr = "%s(%s) + __SFR_OFFSET" % (accessor, expr)
+                        else:
+                            value += offset
                     rhs = stmt[close_pos + 1:].lstrip().lstrip(op).rstrip().rstrip(";").strip()
                     if value is None:
                         # 位带访问（HWREGBIT*）的地址是 &变量 / 裸指针变量时，是 RAM 位带操作，不是外设寄存器写入
@@ -675,6 +685,22 @@ def _tokens(expr):
     return out or None
 
 
+def _sfr_io_offset(defines):
+    """AVR _SFR_IO8/_SFR_IO16 的 I/O 空间偏移：__SFR_OFFSET（avr-libc 经典核心 0x20）。
+
+    头文件里能找到就用头文件的定义；找不到返回 None（不猜——调用方记"未判定"）。
+    """
+    entry = defines.get("__SFR_OFFSET")
+    if entry is None:
+        for key, val in defines.items():
+            if key.upper() == "__SFR_OFFSET":
+                entry = val
+                break
+    if entry is None or isinstance(entry, dict):
+        return None
+    return eval_int(str(entry), defines)
+
+
 def _find_func_define(defines, name):
     """在 defines 里找函数宏条目（大小写不敏感）。兼容旧的单参数形式 {"param": p}。"""
     def _ok(entry):
@@ -740,6 +766,12 @@ def eval_int(expr, defines, depth=0, seen=None):
                 advance()  # "("
                 result = parse_or()
                 expect(")")
+                if upper in ("_SFR_IO8", "_SFR_IO16"):
+                    # AVR I/O 空间：内存映射地址 = 实参 + __SFR_OFFSET（未知则不猜）
+                    offset = _sfr_io_offset(defines)
+                    if offset is None:
+                        raise _EvalError()
+                    result += offset
                 return result
             if nxt[0] == "op" and nxt[1] == "(" and upper in ACCESSOR_BIT_FUNCS:
                 # 位带访问宏：HWREGBITW(addr, bit) → 地址取第一个实参

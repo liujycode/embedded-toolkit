@@ -112,3 +112,8 @@ void e10_case_22(void)
 {
     RCC->CR |= RCC_CR_HSION | RCC_CR_HSIRDY;
 }
+
+void e10_case_23(void)
+{
+    RCC->CR.HSIRDY = 1;
+}

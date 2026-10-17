@@ -224,6 +224,7 @@ def injections_e04():
         ("MODIFY_REG 置位值超位域（单宏掩码）", "MODIFY_REG(TIM1->CR1, TIM_CR1_CEN, 0x00010000);"),
         ("MODIFY_REG 置位值超寄存器宽度（多宏掩码）", "MODIFY_REG(TIM1->CR1, TIM_CR1_CEN | TIM_CR1_DIR, 0x00020000);"),
         ("MODIFY_REG 置位值超位域（GPIO MODE0）", "MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODE0_Msk, 0x00010000);"),
+        ("TIM1.CR2.MMS 位域直写溢出 0x8（3 位）", "TIM1->CR2.MMS = 0x8;"),
     ]
 
 
@@ -249,6 +250,8 @@ def injections_e05():
         ("文件内宏 BAD_MMS_2=(0x1+0x2)", "MODIFY_REG(TIM1->CR2, TIM_CR2_MMS_Msk, BAD_MMS_2);"),
         ("强制转型 (int)0x2", "MODIFY_REG(TIM1->CR2, TIM_CR2_MMS_Msk, (int)0x2);"),
         ("位与表达式 0x1F & 0x2", "MODIFY_REG(TIM1->CR2, TIM_CR2_MMS_Msk, 0x1F & 0x2);"),
+        ("MMS 位域直写非枚举 0x2", "TIM1->CR2.MMS = 0x2;"),
+        ("MMS 位域直写非枚举 0x3", "TIM1->CR2.MMS = 0x3;"),
     ]
 
 
@@ -416,6 +419,7 @@ def injections_e10():
          "MODIFY_REG(RCC->CR, 0x0000FFFF, 0x00000400);"),
         ("RCC.CR 写入等于复位值 0x500（同时含只读位）", "RCC->CR = 0x00000500;"),
         ("RCC.CR 只读位混在宏组合里", "RCC->CR |= RCC_CR_HSION | RCC_CR_HSIRDY;"),
+        ("RCC.CR 只读位直写（REG.FIELD）", "RCC->CR.HSIRDY = 1;"),
     ]
 
 

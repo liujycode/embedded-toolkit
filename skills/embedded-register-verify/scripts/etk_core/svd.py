@@ -41,6 +41,7 @@ class EnumValue:
     value: int
     mask: int
     description: str
+    is_default: bool = False
 
 
 @dataclass
@@ -497,7 +498,17 @@ class _Builder:
         for group in _kids(f_el, "enumeratedValues"):
             for ev in _kids(group, "enumeratedValue"):
                 text = _text(ev, "value")
+                is_default = (_text(ev, "isDefault") or "").strip().lower() in ("true", "1")
                 if text is None:
+                    if is_default:
+                        # 默认项（isDefault）：代表"其余所有取值"——mask=0 使其匹配任意值
+                        out.append(EnumValue(
+                            name=_text(ev, "name") or "",
+                            value=0,
+                            mask=0,
+                            description=_text(ev, "description") or "",
+                            is_default=True,
+                        ))
                     continue
                 try:
                     value, mask = parse_enum_value(text, width)
@@ -512,6 +523,7 @@ class _Builder:
                     value=value,
                     mask=mask,
                     description=_text(ev, "description") or "",
+                    is_default=is_default,
                 ))
         return out
 

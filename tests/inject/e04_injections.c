@@ -117,3 +117,8 @@ void e04_case_23(void)
 {
     MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODE0_Msk, 0x00010000);
 }
+
+void e04_case_24(void)
+{
+    TIM1->CR2.MMS = 0x8;
+}
