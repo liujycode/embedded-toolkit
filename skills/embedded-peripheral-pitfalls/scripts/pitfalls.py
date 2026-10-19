@@ -69,19 +69,19 @@ def node_text(pitfall, cat):
 
 
 def match_count(text, terms, node=None, raw=""):
-    """宽松匹配计分：中文词子串命中、ASCII 词词内子串命中，各计 1。
+    """宽松匹配计分：中文词子串命中、ASCII 词词内子串命中。
 
-    中文整句不做分词——补一层反向匹配：节点关键词（≥2 字中文）出现在原始查询串
-    里也算命中（"定时器周期不对" 命中关键词 "定时器"）。
+    中文整句不做分词——补一层反向匹配：节点关键词（≥2 字中文）出现在原始查询串里
+    按命中关键词个数计分（"调试时老是复位" 命中 "调试"+"复位" 计 2 分，排序更准）。
     """
     n = 0
     for t in terms:
         if re.search(r"[\u4e00-\u9fff]", t):
             if t in text:
                 n += 1
-            elif node and raw and any(len(kw) >= 2 and re.search(r"[\u4e00-\u9fff]", kw)
-                                      and kw in raw for kw in node.get("keywords", [])):
-                n += 1
+            elif node and raw:
+                n += sum(1 for kw in node.get("keywords", [])
+                         if len(kw) >= 2 and re.search(r"[\u4e00-\u9fff]", kw) and kw in raw)
         elif re.search(r"[a-z0-9_]*%s[a-z0-9_]*" % re.escape(t), text):
             n += 1
     return n

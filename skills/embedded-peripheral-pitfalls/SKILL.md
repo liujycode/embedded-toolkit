@@ -1,6 +1,6 @@
 ---
 name: embedded-peripheral-pitfalls
-description: 嵌入式外设配置坑清单：RCC/GPIO/中断/定时器/ADC/UART/I2C/SPI/CAN/低功耗/看门狗 十一类外设的高频配置坑，按外设与症状检索，每坑带症状与对策，含配置口诀。Use when configuring MCU peripherals, checking init code, or troubleshooting peripheral misconfiguration like clock enable, GPIO alternate function, CPOL/CPHA, pull-ups, low-power modes, watchdogs. 关键词：配置坑、初始化、时钟使能、GPIO复用、开漏、上拉、CPOL CPHA、采样时间、低功耗、看门狗、配置检查、pitfall。不用于：排障决策（用 embedded-debug-trees）、寄存器事实查询（用 embedded-register-lookup）、寄存器写入核验（用 embedded-register-verify）。
+description: 配置 MCU 外设前对照避坑清单，或排查"配置看起来都对但就是不工作"：RCC 时钟使能与顺序、GPIO 复用/开漏/上拉/5V 兼容、EXTI 与 NVIC 中断（标志清除/优先级分组）、定时器（ARR/PSC/PWM 频率/死区）、ADC（采样时间/校准/序列）、UART 波特率、I2C（上拉/时钟拉伸/地址）、SPI（CPOL/CPHA/片选/溢出）、CAN（位时序/过滤器/终端电阻）、低功耗（唤醒/待机）、看门狗（喂狗/窗口/调试冻结）。十一类外设 61 个实战坑，每坑=症状+对策，含配置口诀。Use when configuring MCU peripherals, checking init code, or troubleshooting peripheral misconfiguration. 与 verify 分工：verify 查寄存器写入合法性，本库查配置语义陷阱。不用于：故障已发生要定位根因（用 embedded-debug-trees）、寄存器事实查询（用 embedded-register-lookup）。
 license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。纯知识检索，不执行用户代码。
 metadata:

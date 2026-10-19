@@ -1,6 +1,6 @@
 ---
 name: embedded-debug-trees
-description: 嵌入式排障决策树库：HardFault/通信不通/DMA异常/RTOS卡死/启动失败/低功耗唤醒 六棵完整决策树，按症状关键词检索，每步带证据采集动作和高频根因排行。Use when debugging MCU crashes, bus faults, I2C/SPI/UART failures, DMA data loss, RTOS deadlocks, boot failures or low-power wake issues. 关键词：排障、调试、HardFault、死机、跑飞、I2C不通、DMA丢数据、RTOS死锁、低功耗、唤醒、debug decision tree。不用于：寄存器事实查询（用 embedded-register-lookup）、寄存器写入核验（用 embedded-register-verify）、电机行为故障（电机不转/抖动属电机控制域）。
+description: 排查 MCU 硬件/固件故障时使用：程序跑飞、HardFault、死机复位、总线错误；串口/UART/I2C/SPI/CAN 通信不通、超时、乱码；DMA 丢数据、只收一次、数据错位、偶发损坏；RTOS 任务不跑、卡死死锁、中断优先级问题；上电起不来、Bootloader 跳转异常、莫名周期复位；低功耗睡死叫不醒、唤醒后外设异常。六棵排障决策树，每步先给证据采集动作（回读寄存器/示波器/故障快照）再下判断，附按实战经验排序的高频根因。Use when debugging MCU crashes, bus faults, I2C/SPI/UART failures, DMA data loss, RTOS deadlocks, boot failures or low-power wake issues. 检索不到明说，不编造决策路径。不用于：寄存器事实查询（用 embedded-register-lookup）、寄存器写入核验（用 embedded-register-verify）、配置语义坑（用 embedded-peripheral-pitfalls）、电机行为故障（电机控制域）。
 license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。纯知识检索，不执行用户代码。
 metadata:

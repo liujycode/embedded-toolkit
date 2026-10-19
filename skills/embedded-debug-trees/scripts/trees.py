@@ -75,10 +75,10 @@ def node_text(node):
 
 
 def hit_count(node, terms, raw=""):
-    """宽松匹配计分：中文词子串命中、ASCII 词词内子串命中，各计 1。
+    """宽松匹配计分：中文词子串命中、ASCII 词词内子串命中。
 
-    中文整句查询不做分词——再补一层反向匹配：节点的中文关键词（≥2 字）出现在
-    原始查询串里也算命中（"任务卡死" 命中关键词 "卡死"）。
+    中文整句查询不做分词——补一层反向匹配：节点关键词（≥2 字中文）出现在原始查询
+    串里按命中关键词个数计分（"调试时老是复位" 命中 "调试"+"复位" 计 2 分，排序更准）。
     """
     text = node_text(node)
     n = 0
@@ -86,9 +86,9 @@ def hit_count(node, terms, raw=""):
         if re.search(r"[\u4e00-\u9fff]", t):
             if t in text:
                 n += 1
-            elif raw and any(len(kw) >= 2 and re.search(r"[\u4e00-\u9fff]", kw)
-                             and kw in raw for kw in node.get("keywords", [])):
-                n += 1
+            elif raw:
+                n += sum(1 for kw in node.get("keywords", [])
+                         if len(kw) >= 2 and re.search(r"[\u4e00-\u9fff]", kw) and kw in raw)
         elif re.search(r"[a-z0-9_]*%s[a-z0-9_]*" % re.escape(t), text):
             n += 1
     return n
