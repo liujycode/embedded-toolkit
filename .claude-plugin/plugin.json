@@ -1,10 +1,10 @@
 {
   "name": "embedded-toolkit",
-  "version": "1.21.1",
-  "description": "嵌入式开发工具箱：寄存器查询与核验（离线、带出处与证据标签）",
+  "version": "1.22.0",
+  "description": "嵌入式开发工具箱：寄存器查询与核验 + 排障决策树 + 外设避坑清单（离线、带出处与证据标签）",
   "author": {
     "name": "liujycode"
   },
   "license": "MIT",
-  "keywords": ["embedded", "mcu", "stm32", "cmsis-svd", "register", "firmware", "verify"]
+  "keywords": ["embedded", "mcu", "stm32", "cmsis-svd", "register", "firmware", "verify", "debug"]
 }

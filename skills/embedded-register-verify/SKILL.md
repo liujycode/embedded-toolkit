@@ -28,6 +28,8 @@ metadata:
 - 时序正确性、电气特性（用 embedded-timing-calc 或实测）
 - 通用代码风格与内存安全（用代码评审类技能）
 - 只想知道某个寄存器的事实（用 embedded-register-lookup）
+- 配置语义的坑（上拉/复用/采样时间/低功耗/看门狗）：用 embedded-peripheral-pitfalls
+- 故障已发生要定位根因：用 embedded-debug-trees
 
 ## 命令
 

@@ -1,0 +1,27 @@
+/*
+ * 排障决策树演示用例：一段"症状卡片"，配合 trees.py 演示检索路径。
+ * 本文件不需要编译——它描述的 5 个症状分别命中五棵决策树的典型入口。
+ *
+ * 症状 1（hardfault 树 / precise 节点）：
+ *   外设时钟未使能就访问寄存器 → HardFault PRECISERR
+ *   演示：python scripts/trees.py search "HardFault 总线错误"
+ *
+ * 症状 2（comm 树 / layer2-timing 节点）：
+ *   SPI CPOL/CPHA 配错 → 收到全 0xFF
+ *   演示：python scripts/trees.py search "SPI 全是 0xFF"
+ *
+ * 症状 3（dma 树 / cache 节点）：
+ *   H7 D-Cache 开启，DMA 收到旧数据
+ *   演示：python scripts/trees.py search "DMA 旧数据 cache"
+ *
+ * 症状 4（rtos 树 / nvic-map 节点）：
+ *   中断优先级数值小于 configMAX_SYSCALL 却调用了 FromISR API → 挂死
+ *   演示：python scripts/trees.py search "中断 调用 API 挂死"
+ *
+ * 症状 5（boot 树 / vtor 节点）：
+ *   Bootloader 跳转 App 后 HardFault，VTOR 没设
+ *   演示：python scripts/trees.py search "Bootloader 跳转 HardFault"
+ *
+ * 每个检索返回：命中节点路径、证据采集动作、判定、对策。
+ * 通读全树：python scripts/trees.py show <hardfault|comm|dma|rtos|boot>
+ */

@@ -1,0 +1,327 @@
+{
+  "schema": "etk-pitfalls/1.0",
+  "categories": [
+    {
+      "id": "rcc",
+      "title": "RCC / 时钟",
+      "pitfalls": [
+        {
+          "id": "rcc-no-enable",
+          "title": "外设时钟没开就访问寄存器",
+          "symptom": "HardFault（PRECISERR）或写入无效",
+          "fix": "使能后回读外设寄存器验证；宁可多开不可漏",
+          "keywords": ["时钟", "使能", "rcc", "hardfault", "写入无效", "preciserr"]
+        },
+        {
+          "id": "rcc-vos",
+          "title": "PLL 超频电压档没跟上",
+          "symptom": "系统不稳/起不来",
+          "fix": "查 H7/F4 的 VOS 电压档位与频率对应表",
+          "keywords": ["pll", "vos", "超频", "电压", "不稳"]
+        },
+        {
+          "id": "rcc-hsi-uart",
+          "title": "HSI 精度当晶振用",
+          "symptom": "UART 长距离通信乱码",
+          "fix": "HSI ±1% 精度，UART 误差>2% 误码；时钟源换 HSE",
+          "keywords": ["hsi", "hse", "精度", "乱码", "波特率", "uart"]
+        },
+        {
+          "id": "rcc-tim-clk",
+          "title": "定时器时钟源选错（APB×1 vs ×2）",
+          "symptom": "定时周期差一倍",
+          "fix": "APB 分频>1 时定时器时钟 = PCLK×2",
+          "keywords": ["定时器", "apb", "分频", "周期", "tim"]
+        }
+      ]
+    },
+    {
+      "id": "gpio",
+      "title": "GPIO",
+      "pitfalls": [
+        {
+          "id": "gpio-af",
+          "title": "复用没切 AF 模式",
+          "symptom": "外设完全无输出",
+          "fix": "读 MODER/AFR 回读确认",
+          "keywords": ["gpio", "复用", "af", "无输出", "moder"]
+        },
+        {
+          "id": "gpio-i2c-pushpull",
+          "title": "I2C 引脚配成推挽",
+          "symptom": "总线卡死/烧器件",
+          "fix": "I2C 必须 AF+开漏+上拉（4.7k 典型）",
+          "keywords": ["i2c", "推挽", "开漏", "上拉", "卡死"]
+        },
+        {
+          "id": "gpio-5v",
+          "title": "非 FT 引脚接 5V",
+          "symptom": "电平不匹配/引脚损坏",
+          "fix": "查 datasheet 的 FT（five volt tolerant）标记",
+          "keywords": ["5v", "ft", "电平", "容忍"]
+        },
+        {
+          "id": "gpio-analog",
+          "title": "模拟脚没设模拟模式",
+          "symptom": "ADC 采集噪声大",
+          "fix": "模拟外设引脚设 analog 模式并关施密特触发器",
+          "keywords": ["模拟", "analog", "噪声", "adc"]
+        }
+      ]
+    },
+    {
+      "id": "exti",
+      "title": "EXTI / NVIC 中断",
+      "pitfalls": [
+        {
+          "id": "exti-flag",
+          "title": "标志位没清/清错位置",
+          "symptom": "中断只进一次或狂进",
+          "fix": "严格按 RM 的清除顺序（EXTI 的 PR 写 1 清零）",
+          "keywords": ["中断", "标志位", "清除", "exti", "pr", "只进一次"]
+        },
+        {
+          "id": "exti-group",
+          "title": "优先级分组理解错",
+          "symptom": "嵌套行为和预期不符",
+          "fix": "全工程统一一个分组，只初始化一次",
+          "keywords": ["优先级", "分组", "嵌套", "nvic"]
+        },
+        {
+          "id": "exti-slow-isr",
+          "title": "高优先级中断里做慢活",
+          "symptom": "低优先级中断饿死/看门狗复位",
+          "fix": "ISR 只做取数据+置标志，活儿丢给主循环/任务",
+          "keywords": ["中断", "isr", "慢", "饿死", "看门狗"]
+        },
+        {
+          "id": "exti-rtos-prio",
+          "title": "FreeRTOS：超 MAX_SYSCALL 优先级调 API",
+          "symptom": "直接挂死",
+          "fix": "中断优先级数值 ≥ configMAX_SYSCALL（数值大=优先级低）",
+          "keywords": ["freertos", "中断", "优先级", "max_syscall", "挂死"]
+        }
+      ]
+    },
+    {
+      "id": "tim",
+      "title": "定时器",
+      "pitfalls": [
+        {
+          "id": "tim-arr",
+          "title": "ARR/PSC 与实际频率对不上",
+          "symptom": "周期差几倍",
+          "fix": "公式反算回读：F = PCLK×(分频)/(PSC+1)/(ARR+1)",
+          "keywords": ["定时器", "arr", "psc", "频率", "周期", "tim"]
+        },
+        {
+          "id": "tim-ug",
+          "title": "只改 ARR 没产生更新事件",
+          "symptom": "新周期下个周期才生效",
+          "fix": "改完软触发 EGR 或等更新中断同步",
+          "keywords": ["arr", "更新", "egr", "事件"]
+        },
+        {
+          "id": "tim-bdtr",
+          "title": "互补输出没配死区/刹车",
+          "symptom": "上下管直通炸管子",
+          "fix": "功率级必配 BDTR 死区；电机语境转电机专家",
+          "keywords": ["互补", "死区", "刹车", "bdtr", "直通"]
+        },
+        {
+          "id": "tim-enc",
+          "title": "编码器模式读数跳变",
+          "symptom": "计数异常",
+          "fix": "查 TI1/TI2 极性与滤波器；机械问题转电机专家",
+          "keywords": ["编码器", "encoder", "跳变", "ti1", "ti2"]
+        }
+      ]
+    },
+    {
+      "id": "adc",
+      "title": "ADC",
+      "pitfalls": [
+        {
+          "id": "adc-sample-time",
+          "title": "采样时间太短",
+          "symptom": "数据抖/精度差",
+          "fix": "按信号源内阻配采样周期（datasheet 最小采样时间表）",
+          "keywords": ["adc", "采样时间", "精度", "抖动"]
+        },
+        {
+          "id": "adc-cal",
+          "title": "没做校准（F1/F3）",
+          "symptom": "全体数据偏移",
+          "fix": "上电先跑校准例程",
+          "keywords": ["adc", "校准", "偏移", "cal"]
+        },
+        {
+          "id": "adc-inject",
+          "title": "规则组/注入组概念混",
+          "symptom": "采集顺序乱",
+          "fix": "常规传感用规则组；注入组=高优先级插队（电机相电流用法归电机专家）",
+          "keywords": ["adc", "规则组", "注入组", "顺序"]
+        },
+        {
+          "id": "adc-vref",
+          "title": "VREF 没接好/参考电压漂",
+          "symptom": "数据整体比例错",
+          "fix": "硬件查 VDDA/VREF+；软件用内部 VREFINT 反算校准",
+          "keywords": ["adc", "vref", "参考电压", "比例", "vrefint"]
+        },
+        {
+          "id": "adc-dma-mem",
+          "title": "DMA 缓冲区不可达（H7 DTCM）",
+          "symptom": "DMA 静默不搬",
+          "fix": "缓冲放 AXI SRAM/D2 域或查总线矩阵",
+          "keywords": ["adc", "dma", "dtcm", "h7", "不搬", "静默"]
+        }
+      ]
+    },
+    {
+      "id": "uart",
+      "title": "USART / UART",
+      "pitfalls": [
+        {
+          "id": "uart-brr",
+          "title": "波特率寄存器手算错",
+          "symptom": "乱码且固定错位",
+          "fix": "用 HAL 算或读回 BRR 验证，误差 <2%",
+          "keywords": ["uart", "波特率", "brr", "乱码"]
+        },
+        {
+          "id": "uart-clk",
+          "title": "只开中断没开 USART 时钟/引脚",
+          "symptom": "完全无响应",
+          "fix": "第一层配置回读（时钟→GPIO→外设）",
+          "keywords": ["uart", "时钟", "无响应"]
+        },
+        {
+          "id": "uart-idle",
+          "title": "DMA+空闲中断：IDLE 标志顺序错",
+          "symptom": "不定长接收失效",
+          "fix": "先清 IDLE 再使能；用 NDTR 算实际长度",
+          "fix_alt": null,
+          "keywords": ["uart", "dma", "idle", "空闲", "不定长", "ndtr"]
+        },
+        {
+          "id": "uart-frame",
+          "title": "9 位模式/校验位两端不一致",
+          "symptom": "偶发字符错乱",
+          "fix": "两端逐位核对：字长/校验/停止位",
+          "keywords": ["uart", "校验位", "字长", "停止位", "9位"]
+        }
+      ]
+    },
+    {
+      "id": "i2c",
+      "title": "I2C",
+      "pitfalls": [
+        {
+          "id": "i2c-pullup",
+          "title": "上拉电阻没接/太大",
+          "symptom": "SDA/SCL 上不去高电平",
+          "fix": "示波器看上升沿；4.7k 起步按总线电容调",
+          "keywords": ["i2c", "上拉", "电阻", "上升沿"]
+        },
+        {
+          "id": "i2c-addr",
+          "title": "从机地址 7 位/8 位写法混",
+          "symptom": "NAK（地址都不对）",
+          "fix": "看清 HAL API 约定（7 位地址是否需左移）",
+          "keywords": ["i2c", "地址", "7位", "8位", "nak"]
+        },
+        {
+          "id": "i2c-stuck",
+          "title": "总线被从机拉死",
+          "symptom": "SDA 一直低",
+          "fix": "9 脉冲解救时序或断电重启外设",
+          "keywords": ["i2c", "总线", "拉死", "sda", "解救"]
+        },
+        {
+          "id": "i2c-f1-sr",
+          "title": "读 SR 后必须读 DR 的老 F1 陷阱",
+          "symptom": "标志位顺序错乱卡在 EV 里",
+          "fix": "严格按状态机图（F1 尤甚，G4/H7 已简化）",
+          "keywords": ["i2c", "f1", "sr", "dr", "ev", "状态机"]
+        },
+        {
+          "id": "i2c-stretch",
+          "title": "时钟拉伸没考虑",
+          "symptom": "快从机数据丢",
+          "fix": "查从机 datasheet 支持的速率（400k/1000k）",
+          "keywords": ["i2c", "时钟拉伸", "stretch", "速率"]
+        }
+      ]
+    },
+    {
+      "id": "spi",
+      "title": "SPI",
+      "pitfalls": [
+        {
+          "id": "spi-cpha",
+          "title": "CPOL/CPHA 配错",
+          "symptom": "全数据错位或全 0xFF",
+          "fix": "先读从机手册时序图再配，四组合试错是浪费生命",
+          "keywords": ["spi", "cpol", "cpha", "错位", "0xff"]
+        },
+        {
+          "id": "spi-cs-early",
+          "title": "片选拉高太早",
+          "symptom": "最后一字节丢失",
+          "fix": "等 BSY 标志清零再拉高 CS",
+          "keywords": ["spi", "片选", "cs", "bsy", "丢失"]
+        },
+        {
+          "id": "spi-frame",
+          "title": "16 位/8 位帧格式混",
+          "symptom": "高低字节交换",
+          "fix": "查 DFF/DS 位配置",
+          "keywords": ["spi", "16位", "8位", "dff", "字节序"]
+        },
+        {
+          "id": "spi-ovr",
+          "title": "全双工只写不读",
+          "symptom": "RX 溢出 OVR 置位",
+          "fix": "写同时读 DR（或开 RX DMA）清溢出",
+          "keywords": ["spi", "ovr", "溢出", "全双工", "只写"]
+        }
+      ]
+    },
+    {
+      "id": "can",
+      "title": "CAN / FDCAN",
+      "pitfalls": [
+        {
+          "id": "can-bit-timing",
+          "title": "位时序段配错（采样点位置）",
+          "symptom": "总线上偶发错误帧",
+          "fix": "采样点 75-87.5%，用位时序计算器算",
+          "keywords": ["can", "位时序", "采样点", "错误帧", "fdcan"]
+        },
+        {
+          "id": "can-filter",
+          "title": "过滤器没配对",
+          "symptom": "收不到任何报文",
+          "fix": "先全收（掩码全 0）验证链路，再收紧过滤",
+          "keywords": ["can", "过滤器", "filter", "收不到"]
+        },
+        {
+          "id": "can-tx-full",
+          "title": "TX 邮箱满没等",
+          "symptom": "发送丢帧",
+          "fix": "查邮箱空标志或用 FIFO 模式",
+          "keywords": ["can", "邮箱", "tx", "丢帧", "fifo"]
+        },
+        {
+          "id": "can-term",
+          "title": "终端电阻缺失",
+          "symptom": "边沿畸变通信不稳",
+          "fix": "总线两端 120Ω，示波器看波形",
+          "keywords": ["can", "终端电阻", "120", "边沿"]
+        }
+      ]
+    }
+  ],
+  "rule": "配置口诀：使能时钟 → 配 GPIO → 配外设 → 配中断/NVIC → 使能外设，顺序不能乱。每配一个外设，回读关键寄存器确认写入生效。"
+}

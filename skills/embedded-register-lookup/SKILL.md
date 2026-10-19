@@ -31,6 +31,8 @@ metadata:
 - 引脚复用、AF 功能表：SVD 不包含这些信息
 - 手册章节、勘误、电气参数
 - 检查代码里的寄存器写入是否正确：用 embedded-register-verify
+- 配置语义的坑（上拉/采样时间/CPOL/低功耗/看门狗）：用 embedded-peripheral-pitfalls
+- 故障已发生要按步骤定位根因（跑飞/不通/丢数据/卡死/起不来/低功耗）：用 embedded-debug-trees
 - 写驱动代码、排查接线：用对应技能
 
 ## 命令

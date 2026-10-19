@@ -6,9 +6,9 @@
 [![python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
 [![dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](#设计约束)
 
-> Evidence-first embedded dev skills for AI coding agents — register lookup & code verification from CMSIS-SVD, offline, every answer cites its source.
+> Evidence-first embedded dev skills for AI coding agents — register lookup & code verification from CMSIS-SVD, plus debug decision trees and peripheral pitfall lists. Offline, every answer cites its source.
 
-给 AI 编程助手用的嵌入式技能包。原则：**AI 负责写得快，工具箱负责验得对**。所有结论离线计算，并带上出处和证据标签，不靠模型凭记忆回答寄存器细节。
+给 AI 编程助手用的嵌入式技能包，四个技能：**寄存器百事通**（查）、**寄存器核验器**（验）、**排障决策树**（修）、**外设避坑清单**（防）。原则：**AI 负责写得快，工具箱负责验得对**。所有结论离线计算，并带上出处和证据标签，不靠模型凭记忆回答寄存器细节。
 
 ## 当前内容
 
@@ -16,7 +16,8 @@
 |---|---|---|---|
 | `embedded-register-lookup`（寄存器百事通） | 1.11.0 | 本地测试与真机触发评测通过（见 `benchmarks/trigger-results.md`）；厂商 SVD 冒烟 19 家（见 `benchmarks/vendor-svds.md`） | 基于 CMSIS SVD 查外设、寄存器、位域、复位值、中断号与 NVIC 使能位；解码 / 写值计算 / 读改写陷阱提示（**`decode --write`、`set` 与 `lookup` 寄存器视图三处都提示；含 `modifiedWriteValues` 与 `readAction=modifyExternal` 两类语义**）；宏生成（**含枚举值宏与 `isDefault` 默认项说明**）；双芯片与外设级对比；SVD 质量检查（**识别厂商常见的多宽度视图/位域别名，不再误报**）；环境体检；**SDK 自带 SVD 自动发现（PlatformIO / Arduino15 / ESP-IDF / Pico SDK / CMSIS-Pack，覆盖 ESP32 系列与 RP2040）**；**裸寄存器名直接查（AVR/MSP430 风格 `lookup UCSR0B`，重名时列候选）**；**相关置位/清位/翻转寄存器自动关联（`OUT0` → `OUTSET0/OUTCLR0/OUTTGL0`、`GPIO_OUT` → `GPIO_OUT_SET/_CLR/_XOR`）**；**`irq` 带优先级字节（`NVIC.IPR9 第 1 字节`）**；**`addr` 低地址自动按 AVR 数据空间口径（0x800000+）探测**；**`isDefault` 枚举默认项（渲染为"其余值，默认"，E05 不误报）**；Markdown 输出；解析缓存 |
 | `embedded-register-verify`（寄存器核验器） | 1.16.1 | 注入集召回 229/229=100%（合成芯片，见 `benchmarks/verify-recall.md`）；正样本 55 文件 0 误报；真实源码 0 误报：ESP-IDF v4.4.7（224 处写入）、TI TivaWare（363 处）、libopencm3 STM32F1（366 处，3 处为文件级时钟检查在库代码上的已知限制）、AVR Arduino 核心（33 处）、Microchip SAMD 核心（49 处）、Renesas RA FSP（36 处）、Silicon Labs Gecko SDK emlib（318/309 处 × 3 份 SVD）、NXP MCUXpresso（23 文件）与 **pico-sdk 2.1.0（22 文件、47 处写入，RP2040）** 试跑（见 `benchmarks/verify-dogfood.md`） | 核验 C/C++ 代码里的寄存器写入：外设/寄存器/位域存在性、值超宽（**含位域直写按位域宽度；`MODIFY_REG` 置位值兼容字段相对与 ST 风格带位置两种约定**）、枚举合法性（**含位域直写；`isDefault` 默认项不误报**）、只读位、时钟使能、硬编码地址（**AVR 数据空间 0x800000 口径自动探测；`char`/`unsigned char`/`short` 等指针类型全覆盖**）、中断分组、**使能后写 DMA 配置寄存器（E11）**、**只写寄存器读改写（E12）**、**写 1 清零寄存器读改写（E13：`modifiedWriteValues=oneToClear` 上的 `\|=`/`SET_BIT`/`MODIFY_REG` 在掩码未覆盖全部 W1C 位时会把已置位标志顺带清零；掩码未知记未判定）**；**覆盖多种写法**：`.c/.h/.cpp/.cc/.cxx/.hpp/.hh/.hxx/.ino`、CMSIS 结构体、地址别名宏、HWREG/HWREGBIT/`MMIO32`/`REG32`/`_SFR_MEM8`/`_SFR_IO8` 地址访问宏、指针表达式写入、函数宏作左值（`GPIO_ODR(GPIOA) \|= x`）、**裸寄存器名（AVR/MSP430 风格 `PORTB = 0xFF`）**、**CMSIS union/数组风格（`PORT->Group[0].DIRSET.reg`）**、**Renesas FSP（`REG_b` 位域视图、`R_GPT0` 指针宏按地址解析）**、**Silicon Labs（端口字母 `P[3]`→`PD_DOUT`、`REG.FIELD` 直写、`_S` 安全别名）**、**pico-sdk/RP2040（小写指针宏 `dma_hw->intr`、`_u()` 拼贴宏、嵌套结构体成员名 `resus.ctrl`→`CLK_SYS_RESUS_CTRL`）**、**条件编译块降级（E01/E02/E03/E10/E12/E13）**、TI 直寄存器宏（`SYSCTL_RCGC2_R`，指针别名按地址核验）、`NRF_`/`R_` 厂商别名、通道名同义写法（`DMA1_Channel3`↔`DMA1_CH3`↔SVD 后缀 `CCR3`）、ESP-IDF `REG_WRITE/REG_SET_FIELD`（配 `--headers`，**`#include` 自动跟随**、**分号分隔多 include 目录**、多参数函数宏、`BIT(n)`）、**文件内与头文件的 C/C++ `enum` 常量求值（隐式自增按 C 语义）**；**补丁模式用整文件做上下文（E06/E07/E11 不因未改动的使能/置位误报）**；报/未判定/通过分桶（**汇总带按类计数与未判定原因分布**）+ 复查清单；**每条问题带 `next` 查证命令与 `--explain` 内联寄存器定义（含写/读语义与相关置位/清位寄存器建议，与百事通闭环）**；目录与 git diff 模式；不执行代码 |
-
+| `embedded-debug-trees`（排障决策树） | 1.1.0 | 检索评测 46/46、schema/同源校验（`tools/knowledge_bench.py`、`tools/knowledge_check.py`，CI 强制，见 `benchmarks/knowledge-recall.md`）；触发用例 25 正 + 12 反（真机评测见 `benchmarks/trigger-results.md`） | 六棵决策树：HardFault（CFSR 按位解读 + FPU/NOCP + LOCKUP + 故障快照）、通信不通（配置→时序→数据流三层 + RS485 方向）、DMA（只收一次/错位/偶发损坏/Cache 一致性/DMAMUX）、RTOS（FromISR + 优先级映射 + 时基没跑）、启动失败（VTOR + 复位源 + SWD 连不上）、低功耗与唤醒（睡死/时钟回落/进不了低功耗/调试器影响）；按症状关键词检索（`search`：中英文 + 同义词 + **中文整句反向匹配**，`--tree` 限定、`--format json`）、整树展示（`show`）、根因排行（`rootcauses`，**按实战经验排序并如实标注**）；检索不到明说 `E_NOT_FOUND` 不编造 |
+| `embedded-peripheral-pitfalls`（外设避坑清单） | 1.1.0 | 检索评测 60/60（同上，CI 强制）；schema/同源校验；触发用例 22 正 + 10 反（真机评测见 `benchmarks/trigger-results.md`） | 十一类外设 61 个配置坑（RCC/GPIO/EXTI/定时器/ADC/USART/I2C/SPI/CAN/**低功耗 PWR/看门狗 WDG**），每坑=症状+对策；按外设/症状检索（`search`：中英文 + 同义词 + 中文整句反向匹配，`--category` 限定、`--format json`）、分类坑表（`show`）、配置口诀（`rule`：时钟→GPIO→外设→中断→使能）；与 verify 分工：verify 查寄存器写入合法性，本库查配置语义陷阱 |
 计划中（按阶段门推进，见总方案）：接线排障、时序计算器、原理图审查官。
 
 ## 适配范围（跨厂商、跨工具链、跨写法）

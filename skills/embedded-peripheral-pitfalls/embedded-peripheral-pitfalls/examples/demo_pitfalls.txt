@@ -1,0 +1,44 @@
+/*
+ * 外设避坑清单演示：同一段"功能等价"的初始化代码，左列踩坑写法 vs 右列规避写法。
+ * 配合 pitfalls.py 使用——每对坑都可用检索命令直接命中。
+ *
+ * ── 坑 1：I2C 引脚推挽（gpio-i2c-pushpull）──────────────────────
+ * 检索：python scripts/pitfalls.py search "I2C 推挽"
+ *
+ *   踩坑写法：                          规避写法：
+ *   GPIO_InitStruct.Mode =              GPIO_InitStruct.Mode =
+ *       GPIO_MODE_OUTPUT_PP;                GPIO_MODE_AF_OD;      // 开漏
+ *                                       GPIO_InitStruct.Pull =
+ *                                           GPIO_PULLUP;          // 上拉
+ *
+ * ── 坑 2：外设时钟没开就访问（rcc-no-enable）────────────────────
+ * 检索：python scripts/pitfalls.py search "时钟 使能"
+ *
+ *   踩坑写法：                          规避写法：
+ *   USART1->CR1 |= USART_CR1_UE;        RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
+ *   // HardFault!                       USART1->CR1 |= USART_CR1_UE;  // 先时钟后外设
+ *
+ * ── 坑 3：HSI 当晶振跑长距离 UART（rcc-hsi-uart）────────────────
+ * 检索：python scripts/pitfalls.py search "HSI 乱码"
+ *
+ *   踩坑：RCC 用 HSI（±1%）驱动 UART 115200 长线通信 → 偶发误码
+ *   规避：换 HSE（外部晶振 ±20ppm 量级），或降波特率留裕量
+ *
+ * ── 坑 4：H7 的 DMA 缓冲放 DTCM（adc-dma-mem）──────────────────
+ * 检索：python scripts/pitfalls.py search "DTCM DMA"
+ *
+ *   踩坑：__attribute__((section(".dtcm"))) 的 ADC 缓冲 → DMA 静默不搬
+ *   规避：缓冲放 AXI SRAM / D2 SRAM（查总线矩阵确认 DMA 主控可达）
+ *
+ * ── 坑 5：SPI 片选拉高太早（spi-cs-early）──────────────────────
+ * 检索：python scripts/pitfalls.py search "片选 丢失"
+ *
+ *   踩坑写法：                          规避写法：
+ *   HAL_SPI_Transmit(...);              HAL_SPI_Transmit(...);
+ *   HAL_GPIO_WritePin(CS, SET);         while (SPI1->SR & SPI_SR_BSY);  // 等 BSY 清零
+ *                                       HAL_GPIO_WritePin(CS, SET);
+ *
+ * ── 配置口诀（pitfalls.py rule）────────────────────────────────
+ * 使能时钟 → 配 GPIO → 配外设 → 配中断/NVIC → 使能外设，顺序不能乱。
+ * 每配一个外设，回读关键寄存器确认写入生效。
+ */
