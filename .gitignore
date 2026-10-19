@@ -7,3 +7,6 @@ __pycache__/
 !skills/*/assets/*.svd
 .vscode/
 .idea/
+
+# 无头触发评测的原始转录（逐例 jsonl）：只留汇总 md，不入库
+benchmarks/_trig_*
