@@ -1008,6 +1008,23 @@
             "STM32 参考手册（如 RM0440，片内闪存章节）"
           ],
           "next": "选项字节重载位名用 embedded-register-lookup 核对"
+        },
+        {
+          "id": "fl-qspi-xip",
+          "title": "QSPI 内存映射（XIP）模式互斥与 dummy cycles",
+          "symptom": "内存映射读出全 FF 或错位；映射模式下直接写 flash 失败",
+          "fix": "内存映射模式与命令接口互斥：映射使能后不能继续用命令接口写/擦 flash，写擦前先退出映射、操作完再重进；dummy cycles 与 flash 型号和读命令（四线 fast read）精确对应，配错会读出错位或全 FF；换型号/换读指令后重核 dummy 数与容量参数",
+          "keywords": [
+            "qspi",
+            "xip",
+            "内存映射",
+            "dummy",
+            "片外",
+            "四线"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0433，QUADSPI 内存映射模式与 dummy cycle 说明）"
+          ]
         }
       ]
     },

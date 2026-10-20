@@ -51,7 +51,7 @@ RCC/时钟、GPIO、EXTI/NVIC 中断、定时器、ADC、DMA、USART、I2C、SPI
 
 ## 覆盖边界（终态）
 
-**二十五类外设 / 147 个坑位**：adc(9) c(7) can(6) crc(4) dac(4) dbg(5) dma(8) eth(5) exti(6) flash(5) gpio(6) i2c(7) link(6) modbus(5) mpu(5) pwr(6) rcc(6) rtc(5) sd(5) sensor-bus(5) spi(5) tim(9) uart(8) usb(6) wdg(4)。
+**二十五类外设 / 148 个坑位**：adc(9) c(7) can(6) crc(4) dac(4) dbg(5) dma(8) eth(5) exti(6) flash(6) gpio(6) i2c(7) link(6) modbus(5) mpu(5) pwr(6) rcc(6) rtc(5) sd(5) sensor-bus(5) spi(5) tim(9) uart(8) usb(6) wdg(4)。
 
 **覆盖范围**：配置语义陷阱（寄存器写对了但外设不工作/结果不对），按"类别 → 症状 → 对策"组织。
 

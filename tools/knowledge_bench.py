@@ -107,6 +107,8 @@ TREE_CASES = [
 
 # (查询, 期望坑位 id)
 PITFALL_CASES = [
+    ("QSPI flash 内存映射读出来全是 FF 怎么排查？", "fl-qspi-xip"),
+    ("XIP 模式下要更新 QSPI flash 里的数据要注意什么坑", "fl-qspi-xip"),
     ("配置 I2C 有哪些常见的坑要注意？", "i2c-pullup"),
     ("SPI 的 CPOL 和 CPHA 应该怎么选？", "spi-cpha"),
     ("GPIO 配置成复用模式有什么要注意的？", "gpio-af"),

@@ -157,7 +157,7 @@
 - **FreeRTOS：超 MAX_SYSCALL 优先级调 API** 依据：FreeRTOS 官方文档（configMAX_SYSCALL_INTERRUPT_PRIORITY / 中断安全 API）
 - **EXTI 使能了但 NVIC 没开** 下一步：EXTI 线映射与 NVIC IRQn 编号用 embedded-register-lookup 核对
 
-## flash — 片内 Flash（5 坑）
+## flash — 片内 Flash（6 坑）
 
 | 坑 | 症状 | 对策 |
 |---|---|---|
@@ -166,12 +166,14 @@
 | 写入粒度/对齐没按 flash 要求 | 写入校验不过或相对地址偏移被拒 | 按芯片 flash 写粒度（半字/双字等）整单位写入；遇到只能整行/整块擦写的 ECC 型闪存，读取改写时先保存整行旧数据再合并写入 |
 | 擦写期间取指被暂停 | 擦写时中断/主流程卡顿，尤其跑在 flash 里的代码 | flash 擦写期间 CPU/ISR 取指可能被暂停；把期间必须响应的关键中断向量或代码搬到 RAM 执行，或推迟 flash 操作到空闲窗口 |
 | 选项字节改写后没重载/双 bank 没处理好 | 改了的配置不生效，或 bank 映射/启动有问题 | 改写选项字节后按参考手册触发重载（系统复位）使其生效；双 bank 芯片写另一 bank 时注意总线接口与地址映射 |
+| QSPI 内存映射（XIP）模式互斥与 dummy cycles | 内存映射读出全 FF 或错位；映射模式下直接写 flash 失败 | 内存映射模式与命令接口互斥：映射使能后不能继续用命令接口写/擦 flash，写擦前先退出映射、操作完再重进；dummy cycles 与 flash 型号和读命令（四线 fast read）精确对应，配错会读出错位或全 FF；换型号/换读指令后重核 dummy 数与容量参数 |
 
 - **擦写前没解锁且没等 BSY** 依据：STM32 参考手册（如 RM0440，片内闪存章节）；下一步：KEYR/CR/SR 位定义用 embedded-register-lookup 核对
 - **在中断里做页擦除** 依据：STM32 参考手册（如 RM0440，片内闪存章节）
 - **写入粒度/对齐没按 flash 要求** 依据：STM32 参考手册（如 RM0440，片内闪存章节）
 - **擦写期间取指被暂停** 依据：STM32 参考手册（如 RM0440，片内闪存章节）
 - **选项字节改写后没重载/双 bank 没处理好** 依据：STM32 参考手册（如 RM0440，片内闪存章节）；下一步：选项字节重载位名用 embedded-register-lookup 核对
+- **QSPI 内存映射（XIP）模式互斥与 dummy cycles** 依据：STM32 参考手册（如 RM0433，QUADSPI 内存映射模式与 dummy cycle 说明）
 
 ## gpio — GPIO（6 坑）
 
