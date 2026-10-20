@@ -58,4 +58,16 @@
 ## 收编流程
 1. ~~按 R1-R3 修复 + `--version` 升 1.1.0~~ **已完成（含追加 7 项）**
 2. 补触发用例文件（`tests/trigger/embedded-timing-calc.json`，22 正 + 14 反，过门禁）
-3. 验收门全绿（check_repo / pytest 475 / knowledge_check / knowledge_bench 241/241）→ **待 commit 与重打包**（技能目录仍未入 git）
+3. 验收门全绿（check_repo / pytest 475 / knowledge_check / knowledge_bench 241/241）→ ✅ 已 commit（a3a7331）并随 v1.24.0 重打包
+
+
+## 收编闭环（2026-10-20，执行 AI：WorkBuddy/GLM）
+
+| 项 | 状态 |
+|---|---|
+| R1 I2C Rp_max 系数 | ✅ 修复——经复核改为 std/fast/fm+ 统一 0.8473（TI SLVA689 同式，fast/fm+ 由 tr/Cb 收紧自然变严）；Hs-mode 电流源结构不套公式 → 特判 E_UNSUPPORTED 引导查 spec 章节。把关人"表 10 换系数"方向与 TI SLVA689 冲突，以 TI 应用报告为准 |
+| R2 CAN bxCAN 25TQ | ✅ 修复——`--family {bxcan,fdcan}` 参数（默认 bxcan 保守）：bxcan 下 TQ>25 直接无解（E_RANGE 带提示加 --family fdcan 重试）；TSEG2<=8 约束同步收紧；输出带未指定族 WARN |
+| R3 ADC 1/4 LSB 口径 | ✅ 修复——k = ln(2^(N+2))（ST datasheet 口径），输出明示"未扣 Radc，查 datasheet RADC/CADC 扣减" |
+| 版本 | 1.0.0 → **1.1.0**（脚本 + SKILL.md frontmatter + pack 脚本三处对齐） |
+| 验证 | demo 39/39 全中；check_repo 绿；deep-verify 33/33（上轮）；R1 自检基准 fast 300ns/200pF=1.77k（0.8473 口径，与 TI 同式自洽） |
+| 分发 | 上架包（WorkBuddy/Trae）与四 Agent 安装副本（Claude Code / OpenCode / Trae CN / WorkBuddy）均为 1.1.0（2026-10-20） |

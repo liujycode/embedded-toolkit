@@ -106,3 +106,30 @@ A/B 逐例（决策树，粗信号与官方判定一致）：**救回 6 例**（
 **结论（已入档）**：触发率强依赖路由模型；"强编码模型对咨询型问题直接作答"是结构性现象，
 包内无法根治，建议终端用户在 CLAUDE.md/系统提示中显式引导查库；包内优化空间仍在
 描述的症状句前置与数值化措辞（对 glm 已验证 +10pp）。
+
+## v1.3.0 FPGA 抽测（2026-10-20，路由 = `deepseek-v4-flash`）
+
+> 本轮 CC-Switch provider = CSDN（`ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-flash[1M]`），
+> 与 v1.2.0 轮的 `deepseek_for_coding` **不同路由，数字不可纵向直接对比**。
+> 预算从简：抽 7 条 FPGA 正例（p34–p40）+ 3 条反例（n01–n03），每例独立空目录、超时 300s。
+> 运行：`python tools/trigger_run.py --agent claude --skill embedded-debug-trees --out benchmarks/_trig_v130_fpga --only "p34,p35,p36,p37,p38,p39,p40,n01,n02,n03" --timeout 300`
+> 判定：`python tools/trigger_eval.py --dir benchmarks/_trig_v130_fpga --agent claude --skill embedded-debug-trees --script trees.py`
+
+| 用例 | 问法摘要 | 触发 |
+|---|---|---|
+| p34 | 综合 0 ERROR 但某通道数据全 0、帧流正常 | ✅ |
+| p35 | Verilog 新参数两处例化，担心漏接 | ❌ |
+| p36 | 存储阵列想推断 RAM，综合成全寄存器 | ❌ |
+| p37 | 资源超了，砍寄存器不降占用 | ❌ |
+| p38 | I2C 事务被中止，从机 clock stretching | ❌ |
+| p39 | 跨时钟域多 bit 撕裂，打两拍为何不行 | ❌ |
+| p40 | iverilog 同时打 PASS 和 FAIL | ❌ |
+| n01 | USART1 CR1 第 3 位（lookup 域） | 未触发 ✅ |
+| n02 | TIM1 ARR 复位值（lookup 域） | 未触发 ✅ |
+| n03 | 代写 I2C 读取 BNO080 驱动（生成域） | 未触发（**超时 300s**，按未触发计） |
+
+**结果**：正例 **1/7 = 14.3%**，反例 **3/3 未触发**（n03 超时，按未触发记）。
+p34 唯一触发的是"现象具体、带矛盾证据"的故障问法；其余 6 条正例路由模型直接作答
+（p37 输出 816 KB、n03 输出 2.4 MB 后超时），与此前"强编码模型对咨询型问题直接作答"一致。
+**结论**：本轮数字只作 v1.3.0 FPGA 新树的触发观测，不作为描述优化效果对比；包内建议仍是
+描述症状句前置 + 终端显式引导查库（见 README 建议配置）。
