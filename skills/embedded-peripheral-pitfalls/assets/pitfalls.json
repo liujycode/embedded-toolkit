@@ -1,5 +1,5 @@
 {
-  "schema": "etk-pitfalls/1.0",
+  "schema": "etk-pitfalls/1.1",
   "categories": [
     {
       "id": "adc",
@@ -15,7 +15,8 @@
             "采样时间",
             "精度",
             "抖动"
-          ]
+          ],
+          "next": "embedded-timing-calc adc-rad --ts <采样周期cycles> --fadc <ADC时钟>"
         },
         {
           "id": "adc-cal",
@@ -102,6 +103,166 @@
           "refs": [
             "STM32 参考手册（如 RM0440，ADC 章节）"
           ]
+        },
+        {
+          "id": "adc-inject-trig",
+          "title": "注入组触发与相电流采样没同步",
+          "symptom": "采样到的相电流点不对、波动大",
+          "fix": "注入组触发要与 PWM 对齐（如 TRGO=更新/比较事件），在 PWM 周期内正确时刻采样，别随手触发",
+          "keywords": [
+            "adc",
+            "注入组",
+            "触发",
+            "相电流",
+            "pwm",
+            "同步"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，对应外设章节）"
+          ]
+        },
+        {
+          "id": "adc-dual-mode",
+          "title": "双 ADC 交替/同步模式没配主从",
+          "symptom": "两片 ADC 数据相位/值不一致",
+          "fix": "核对主从关系：交替模式确认共享触发与 DMA 同步，同步模式确认共享时钟与触发源",
+          "keywords": [
+            "adc",
+            "双adc",
+            "交替模式",
+            "同步模式",
+            "主从",
+            "dma"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，对应外设章节）"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "c",
+      "title": "C 语言与编译器",
+      "pitfalls": [
+        {
+          "id": "c-volatile",
+          "title": "volatile 缺失，共享变量被优化",
+          "symptom": "中断改了值主循环却一直读到旧值",
+          "fix": "对外设寄存器及 ISR/主循环共享的变量声明 volatile，防止编译器缓存或优化掉重新读",
+          "keywords": [
+            "c",
+            "volatile",
+            "中断",
+            "优化",
+            "共享变量"
+          ],
+          "refs": [
+            "C 标准（ISO/IEC 9899，未定义行为/volatile 语义）",
+            "ARM Compiler / GCC 优化文档（volatile 与优化）"
+          ]
+        },
+        {
+          "id": "c-delay-loop",
+          "title": "空循环延时被优化成空",
+          "symptom": "延时函数形同虚设，时间完全不对",
+          "fix": "空循环变量要加 volatile（或用不带优化的编译选项），精密延时改 DWT->CYCCNT 周期计数或 SysTick",
+          "keywords": [
+            "c",
+            "延时",
+            "空循环",
+            "优化",
+            "dwt",
+            "volatile"
+          ],
+          "refs": [
+            "ARM Compiler / GCC 优化文档（volatile 与优化）",
+            "C 标准（ISO/IEC 9899，未定义行为/volatile 语义）"
+          ]
+        },
+        {
+          "id": "c-struct-pack",
+          "title": "指针强转结构体解析协议",
+          "symptom": "结构体字段错位、访问异常，数据对不上",
+          "fix": "协议解析别依赖自然对齐：结构体加 packed 处理字节对齐，并在收/发边界用显式字节序转换（be16/le16），不用直接强转 memcpy 大块",
+          "keywords": [
+            "c",
+            "指针",
+            "结构体",
+            "对齐",
+            "packed",
+            "字节序",
+            "协议"
+          ],
+          "refs": [
+            "C 标准（ISO/IEC 9899，结构体对齐与实现定义）"
+          ]
+        },
+        {
+          "id": "c-ub",
+          "title": "未定义行为：有符号移位/溢出",
+          "symptom": "开优化后结果变怪、负值右移或溢出行为异常",
+          "fix": "有符号右移与整数溢出是 UB：改用无符号类型、固定宽度整型（stdint），溢出前显式判断",
+          "keywords": [
+            "c",
+            "未定义行为",
+            "有符号移位",
+            "溢出",
+            "整数",
+            "ub"
+          ],
+          "refs": [
+            "C 标准（ISO/IEC 9899，未定义行为/volatile 语义）"
+          ]
+        },
+        {
+          "id": "c-bitfield-rw",
+          "title": "ISR/主循环共享位域并发读写",
+          "symptom": "读到的新旧值混在一起、偶发错乱",
+          "fix": "跨 ISR 与主循环且 >1 字节或多位组成的变量，访问进临界区（关中断/原子操作），整读整写，别裸读裸改",
+          "keywords": [
+            "c",
+            "位域",
+            "中断",
+            "并发",
+            "原子",
+            "临界区"
+          ],
+          "refs": [
+            "C 标准（ISO/IEC 9899，volatile 与访问语义）"
+          ]
+        },
+        {
+          "id": "c-macro-paren",
+          "title": "宏参数没加括号",
+          "symptom": "宏展开结果和预想不符、表达式错误",
+          "fix": "宏体每个参数与整体都加括号；能用 static inline 就少用宏做计算",
+          "keywords": [
+            "c",
+            "宏",
+            "宏参数",
+            "括号",
+            "inline"
+          ],
+          "refs": [
+            "C 标准（ISO/IEC 9899，宏替换）"
+          ]
+        },
+        {
+          "id": "c-stack-array",
+          "title": "函数内大数组爆栈",
+          "symptom": "调用某函数就 HardFault/乱跑/看门狗复位",
+          "fix": "大缓冲改静态或全局，或查链接脚本把栈加大，别在函数体内开几千字节",
+          "keywords": [
+            "c",
+            "栈",
+            "数组",
+            "hardfault",
+            "静态",
+            "stack"
+          ],
+          "refs": [
+            "ARM Compiler / GCC 工具链文档（链接脚本与栈）"
+          ]
         }
       ]
     },
@@ -124,7 +285,8 @@
           "refs": [
             "ISO 11898-1:2015",
             "STM32 参考手册（如 RM0090，CAN 控制器章节）"
-          ]
+          ],
+          "next": "embedded-timing-calc can-bit --clk <外设时钟> --baud <速率kbit/s>"
         },
         {
           "id": "can-filter",
@@ -196,6 +358,234 @@
             "内核时钟",
             "位时序",
             "采样点"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "crc",
+      "title": "CRC 校验",
+      "pitfalls": [
+        {
+          "id": "crc-param-mismatch",
+          "title": "软硬件 CRC 参数对不上",
+          "symptom": "和 PC 工具/对端算的结果不一致",
+          "fix": "CRC 要逐项对齐四要素：多项式、初始值、输入反转、输出反转；四者任一不同都会导致结果不同，逐项比对修正",
+          "keywords": [
+            "crc",
+            "对不上",
+            "多项式",
+            "初始值",
+            "反转",
+            "校验"
+          ],
+          "refs": [
+            "CRC 计算通用定义（多项式/初值/位反转参数）"
+          ]
+        },
+        {
+          "id": "crc-byte-align",
+          "title": "按字访问但数据没对齐",
+          "symptom": "CRC 结果随访问方式变化或读取出错",
+          "fix": "按 CRC 外设要求的访问粒度（字对齐）读写数据寄存器，逐字节喂入时注意字节序/位反转是否符合约定，喂数据顺序要一致",
+          "keywords": [
+            "crc",
+            "对齐",
+            "字",
+            "字节序",
+            "访问"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，CRC 章节）"
+          ]
+        },
+        {
+          "id": "crc-fixed-polynomial",
+          "title": "用了芯片固定多项式",
+          "symptom": "想算自定义多项式算不了",
+          "fix": "确认硬件 CRC 只支持固定的多项式（常见为 CRC-32 等）；需要其它多项式时改用软件按位计算，硬件仅用于匹配的算法",
+          "keywords": [
+            "crc",
+            "多项式",
+            "固定",
+            "软件",
+            "自定义"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，CRC 章节）"
+          ]
+        },
+        {
+          "id": "crc-reset-state",
+          "title": "算多个块时没复位初始值",
+          "symptom": "连续算出的 CRC 诡异或首块后不对",
+          "fix": "每次计算新数据块前先复位 CRC 内核到初始值，再喂数据取结果；多块连续校验时明确是继续累算还是逐块独立",
+          "keywords": [
+            "crc",
+            "复位",
+            "初始值",
+            "连续",
+            "分块"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，CRC 章节）"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dac",
+      "title": "DAC 数模转换",
+      "pitfalls": [
+        {
+          "id": "dac-buffer-slew",
+          "title": "输出缓冲/摆率受限",
+          "symptom": "波形爬升缓慢、驱动不稳或高频跟不上",
+          "fix": "确认是否使能/关闭输出缓冲以匹配精度与驱动需求；需要快速变化时留意缓冲带宽与摆率，必要时降负载或选低电平",
+          "keywords": [
+            "dac",
+            "缓冲",
+            "摆率",
+            "波形",
+            "输出"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，DAC 章节）"
+          ]
+        },
+        {
+          "id": "dac-load-cap",
+          "title": "负载太重/直连高阻误判",
+          "symptom": "输出电压被拉低或精度下降",
+          "fix": "核对 DAC 输出驱动能力，直连高阻抗负载或接容性负载要评估对精度/响应的负载效应，必要时经运放缓冲",
+          "keywords": [
+            "dac",
+            "负载",
+            "驱动",
+            "高阻",
+            "精度"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，DAC 章节）"
+          ]
+        },
+        {
+          "id": "dac-dma-align",
+          "title": "DMA 双通道/对齐配置错",
+          "symptom": "多通道波形错位或缺数据",
+          "fix": "核对 DAC DMA 传输的模式与数据对齐（大小端/位宽），多通道用相应模式并保证触发源与缓冲一致",
+          "keywords": [
+            "dac",
+            "dma",
+            "双通道",
+            "对齐",
+            "波形"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，DAC 章节）"
+          ]
+        },
+        {
+          "id": "dac-noise-ref",
+          "title": "噪声/参考源引入误差",
+          "symptom": "输出噪声大、抖动或随供电漂",
+          "fix": "用低噪声稳定的参考源给 DAC 供电基准，参考引脚做去耦，避免供电纹波叠加到输出",
+          "keywords": [
+            "dac",
+            "噪声",
+            "参考",
+            "基准",
+            "纹波"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，DAC 章节）"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dbg",
+      "title": "调试输出与调试器",
+      "pitfalls": [
+        {
+          "id": "dbg-printf",
+          "title": "printf 重定向没做好",
+          "symptom": "printf 什么也不出来",
+          "fix": "按工具链正确重定向：GCC 实现 _write，ArmCC 用 microlib 或 __stdout；确认串口初始化在前",
+          "keywords": [
+            "printf",
+            "重定向",
+            "_write",
+            "microlib",
+            "输出"
+          ],
+          "refs": [
+            "ARM Cortex-M 调试与复位参考手册"
+          ]
+        },
+        {
+          "id": "dbg-semihosting",
+          "title": "semihosting 没有调试器时挂死",
+          "symptom": "脱机跑起来就卡死/复位循环，插上调试器反而正常",
+          "fix": "semihosting 用 BKPT 指令请求宿主，无调试器时触发 BKPT 直接挂死；发布版禁用或换成仿真输出",
+          "keywords": [
+            "semihosting",
+            "bkpt",
+            "挂死",
+            "调试器",
+            "脱机"
+          ],
+          "refs": [
+            "ARM Cortex-M 调试与复位参考手册",
+            "CMSIS-DAP / OpenOCD 文档"
+          ]
+        },
+        {
+          "id": "dbg-swo",
+          "title": "SWO 引脚与波特率",
+          "symptom": "SWO/ITM 输出全是乱码或完全不显示",
+          "fix": "确认 SWO 引脚复用与调试口对应；宿主端波特率要和 core 时钟、分频匹配（如 OpenOCD 的 itm port 配置）",
+          "keywords": [
+            "swo",
+            "itm",
+            "波特率",
+            "引脚",
+            "乱码"
+          ],
+          "refs": [
+            "ARM Cortex-M 调试与复位参考手册"
+          ]
+        },
+        {
+          "id": "dbg-rtt",
+          "title": "RTT 缓冲定位错",
+          "symptom": "RTT 看不到输出或数据错位、起点偏移",
+          "fix": "RTT 控制块要落在内存固定位置且不被优化/回收；按目标内存地址与搜索 id 和宿主配置对齐",
+          "keywords": [
+            "rtt",
+            "segger",
+            "缓冲",
+            "定位",
+            "内存"
+          ],
+          "refs": [
+            "CMSIS-DAP / OpenOCD 文档"
+          ]
+        },
+        {
+          "id": "dbg-dbgmcu",
+          "title": "断点挂着时行为不同",
+          "symptom": "打断点与不打断点时程序行为不一致，挂起时外设不停",
+          "fix": "差异常来自调试冻结/时钟：用调试冻结位（DBGMCU）固化调试期行为，让断点下的定时器/看门狗行为可复现",
+          "keywords": [
+            "断点",
+            "调试",
+            "冻结",
+            "dbgmcu",
+            "看门狗"
+          ],
+          "refs": [
+            "ARM Cortex-M 调试与复位参考手册"
           ]
         }
       ]
@@ -346,6 +736,99 @@
       ]
     },
     {
+      "id": "eth",
+      "title": "以太网 / LWIP",
+      "pitfalls": [
+        {
+          "id": "eth-rmii-clock",
+          "title": "RMII 50MHz 参考时钟缺失",
+          "symptom": "以太网不通、PHY 不工作/读不到地址",
+          "fix": "RMII 必须提供 50MHz 参考时钟（外部或 MCU 时钟输出），确认供给并落到 PHY 的 REF_CLK/对应引脚",
+          "keywords": [
+            "eth",
+            "rmii",
+            "50mhz",
+            "参考时钟",
+            "ref_clk",
+            "phy"
+          ],
+          "refs": [
+            "RMII 接口规范（50MHz 参考时钟）"
+          ]
+        },
+        {
+          "id": "eth-phy-mdio",
+          "title": "PHY 地址与 MDIO 频率",
+          "symptom": "读不到 PHY 寄存器/返回 ID 不对",
+          "fix": "PHY 地址由硬件上下拉决定，软件配置要一致；MDIO 时钟控制在规范范围内",
+          "keywords": [
+            "eth",
+            "phy",
+            "地址",
+            "mdio",
+            "读不到"
+          ],
+          "refs": [
+            "STM32 以太网控制器章节（RM0440 或对应系列）"
+          ]
+        },
+        {
+          "id": "eth-desc-cache",
+          "title": "描述符/缓冲 cache 一致性",
+          "symptom": "丢包、数据错乱、DMA 卡住",
+          "fix": "带 cache 的核上对描述符和收发缓冲做 clean/invalidate 并保证对齐，别让 CPU 和 DMA 读到的是一份脏数据",
+          "keywords": [
+            "eth",
+            "描述符",
+            "cache",
+            "一致性",
+            "clean",
+            "invalidate",
+            "对齐"
+          ],
+          "refs": [
+            "STM32 以太网控制器章节（RM0440 或对应系列）"
+          ]
+        },
+        {
+          "id": "eth-lwip-mem",
+          "title": "lwIP 内存池/堆太小",
+          "symptom": "连接数一多就丢包、分配失败",
+          "fix": "按接口数/连接数调大 PBUF_POOL_SIZE、MEM_SIZE 等内存配置；改完配合内存使用重新估算",
+          "keywords": [
+            "eth",
+            "lwip",
+            "内存",
+            "pbuf",
+            "mem",
+            "丢包"
+          ],
+          "refs": [
+            "lwIP 官方文档（内存配置）"
+          ]
+        },
+        {
+          "id": "eth-ping-layer",
+          "title": "ping 不通没有分层查",
+          "symptom": "PING 不通、数据完全出不去",
+          "fix": "按 链路→PHY 寄存器→MAC→DHCP/IP→路由 逐层定位：先看 link 状态和 PHY 寄存器，再往上查，不要一头扎进应用层",
+          "keywords": [
+            "eth",
+            "ping",
+            "分层",
+            "链路",
+            "phy",
+            "dhcp",
+            "ip"
+          ],
+          "refs": [
+            "lwIP 官方文档（内存配置）",
+            "STM32 以太网控制器章节（RM0440 或对应系列）"
+          ]
+        }
+      ]
+    },
+    {
       "id": "exti",
       "title": "EXTI / NVIC 中断",
       "pitfalls": [
@@ -431,6 +914,94 @@
             "使能",
             "pending",
             "不进中断"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "flash",
+      "title": "片内 Flash",
+      "pitfalls": [
+        {
+          "id": "fl-keyr-bsy",
+          "title": "擦写前没解锁且没等 BSY",
+          "symptom": "擦写没生效、状态位报错或程序继续跑在读到的旧数据",
+          "fix": "按参考手册先写 KEYR 解锁序列，操作期间轮询 BSY 忙标志到空闲；整页/整块擦除要等（毫秒级，属于阻塞操作）",
+          "keywords": [
+            "flash",
+            "解锁",
+            "keyr",
+            "擦除",
+            "busy"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，片内闪存章节）"
+          ],
+          "next": "embedded-register-verify check <你的代码目录> --svd <你的芯片>.svd"
+        },
+        {
+          "id": "fl-erase-in-isr",
+          "title": "在中断里做页擦除",
+          "symptom": "中断耗时过长、实时性崩坏或系统卡死",
+          "fix": "页/块擦除是毫秒级耗时操作，不要放在中断服务程序里；改为在任务上下文中做或用后台状态机捱完成",
+          "keywords": [
+            "flash",
+            "擦除",
+            "中断",
+            "isr",
+            "耗时"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，片内闪存章节）"
+          ]
+        },
+        {
+          "id": "fl-write-align",
+          "title": "写入粒度/对齐没按 flash 要求",
+          "symptom": "写入校验不过或相对地址偏移被拒",
+          "fix": "按芯片 flash 写粒度（半字/双字等）整单位写入；遇到只能整行/整块擦写的 ECC 型闪存，读取改写时先保存整行旧数据再合并写入",
+          "keywords": [
+            "flash",
+            "写入",
+            "对齐",
+            "半字",
+            "双字",
+            "读改写"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，片内闪存章节）"
+          ]
+        },
+        {
+          "id": "fl-stall-porch",
+          "title": "擦写期间取指被暂停",
+          "symptom": "擦写时中断/主流程卡顿，尤其跑在 flash 里的代码",
+          "fix": "flash 擦写期间 CPU/ISR 取指可能被暂停；把期间必须响应的关键中断向量或代码搬到 RAM 执行，或推迟 flash 操作到空闲窗口",
+          "keywords": [
+            "flash",
+            "stall",
+            "取指",
+            "ram",
+            "擦写"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，片内闪存章节）"
+          ]
+        },
+        {
+          "id": "fl-option-byte-reload",
+          "title": "选项字节改写后没重载/双 bank 没处理好",
+          "symptom": "改了的配置不生效，或 bank 映射/启动有问题",
+          "fix": "改写选项字节后按参考手册触发重载（系统复位）使其生效；双 bank 芯片写另一 bank 时注意总线接口与地址映射",
+          "keywords": [
+            "flash",
+            "选项字节",
+            "重载",
+            "双bank",
+            "reload"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，片内闪存章节）"
           ]
         }
       ]
@@ -530,7 +1101,8 @@
             "上拉",
             "电阻",
             "上升沿"
-          ]
+          ],
+          "next": "embedded-timing-calc i2c-rp --bus <i2c1|i2c2> --cb <总线电容pF>"
         },
         {
           "id": "i2c-addr",
@@ -595,6 +1167,305 @@
             "恢复",
             "拉死",
             "健壮性"
+          ]
+        },
+        {
+          "id": "i2c-eeprom-page",
+          "title": "I2C EEPROM 页写越界",
+          "symptom": "跨页写长数据只写了部分、数据错",
+          "fix": "按页边界断开、每页写不超过页大小；每页写完等写周期（~5ms，用 ACK 轮询或延时）",
+          "keywords": [
+            "i2c",
+            "eeprom",
+            "页写",
+            "写周期",
+            "5ms",
+            "越界"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，对应外设章节）"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "link",
+      "title": "启动与链接",
+      "pitfalls": [
+        {
+          "id": "link-vtor",
+          "title": "向量表偏移没设",
+          "symptom": "中断进错/跳转 bootloader 后程序跑飞",
+          "fix": "程序映射到非 0 基址就配向量表偏移寄存器；向量表放内存、偏移按表大小对齐",
+          "keywords": [
+            "链接",
+            "vtor",
+            "向量表",
+            "bootloader",
+            "偏移"
+          ],
+          "refs": [
+            "ARMv7-M Architecture Reference Manual (DDI 0403)"
+          ]
+        },
+        {
+          "id": "link-stack-heap",
+          "title": "栈/堆大小两处配置不一致",
+          "symptom": "栈溢出、malloc 失败、栈堆重叠",
+          "fix": "链接脚本和启动文件里的栈/堆大小（如 __STACK_SIZE 与 startup 汇编）要一致，按实际使用重新估算",
+          "keywords": [
+            "栈",
+            "堆",
+            "链接脚本",
+            "startup",
+            "stack",
+            "heap",
+            "溢出"
+          ],
+          "refs": [
+            "GNU ld / 链接器脚本文档"
+          ]
+        },
+        {
+          "id": "link-overflow",
+          "title": "段溢出",
+          "symptom": "链接报 .bss/.data/FLASH/SRAM overflow 或运行期异常",
+          "fix": "看链接报告与 map 文件占用；精简只读/数据段、加大内存分区或换更大容量芯片，别压线硬跑",
+          "keywords": [
+            "链接",
+            "溢出",
+            "overflow",
+            "flash",
+            "sram",
+            "bss"
+          ],
+          "refs": [
+            "GNU ld / 链接器脚本文档"
+          ]
+        },
+        {
+          "id": "link-ramfunc",
+          "title": "函数放 RAM 段属性",
+          "symptom": "RAM 里的函数没跑或复位后被冲掉",
+          "fix": "用段属性把函数放进指定 RAM 段，并保证启动时把它拷贝进 RAM 并落到正确区域，查链接脚本的搬运处理",
+          "keywords": [
+            "ram",
+            "函数",
+            "段属性",
+            "sram",
+            "section"
+          ],
+          "refs": [
+            "GNU ld / 链接器脚本文档"
+          ]
+        },
+        {
+          "id": "link-sysinit",
+          "title": "时钟/SystemInit 调用顺序",
+          "symptom": "时钟没配起来、外设访问异常",
+          "fix": "启动文件在主入口前调 SystemInit 配系统时钟并拷贝数据段；核对向量表入口、SystemInit 是否被优化或覆盖",
+          "keywords": [
+            "systeminit",
+            "启动文件",
+            "时钟",
+            "入口"
+          ],
+          "refs": [
+            "ARMv7-M Architecture Reference Manual (DDI 0403)",
+            "GNU ld / 链接器脚本文档"
+          ]
+        },
+        {
+          "id": "link-init-array",
+          "title": "初始化数组没跑",
+          "symptom": "全局变量初始值不对、C++ 构造不执行",
+          "fix": "启动文件要遍历 .init_array/.preinit_array 执行编译器生成的初始化；确认链接器正确输出这些段",
+          "keywords": [
+            "init_array",
+            "初始化",
+            "全局变量",
+            "启动"
+          ],
+          "refs": [
+            "GNU ld / 链接器脚本文档"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "modbus",
+      "title": "Modbus RTU/TCP",
+      "pitfalls": [
+        {
+          "id": "modbus-frame-gap",
+          "title": "RTU 帧间隔没按 3.5 字符判",
+          "symptom": "从站收不到完整报文、相邻帧粘连",
+          "fix": "帧尾用字节间静默间隔（3.5 字符）判定，靠定时器计时，别只按包长切",
+          "keywords": [
+            "modbus",
+            "rtu",
+            "帧间隔",
+            "3.5字符",
+            "超时",
+            "静默"
+          ],
+          "refs": [
+            "Modbus over Serial Line 规范",
+            "Modbus 应用协议规范（Modbus Application Protocol V1.1b3）"
+          ]
+        },
+        {
+          "id": "modbus-crc",
+          "title": "CRC 计算/字节序逐项核对",
+          "symptom": "从站回异常码或 NACK",
+          "fix": "对照 CRC16（预置 0xFFFF、按位处理、结果低字节先发）逐项核对初值/多项式/反转/字节序，别照抄网上算法",
+          "keywords": [
+            "modbus",
+            "crc",
+            "校验",
+            "字节序",
+            "0xffff"
+          ],
+          "refs": [
+            "Modbus 应用协议规范（Modbus Application Protocol V1.1b3）"
+          ]
+        },
+        {
+          "id": "modbus-addr-func",
+          "title": "从站地址/功能码/异常码没对齐",
+          "symptom": "主站超时、从站不应答或报错",
+          "fix": "核对请求中的本机从站地址与功能码支持范围；读回异常码 01 非法功能/02 非法地址/03 非法数据/04 从站故障",
+          "keywords": [
+            "modbus",
+            "从站地址",
+            "功能码",
+            "异常码",
+            "超时"
+          ],
+          "refs": [
+            "Modbus 应用协议规范（Modbus Application Protocol V1.1b3）"
+          ]
+        },
+        {
+          "id": "modbus-reg-offset",
+          "title": "寄存器地址 0 基/1 基搞混",
+          "symptom": "读到的寄存器总差 1 个",
+          "fix": "协议地址是 0 基、数据表索引常给 1 基，转换时别差 1；整条链路用同一口径并在注释写明",
+          "keywords": [
+            "modbus",
+            "寄存器地址",
+            "0基",
+            "1基",
+            "偏移"
+          ],
+          "refs": [
+            "Modbus 应用协议规范（Modbus Application Protocol V1.1b3）"
+          ]
+        },
+        {
+          "id": "modbus-tcp-trid",
+          "title": "TCP 网关事务标识没核对",
+          "symptom": "并发请求响应错乱、回包对不上",
+          "fix": "每个请求递增事务标识（transaction id），响应必须校验回显的事务标识，超时重发用新事务标识",
+          "keywords": [
+            "modbus",
+            "tcp",
+            "事务标识",
+            "交易号",
+            "并发",
+            "网关"
+          ],
+          "refs": [
+            "Modbus 应用协议规范（Modbus Application Protocol V1.1b3）"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mpu",
+      "title": "MPU",
+      "pitfalls": [
+        {
+          "id": "mpu-size-align",
+          "title": "区域大小与对齐",
+          "symptom": "MPU 区域设置不生效或使能时配置被拒",
+          "fix": "区域大小必须是 2 的幂，基址按该大小对齐；先算好对齐关系再写配置，不要随手给任意尺寸",
+          "keywords": [
+            "mpu",
+            "2的幂",
+            "对齐",
+            "区域大小",
+            "size"
+          ],
+          "refs": [
+            "ARMv7-M Architecture Reference Manual (DDI 0403)",
+            "CMSIS Core（MPU 配置）"
+          ]
+        },
+        {
+          "id": "mpu-srd",
+          "title": "子区域掩码 SRD 误禁",
+          "symptom": "区域内有一部分地址被意外禁止访问",
+          "fix": "检查子区域禁止位 SRD：只有大小 ≥128 字节的 region 才能用 SRD 拆分，被屏蔽的子区不属于允许范围；核对 SRD 与真实使用区间",
+          "keywords": [
+            "mpu",
+            "srd",
+            "子区域",
+            "掩码",
+            "禁止"
+          ],
+          "refs": [
+            "ARMv7-M Architecture Reference Manual (DDI 0403)",
+            "CMSIS Core（MPU 配置）"
+          ]
+        },
+        {
+          "id": "mpu-bgnd",
+          "title": "背景区域（region 0）语义",
+          "symptom": "没被任何 region 覆盖的地址访问行为异常",
+          "fix": "属性默认来自背景区域（background）——即 region 0；想改默认内存属性就改 region 0，而不是漏配所有地址",
+          "keywords": [
+            "mpu",
+            "背景区域",
+            "region0",
+            "background",
+            "默认"
+          ],
+          "refs": [
+            "ARMv7-M Architecture Reference Manual (DDI 0403)"
+          ]
+        },
+        {
+          "id": "mpu-enable-order",
+          "title": "先配 region 再使能 MPU",
+          "symptom": "使能后内存访问仍不受预期约束",
+          "fix": "先逐个配置 region，最后写使能；使能后再改 region 要按规范重写并重新使能，顺序不能反",
+          "keywords": [
+            "mpu",
+            "使能",
+            "顺序",
+            "enable",
+            "region"
+          ],
+          "refs": [
+            "ARMv7-M Architecture Reference Manual (DDI 0403)",
+            "CMSIS Core（MPU 配置）"
+          ]
+        },
+        {
+          "id": "mpu-xn",
+          "title": "XN 位与取指",
+          "symptom": "CPU 跳进数据区/受保护区取指触发 HardFault",
+          "fix": "可执行区域不要设 XN；数据区设 XN 防止数据被当指令执行；跳转前确认目标区域的可执行属性",
+          "keywords": [
+            "mpu",
+            "xn",
+            "取指",
+            "指令",
+            "hardfault"
+          ],
+          "refs": [
+            "ARMv7-M Architecture Reference Manual (DDI 0403)"
           ]
         }
       ]
@@ -662,6 +1533,39 @@
             "引脚",
             "电流",
             "模拟"
+          ]
+        },
+        {
+          "id": "pwr-pvd-bor",
+          "title": "PVD/BOR 电压监控没用来抢掉电",
+          "symptom": "掉电瞬间数据没保存就复位",
+          "fix": "使能 PVD/BOR 阈值与中断，在电压跌到危险区前给提前量，中断里把关键参数写非易失（Flash 页/备份寄存器）",
+          "keywords": [
+            "pvd",
+            "bor",
+            "电量",
+            "掉电",
+            "电压监控",
+            "保存"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，对应外设章节）"
+          ]
+        },
+        {
+          "id": "pwr-pvd-save",
+          "title": "掉电抢救放慢中断里",
+          "symptom": "电压跌下去后还没存完就挂了",
+          "fix": "PVD 中断给最高优先级抢占，ISR 只做最关键的保存（小量关键参数），慢操作留主流程",
+          "keywords": [
+            "pvd",
+            "掉电",
+            "中断优先级",
+            "保存参数",
+            "抢救"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，对应外设章节）"
           ]
         }
       ]
@@ -731,7 +1635,8 @@
           ],
           "refs": [
             "STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）"
-          ]
+          ],
+          "next": "embedded-timing-calc timer --pclk <APB时钟> --freq <目标频率>"
         },
         {
           "id": "rcc-lse-startup",
@@ -759,6 +1664,267 @@
             "mco",
             "时钟输出",
             "示波器"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rtc",
+      "title": "RTC 实时时钟",
+      "pitfalls": [
+        {
+          "id": "rtc-bkp-wpr",
+          "title": "备份域/写保护链没解开",
+          "symptom": "写 RTC 或备份寄存器无效",
+          "fix": "按链解锁：先开 PWR 的 DBP（备份域访问）使能位，再通过 WPR 写保护键进入配置写，之后才能进初始化模式改时间",
+          "keywords": [
+            "rtc",
+            "备份域",
+            "写保护",
+            "dbp",
+            "wpr"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，RTC 章节）"
+          ]
+        },
+        {
+          "id": "rtc-first-init",
+          "title": "上电首次初始化判定不准",
+          "symptom": "每次复位都重算时间或数据被覆盖",
+          "fix": "用备份域复位标志（或备份寄存器的魔数标记）判断是否首次上电；条件满足才初始化 RTC 与备份寄存器，否则保留现有时间",
+          "keywords": [
+            "rtc",
+            "首次",
+            "初始化",
+            "备份域",
+            "标志"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，RTC 章节）"
+          ]
+        },
+        {
+          "id": "rtc-lse-slow",
+          "title": "LSE 起振慢/没起",
+          "symptom": "RTC 不走或每次都等到超时才准",
+          "fix": "LSE 起振可能有秒级延迟，等起振就绪标志再初始化；用测量/校准补偿晶振偏差，起振失败时按配置兜底到 LSI 或记录错误",
+          "keywords": [
+            "rtc",
+            "lse",
+            "起振",
+            "晶振",
+            "兜底"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，RTC 章节）"
+          ]
+        },
+        {
+          "id": "rtc-rsf-lock",
+          "title": "日历寄存器同步/锁没处理",
+          "symptom": "读到的日期时间错乱或写入被忽略",
+          "fix": "按参考手册等待日历同步完成标志后再读写；把秒/分/时/日期作为一个完整值读取，避免跨寄存器读造成不一致",
+          "keywords": [
+            "rtc",
+            "日历",
+            "rsf",
+            "同步",
+            "锁"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，RTC 章节）"
+          ]
+        },
+        {
+          "id": "rtc-wake-clock",
+          "title": "唤醒定时器时钟口径/单位搞错",
+          "symptom": "唤醒周期完全不对或不像预期",
+          "fix": "先确认唤醒定时器用的时钟源与预分频口径，换算触发周期时用同一个时基；需要保存上下文就借助备份寄存器（注意其写保护）",
+          "keywords": [
+            "rtc",
+            "唤醒",
+            "定时器",
+            "时钟口径",
+            "备份寄存器"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，RTC 章节）"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sd",
+      "title": "SD 卡 / FATFS",
+      "pitfalls": [
+        {
+          "id": "sd-init-clock",
+          "title": "上电初始化时钟超过 400kHz",
+          "symptom": "卡初始化失败、CMD0 无响应",
+          "fix": "初始化阶段把时钟压到 400kHz 以下进入卡模式（SPI/SD），身份识别完成后再提高时钟",
+          "keywords": [
+            "sd",
+            "时钟",
+            "400khz",
+            "初始化",
+            "cmd0"
+          ],
+          "refs": [
+            "SD 卡物理层规范（SD Physical Layer Simplified Specification）"
+          ]
+        },
+        {
+          "id": "sd-diskio",
+          "title": "diskio 实现层出问题",
+          "symptom": "挂载失败、一直 busy、读写成块错",
+          "fix": "先查 disk_initialize/disk_status/disk_read 的返回值和底层实现，FatFs 挂载失败 90% 出在 diskio 层",
+          "keywords": [
+            "sd",
+            "fatfs",
+            "diskio",
+            "挂载",
+            "disk_status"
+          ],
+          "refs": [
+            "FatFs 官方文档（diskio 层）"
+          ]
+        },
+        {
+          "id": "sd-dma-align",
+          "title": "DMA 与缓冲对齐",
+          "symptom": "SD DMA 搬出错、数据错位",
+          "fix": "缓冲地址与长度对齐到块/字边界，必要时用对齐缓冲或二次拷贝",
+          "keywords": [
+            "sd",
+            "dma",
+            "对齐",
+            "缓冲"
+          ],
+          "refs": [
+            "SD 卡物理层规范（SD Physical Layer Simplified Specification）"
+          ]
+        },
+        {
+          "id": "sd-wp-hotplug",
+          "title": "写保护/热插拔重挂载",
+          "symptom": "换卡后不识别、写失败、读不到新卡",
+          "fix": "实现卡插入/移除检测并在插拔后重挂载，处理写保护，挂载前重新初始化卡",
+          "keywords": [
+            "sd",
+            "写保护",
+            "热插拔",
+            "重挂载",
+            "mount"
+          ],
+          "refs": [
+            "FatFs 官方文档（diskio 层）"
+          ]
+        },
+        {
+          "id": "sd-sector",
+          "title": "扇区大小错配",
+          "symptom": "读写错位、部分数据丢",
+          "fix": "确认卡真实扇区大小（常见 512），FatFs 用对应扇区大小配置，底层块读写 length 与扇区对齐",
+          "keywords": [
+            "sd",
+            "扇区",
+            "sector",
+            "fatfs",
+            "512"
+          ],
+          "refs": [
+            "SD 卡物理层规范（SD Physical Layer Simplified Specification）",
+            "FatFs 官方文档（diskio 层）"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sensor-bus",
+      "title": "单总线 / 数字传感器",
+      "pitfalls": [
+        {
+          "id": "sensor-bus-timing",
+          "title": "1-Wire 微秒时序被中断打断",
+          "symptom": "偶发读不到器件、时序失败",
+          "fix": "reset/时隙等微秒级关键段关中断或屏蔽高优先级中断，配 DWT 周期级延时保证时序",
+          "keywords": [
+            "1wire",
+            "时序",
+            "中断",
+            "临界区",
+            "dwt",
+            "微秒"
+          ],
+          "refs": [
+            "Dallas Semiconductor 1-Wire 协议规范"
+          ]
+        },
+        {
+          "id": "sensor-bus-conv-wait",
+          "title": "转换等待用忙等",
+          "symptom": "主程序在读数处卡住几百毫秒",
+          "fix": "DS18B20 转换要 750ms 量级：发起转换后轮询/给任务让位，别在主循环裸忙等",
+          "keywords": [
+            "ds18b20",
+            "转换",
+            "750ms",
+            "忙等",
+            "阻塞"
+          ],
+          "refs": [
+            "DS18B20 数据手册"
+          ]
+        },
+        {
+          "id": "sensor-bus-search",
+          "title": "多器件并联没做搜索序列",
+          "symptom": "多个器件读出来值一样、找不到全部",
+          "fix": "用 SEARCH ROM 逐个匹配 64 位序列号再唯一寻址，别假定总线上只有一只",
+          "keywords": [
+            "1wire",
+            "搜索",
+            "序列号",
+            "rom",
+            "多器件"
+          ],
+          "refs": [
+            "Dallas Semiconductor 1-Wire 协议规范"
+          ]
+        },
+        {
+          "id": "sensor-bus-power",
+          "title": "上拉/寄生电源供电",
+          "symptom": "读数据全 1 或电平不稳",
+          "fix": "寄生电源模式下总线用较强上拉，转换供电不足是常见根因；能外部供电就外部供电更稳",
+          "keywords": [
+            "1wire",
+            "上拉",
+            "寄生电源",
+            "供电",
+            "读全1"
+          ],
+          "refs": [
+            "Dallas Semiconductor 1-Wire 协议规范",
+            "DS18B20 数据手册"
+          ]
+        },
+        {
+          "id": "sensor-bus-crc",
+          "title": "读了数据没做 CRC 校验",
+          "symptom": "偶发读到跳变/错误温度",
+          "fix": "1-Wire 数据带 CRC：读到后必须校验，失败不当作有效值用，重读并查上拉/线序",
+          "keywords": [
+            "1wire",
+            "crc",
+            "校验",
+            "温度",
+            "读错"
+          ],
+          "refs": [
+            "Dallas Semiconductor 1-Wire 协议规范",
+            "DS18B20 数据手册"
           ]
         }
       ]
@@ -853,7 +2019,8 @@
           ],
           "refs": [
             "STM32 参考手册（如 RM0090，通用定时器章节）"
-          ]
+          ],
+          "next": "embedded-timing-calc timer --pclk <时钟> --freq <目标频率>"
         },
         {
           "id": "tim-ug",
@@ -881,7 +2048,8 @@
             "刹车",
             "bdtr",
             "直通"
-          ]
+          ],
+          "next": "embedded-timing-calc deadtime --fsw <开关频率> --dt <目标死区>"
         },
         {
           "id": "tim-enc",
@@ -923,6 +2091,59 @@
             "trgo",
             "itr"
           ]
+        },
+        {
+          "id": "tim-braker",
+          "title": "刹车输入 break 没弄对",
+          "symptom": "PWM 意外关闭或锁死关不掉",
+          "fix": "核对 break 使能位/极性，刹车触发后要清 BRK 标志或重新去刹车才能恢复输出",
+          "keywords": [
+            "tim",
+            "刹车",
+            "break",
+            "互补",
+            "pwm",
+            "失效"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，对应外设章节）"
+          ]
+        },
+        {
+          "id": "tim-rep-trig",
+          "title": "重复计数器 REP 与触发同步没对齐",
+          "symptom": "每 N 次才更新一次、触发不同步",
+          "fix": "重复计数模式下更新事件/触发与 REP+1 对齐；需要每次更新就同步时把 REP 设 0",
+          "keywords": [
+            "tim",
+            "重复计数",
+            "rep",
+            "触发",
+            "同步",
+            "更新"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，对应外设章节）"
+          ],
+          "next": "embedded-register-lookup set <TIMx>.RCR REP=<重复次数> --chip <芯片>"
+        },
+        {
+          "id": "tim-deadzone",
+          "title": "互补死区数值算错",
+          "symptom": "死区波形不对、有直通风险",
+          "fix": "死区时间由 DTG 位域按分频与 tDTS 计算公式得出——先查相应用作死区计算的数值坑（next: timing-calc），别拿印象值手填",
+          "keywords": [
+            "tim",
+            "死区",
+            "互补",
+            "dtg",
+            "tdts",
+            "deadzone"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，对应外设章节）"
+          ],
+          "next": "embedded-timing-calc deadtime --fsw <开关频率> --dt <目标死区>"
         }
       ]
     },
@@ -943,7 +2164,8 @@
           ],
           "refs": [
             "STM32 参考手册（如 RM0090，USART 章节）"
-          ]
+          ],
+          "next": "embedded-timing-calc uart --pclk <APB时钟> --baud 115200"
         },
         {
           "id": "uart-clk",
@@ -1000,6 +2222,164 @@
           ],
           "refs": [
             "STM32 参考手册（如 RM0090，USART 章节）"
+          ]
+        },
+        {
+          "id": "uart-at-timeout",
+          "title": "AT 指令响应解析没超时",
+          "symptom": "AT 回包等不到、程序卡死",
+          "fix": "解析带超时（按模组 spec，通常>5s），按结尾标志判定响应，收不到直接报错重发，别无限等",
+          "keywords": [
+            "uart",
+            "at指令",
+            "解析",
+            "超时",
+            "卡死"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，对应外设章节）"
+          ]
+        },
+        {
+          "id": "uart-at-transparent",
+          "title": "AT 模组透传模式退不出",
+          "symptom": "发 +++ 没反应，一直停在数据透传",
+          "fix": "+++ 前后需静默间隔（常为毫秒级静默 + 无回显），按模组手册确认 +++ 退出序列与静默时间",
+          "keywords": [
+            "uart",
+            "at",
+            "透传",
+            "+++",
+            "静默",
+            "退出"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，对应外设章节）"
+          ]
+        },
+        {
+          "id": "uart-rtscts",
+          "title": "硬流控 RTS/CTS 接反",
+          "symptom": "只发不收、丢数据",
+          "fix": "核对 RTS/CTS 与对端接线（RTS↔CTS 交叉），示波器查 CTS 是否常拉低、使能位置",
+          "keywords": [
+            "uart",
+            "流控",
+            "rts",
+            "cts",
+            "接反",
+            "丢数据"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，对应外设章节）"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "usb",
+      "title": "USB 设备",
+      "pitfalls": [
+        {
+          "id": "usb-hsi48-no-crs",
+          "title": "USB 时钟没校准到 48MHz",
+          "symptom": "设备枚举失败或时好时坏、传输偶发超时",
+          "fix": "用 HSI48 作 USB 时钟时开启 CRS 自动校准，把时钟误差控制在 ±0.25% 内；必要时以 SOF 或外部参考信号同步",
+          "keywords": [
+            "usb",
+            "48mhz",
+            "hsi48",
+            "crs",
+            "时钟校准",
+            "枚举"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，时钟控制与 USB 章节）"
+          ]
+        },
+        {
+          "id": "usb-dp-pullup-soft-disconnect",
+          "title": "DP 上拉/软断开复位没做",
+          "symptom": "插拔后设备不能重新枚举，host 识别不到",
+          "fix": "热重连前先把 DP 上拉去掉做软断开，延迟一段时间后再恢复上拉，让 host 重新检测设备",
+          "keywords": [
+            "usb",
+            "dp",
+            "上拉",
+            "软断开",
+            "重新枚举",
+            "热插拔"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，USB 章节）"
+          ]
+        },
+        {
+          "id": "usb-ep0-descriptor",
+          "title": "端点0描述符长度/分包处理不当",
+          "symptom": "host 枚举失败，拿不到设备描述符或中途报错",
+          "fix": "按 USB 规范处理控制传输的 IN 包分帧：设备描述符前 64 字节要成包发送，设置地址与配置类请求要正确处理未完成包和实际长度",
+          "keywords": [
+            "usb",
+            "端点0",
+            "描述符",
+            "枚举",
+            "control transfer"
+          ],
+          "refs": [
+            "USB 2.0 规范（枚举流程）",
+            "STM32 参考手册（如 RM0440，USB 章节）"
+          ],
+          "next": "embedded-register-lookup lookup <USB>.EP0R --chip <芯片>"
+        },
+        {
+          "id": "usb-pma-buffer-align",
+          "title": "端点缓冲区对齐/大小不匹配",
+          "symptom": "端点收发异常、收错数据或 FIFO 打开失败",
+          "fix": "按参考手册核对每个端点的缓冲基地址对齐（字对齐）与分配的缓冲区大小，配置寄存器要落在允许范围内",
+          "keywords": [
+            "usb",
+            "端点缓冲",
+            "pma",
+            "对齐",
+            "内存"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，USB 章节）"
+          ]
+        },
+        {
+          "id": "usb-cdc-driver",
+          "title": "CDC 虚拟串口 Windows 枚举/驱动问题",
+          "symptom": "Win 里看不到虚拟串口或设备感叹号",
+          "fix": "核对 CDC 描述符（接口数、端点、配置），设备名/厂商 ID 避开已知冲突，必要时让 Windows 重新枚举（卸载驱动或换 USB 口）",
+          "keywords": [
+            "usb",
+            "cdc",
+            "虚拟串口",
+            "windows",
+            "驱动",
+            "枚举"
+          ],
+          "refs": [
+            "USB CDC 类规范",
+            "USB 2.0 规范（枚举流程）"
+          ]
+        },
+        {
+          "id": "usb-vbus-power",
+          "title": "供电/VBUS 检测没处理",
+          "symptom": "插上没反应，或插拔检测不到",
+          "fix": "检测 VBUS 电平（或按所接 USB 口协商电流）决定何时使能内部上拉启动枚举；欠载时不要贸然进枚举",
+          "keywords": [
+            "usb",
+            "vbus",
+            "供电",
+            "检测",
+            "枚举"
+          ],
+          "refs": [
+            "USB 2.0 规范（供电与检测章节）"
           ]
         }
       ]

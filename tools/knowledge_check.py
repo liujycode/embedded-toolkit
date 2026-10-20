@@ -45,9 +45,12 @@ def _iter_nodes(node):
         yield from _iter_nodes(child)
 
 
-def _lint_refs(node, problems):
-    """refs 若存在，必须是**非空**字符串数组（防占位）。"""
+def _lint_refs(node, problems, version):
+    """refs 若存在，必须是**非空**字符串数组（防占位）。仅 schema 1.1 允许出现。"""
     if "refs" not in node:
+        return
+    if version < 2:
+        problems.append("%s 含 refs，但 schema 为 1.0（refs 仅 schema 1.1 允许）" % node.get("id", "?"))
         return
     refs = node.get("refs")
     if not isinstance(refs, list) or not refs:
@@ -58,10 +61,57 @@ def _lint_refs(node, problems):
             problems.append("%s 的 refs 第 %d 项非法（必须是非空字符串）" % (node.get("id", "?"), i + 1))
 
 
+NEXT_SKILLS = ("lookup", "verify", "debug-trees", "pitfalls", "timing-calc")
+
+
+def _lint_next(node, problems, version):
+    """next：可选非空字符串，必须包含五个技能名之一。仅 schema 1.1 允许。"""
+    if "next" not in node:
+        return
+    if version < 2:
+        problems.append("%s 含 next，但 schema 为 1.0（next 仅 schema 1.1 允许）" % node.get("id", "?"))
+        return
+    nxt = node.get("next")
+    if not isinstance(nxt, str) or not nxt.strip():
+        problems.append("%s 的 next 非法（必须是非空字符串）" % node.get("id", "?"))
+        return
+    if not any(s in nxt for s in NEXT_SKILLS):
+        problems.append("%s 的 next 未指向已知技能（应为 lookup/verify/debug-trees/pitfalls/timing-calc 之一）：%s"
+                        % (node.get("id", "?"), nxt))
+
+
+def _lookup_ids(db):
+    ids = set()
+    for tree in db["trees"]:
+        for n in _iter_nodes(tree):
+            ids.add(n["id"])
+    return ids
+
+
+def _lint_see(node, problems, known, version):
+    """see：可选字符串（"树id/节点id" 或 "节点id"），必须能在已知节点解析。"""
+    if "see" not in node:
+        return
+    if version < 2:
+        problems.append("%s 含 see，但 schema 为 1.0（see 仅 schema 1.1 允许）" % node.get("id", "?"))
+        return
+    s = node.get("see")
+    if not isinstance(s, str) or not s.strip():
+        problems.append("%s 的 see 非法（必须是非空字符串）" % node.get("id", "?"))
+        return
+    target = s.strip().split("/")[-1]
+    if target not in known:
+        problems.append("%s 的 see 指向不存在的节点：%s" % (node.get("id", "?"), s))
+    elif target == node.get("id"):
+        problems.append("%s 的 see 指向自身：%s" % (node.get("id", "?"), s))
+
+
 def lint_db(skill, db, problems):
-    """schema 校验：必填字段、唯一 id、keywords/fixes 非空。"""
+    """schema 校验：必填字段、唯一 id、keywords/fixes 非空 + refs/next/see 格式。"""
     seen = set()
+    version = 2 if db.get("schema", "").endswith("/1.1") else 1  # 1.1→2, 1.0→1
     if skill == "embedded-debug-trees":
+        known = _lookup_ids(db)
         for tree in db["trees"]:
             if not tree.get("rootcauses"):
                 problems.append("树 %s 缺 rootcauses" % tree["id"])
@@ -83,7 +133,8 @@ def lint_db(skill, db, problems):
                     problems.append("节点 %s 缺 symptom" % nid)
                 if not node.get("keywords"):
                     problems.append("节点 %s 缺 keywords" % nid)
-                _lint_refs(node, problems)
+                _lint_refs(node, problems, version)
+                _lint_see(node, problems, known, version)
     else:
         for cat in db["categories"]:
             if not cat.get("pitfalls"):
@@ -100,7 +151,8 @@ def lint_db(skill, db, problems):
                         problems.append("坑位 %s 缺 %s" % (pid, field))
                 if p.get("fix_alt") is not None and "fix_alt" in p:
                     problems.append("坑位 %s 含遗留字段 fix_alt" % pid)
-                _lint_refs(p, problems)
+                _lint_refs(p, problems, version)
+                _lint_next(p, problems, version)
         if not db.get("rule"):
             problems.append("缺配置口诀 rule")
     return seen
@@ -136,6 +188,8 @@ def _render_node(node, depth, lines):
         lines.append("%s  - 对策：%s" % (pad, fix))
     if node.get("refs"):
         lines.append("%s  - 依据：%s" % (pad, "；".join(node["refs"])))
+    if node.get("see"):
+        lines.append("%s  - 转入：%s" % (pad, node["see"]))
     for child in node.get("children", []):
         _render_node(child, depth + 1, lines)
 
@@ -152,8 +206,13 @@ def _pitfalls_md(db):
                 p["title"], p.get("symptom", "-"), p.get("fix", "-")))
         lines.append("")
         for p in cat["pitfalls"]:
-            if p.get("refs"):
-                lines.append("- **%s** 依据：%s" % (p["title"], "；".join(p["refs"])))
+            if p.get("refs") or p.get("next"):
+                note = []
+                if p.get("refs"):
+                    note.append("依据：%s" % "；".join(p["refs"]))
+                if p.get("next"):
+                    note.append("下一步：%s" % p["next"])
+                lines.append("- **%s** %s" % (p["title"], "；".join(note)))
         lines.append("")
     lines.append("## 配置口诀")
     lines.append("")

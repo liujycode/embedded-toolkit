@@ -59,6 +59,28 @@ def tokenize(query):
     return sorted(set(out))
 
 
+def _bigrams(s):
+    out = set()
+    for seg in re.findall(r"[\u4e00-\u9fff]+", s):
+        n = len(seg)
+        for i in range(n - 1):
+            out.add(seg[i:i + 2])
+    return out
+
+
+def bigram_boost(text, raw, weight=0.5):
+    """中文 bigram 兜底排序加成：≤weight（整句查询无关键词命中时的排序兜底）。"""
+    if len(raw) < 4:
+        return 0.0
+    rb = _bigrams(raw)
+    if not rb:
+        return 0.0
+    tb = _bigrams(text)
+    if not tb:
+        return 0.0
+    return min(weight, weight * len(rb & tb) / len(rb))
+
+
 def node_text(pitfall, cat):
     return " ".join([
         cat.get("id", ""), cat.get("title", ""),
@@ -84,6 +106,8 @@ def match_count(text, terms, node=None, raw=""):
                          if len(kw) >= 2 and re.search(r"[\u4e00-\u9fff]", kw) and kw in raw)
         elif re.search(r"[a-z0-9_]*%s[a-z0-9_]*" % re.escape(t), text):
             n += 1
+    if n and raw:
+        n += bigram_boost(text, raw)
     return n
 
 
@@ -141,6 +165,8 @@ def cmd_search(args, out):
         print("  对策：%s" % p.get("fix", "-"))
         if p.get("refs"):
             print("  依据：%s" % "；".join(p["refs"]))
+        if p.get("next"):
+            print("  下一步：%s" % p["next"])
         print()
     if len(hits) > 8:
         print("（只显示前 8 条，共 %d 条——加限定词或用 show <类别> 收窄）" % len(hits))
@@ -167,6 +193,8 @@ def cmd_show(args, out):
     for p in cat.get("pitfalls", []):
         if p.get("refs"):
             print("- [%s] %s 依据：%s" % (p["id"], p["title"], "；".join(p["refs"])))
+        if p.get("next"):
+            print("- [%s] %s 下一步：%s" % (p["id"], p["title"], p["next"]))
     return 0
 
 
@@ -215,6 +243,19 @@ def cmd_demo(args, out):
         ("停机模式唤醒乱码", "pwr"),
         ("CAN 收不到报文", "can"),
         ("DMA 收不到数据", "dma"),
+        ("USB 枚举失败", "usb"),
+        ("Flash 写不进去", "flash"),
+        ("RTC 每次上电重置时间", "rtc"),
+        ("CRC 算出来对不上", "crc"),
+        ("MPU 配置没生效", "mpu"),
+        ("调试器断开程序卡死", "dbg"),
+        ("链接脚本段溢出", "link"),
+        ("ETH 网口 ping 不通", "eth"),
+        ("SD 卡挂载失败", "sd"),
+        ("volatile 变量被优化", "c"),
+        ("Modbus 收不到完整帧", "modbus"),
+        ("DS18B20 温度读不出来", "sensor-bus"),
+        ("DAC 输出波形不对", "dac"),
     ]
     failed = []
     for query, expect in probes:

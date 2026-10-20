@@ -71,6 +71,38 @@ TREE_CASES = [
     ("CAN 报发送失败，一直发送超时", "can"),
     ("总线上一直插入错误帧，最后进 bus-off", "can"),
     ("CAN-FD 的收发器 STB 待机脚电平不对", "can"),
+    ("两端波特率不一样，一上高速就出错，采样点也不对", "can"),
+    ("一直在总线上插错误帧，错误计数 TEC 偏高", "can"),
+    ("进了 bus-off 之后怎么恢复，要不要手动重进初始化", "can"),
+    ("总线两端要不要各接一个 120 欧终端电阻，收发器 STB 脚电平怎么量", "can"),
+    ("我想只收某一个 ID 的报文，其它都滤掉，过滤器掩码怎么配", "can"),
+    ("发送邮箱满了没清，后续报文一直发不出去，是不是发送超时", "can"),
+    ("插上电脑识别不到设备，先量 48Mhz 时钟有没有", "usb"),
+    ("设备管理器一直报 错误43，枚举老失败卡在描述符", "usb"),
+    ("插上之后根本不弹设备也没反应，识别不到，查 DP 上拉和软断开", "usb"),
+    ("枚举卡在描述符请求那一步，设备管理器显示未知设备", "usb"),
+    ("设备管理器里没有虚拟串口，是不是 CDC 驱动没装", "usb"),
+    ("传输偶发丢字节，怀疑 PMA 缓冲对齐不对", "usb"),
+    ("往 flash 写数据写不进去，写完读回来还是旧值", "flash"),
+    ("整页擦除失败，擦完读回来数据还在", "flash"),
+    ("写完马上读是旧数据，是不是没轮询 busy 标志", "flash"),
+    ("在中断里做页擦除程序卡死，还有看门狗复位", "flash"),
+    ("配了选项字节读保护后 SWD 连不上，flash 也读不出来", "flash"),
+    ("先解锁再写但顺序不对，写不生效", "flash"),
+    ("RTC 走时不准，一天差出好几秒", "rtc"),
+    ("掉电再上电时间就重置回出厂，是不是没判首次上电标志直接跑了初始化", "rtc"),
+    ("备份域一掉电配置就丢，写保护链路没走完", "rtc"),
+    ("RTC 走时快慢不定，怀疑 LSE 32.768k 没起振", "rtc"),
+    ("RTC 唤醒定时器没到点就醒，闹钟周期不对", "rtc"),
+    ("读时间老是跳变，读数不对，是不是没做同步握手", "rtc"),
+    ("屏幕全黑不亮，先查背光", "display"),
+    ("屏幕全白没画面，背光是亮的", "display"),
+    ("复位后第一次显示就花屏，颜色发怪", "display"),
+    ("刷新时画面上下撕裂，想加 TE 双缓冲", "display"),
+    ("触摸坐标偏了，点的地方和显示位置对不上，怎么校准", "display"),
+    ("复位脚脉宽不够，屏偶尔不亮，上电序列要先查", "display"),
+    ("USART 收发老丢字节，最后一个字节总丢，方向切换时机对不对", "comm"),
+    ("DMA 请求使能没开，配置都对就是不搬", "dma"),
 ]
 
 # (查询, 期望坑位 id)
@@ -143,6 +175,84 @@ PITFALL_CASES = [
     ("DMA 一直不触发怀疑请求映射选错了", "dma-req"),
     ("高带宽外设 DMA 欠载丢数据", "dma-priority"),
     ("DMA 中断只进一次，标志位没清干净", "dma-flags"),
+    ("USB 用 HSI48 做时钟 48MHz 误差大，Windows 一直枚举失败", "usb-hsi48-no-crs"),
+    ("USB 热插拔后要软断开重新枚举吗，host 现在识别不到设备", "usb-dp-pullup-soft-disconnect"),
+    ("USB 端点0 描述符发送不完整，主机枚举到一半失败", "usb-ep0-descriptor"),
+    ("USB 端点缓冲 PMA 对齐不对，收发数据老是错", "usb-pma-buffer-align"),
+    ("USB CDC 虚拟串口 Windows 里看不到，设备管理器有感叹号", "usb-cdc-driver"),
+    ("USB 插上 VBUS 没反应，是不是供电检测没做", "usb-vbus-power"),
+    ("Flash 擦写前没解锁，一直读回旧数据还报 busy", "fl-keyr-bsy"),
+    ("在中断里做 Flash 页擦除，系统卡死", "fl-erase-in-isr"),
+    ("Flash 写入要对齐半字，我按字节写校验不过", "fl-write-align"),
+    ("Flash 擦写时 CPU 取指被暂停，跑在 Flash 里的代码卡顿", "fl-stall-porch"),
+    ("改了 Flash 选项字节不生效，是不是要重载", "fl-option-byte-reload"),
+    ("RTC 备份域写保护没解开，改时间无效", "rtc-bkp-wpr"),
+    ("RTC 每次上电时间都重置，没做首次上电判断", "rtc-first-init"),
+    ("RTC 用的 LSE 晶振起振慢，走时不准", "rtc-lse-slow"),
+    ("RTC 读日历寄存器总是错乱，没等同步", "rtc-rsf-lock"),
+    ("RTC 唤醒定时器周期不对，时钟口径搞错了", "rtc-wake-clock"),
+    ("DAC 输出波形爬升很慢，是不是缓冲摆率不够", "dac-buffer-slew"),
+    ("DAC 直连高阻负载输出电压被拉低", "dac-load-cap"),
+    ("DAC 用 DMA 双通道输出波形错位", "dac-dma-align"),
+    ("DAC 输出噪声大，参考基准不稳", "dac-noise-ref"),
+    ("CRC 和 PC 工具算的结果对不上，是不是参数没对齐", "crc-param-mismatch"),
+    ("CRC 按字访问数据没对齐，结果随访问方式变化", "crc-byte-align"),
+    ("硬件 CRC 多项式是固定的，想算自定义多项式怎么办", "crc-fixed-polynomial"),
+    ("CRC 连续算几个数据块结果不对，是不是没复位初始值", "crc-reset-state"),
+    ("MPU 区域大小 是不是要 2 的幂并且对齐，配置不生效", "mpu-size-align"),
+    ("MPU 子区域掩码 SRD 误禁了一部分地址", "mpu-srd"),
+    ("MPU 没被 region 覆盖的地址访问异常，背景区域怎么配", "mpu-bgnd"),
+    ("MPU 要先配 region 再使能，顺序搞反了", "mpu-enable-order"),
+    ("MPU 把数据区设成可执行，CPU 跳进去取指 HardFault", "mpu-xn"),
+    ("printf 重定向没做好，串口什么也不输出", "dbg-printf"),
+    ("脱机跑就卡死，插上调试器反而正常，是不是 semihosting", "dbg-semihosting"),
+    ("SWO 输出全是乱码，波特率对不上", "dbg-swo"),
+    ("RTT 看不到输出，控制块缓冲定位错", "dbg-rtt"),
+    ("打断点程序行为就变，是不是调试冻结位 DBGMCU", "dbg-dbgmcu"),
+    ("跳 Bootloader 后中断进错，向量表偏移 VTOR 没配", "link-vtor"),
+    ("启动文件里 栈 和 堆 的大小要跟链接脚本一致，malloc 失败", "link-stack-heap"),
+    ("链接时报 .bss 段 溢出 overflow，放不下", "link-overflow"),
+    ("把函数放 RAM 段属性里，复位后没被拷贝", "link-ramfunc"),
+    ("SystemInit 没被调用，启动时钟没配", "link-sysinit"),
+    ("全局变量 初始值不对，启动文件里的 init_array 初始化没跑", "link-init-array"),
+    ("以太网 RMII 需要 50MHz 参考时钟，没接 PHY 不工作", "eth-rmii-clock"),
+    ("PHY 寄存器地址读不到，返回 ID 不对，怀疑 MDIO 频率", "eth-phy-mdio"),
+    ("以太网描述符 cache 一致性没处理，丢包", "eth-desc-cache"),
+    ("lwIP 的 pbuf 内存池太小，连接多了丢包", "eth-lwip-mem"),
+    ("ping 不通要从链路层开始分层查吗", "eth-ping-layer"),
+    ("SD 卡上电初始化时钟要降到 400kHz 以下，CMD0 无响应", "sd-init-clock"),
+    ("FatFs 挂载失败，diskio 层实现有问题", "sd-diskio"),
+    ("SD 的 DMA 缓冲要对齐块边界，数据错位", "sd-dma-align"),
+    ("SD 卡热插拔换卡后要重挂载，写保护没处理", "sd-wp-hotplug"),
+    ("SD 卡扇区大小配错 512，读写错位", "sd-sector"),
+    ("中断改了共享变量主循环读到的还是旧值，缺 volatile", "c-volatile"),
+    ("空循环延时被优化没了，时间完全不对", "c-delay-loop"),
+    ("直接用指针强转结构体解析协议字段错位", "c-struct-pack"),
+    ("有符号 整数 右移 溢出 是未定义行为 UB，开优化就变怪", "c-ub"),
+    ("ISR 和主循环共享位域 并发读写会错乱", "c-bitfield-rw"),
+    ("宏 参数没加 括号，展开结果不对", "c-macro-paren"),
+    ("函数里开大数组 栈 爆了，进函数就 HardFault", "c-stack-array"),
+    ("Modbus RTU 帧间隔按 3.5 字符判定，从站收不到完整报文", "modbus-frame-gap"),
+    ("Modbus CRC16 字节序和初值 0xFFFF 对不上，回异常码", "modbus-crc"),
+    ("Modbus 主站发请求从站不应答，功能码和从站地址对不上", "modbus-addr-func"),
+    ("Modbus 寄存器地址总是差 1 个，0 基 1 基搞混", "modbus-reg-offset"),
+    ("Modbus TCP 事务标识 没核对，并发 时响应容易错乱", "modbus-tcp-trid"),
+    ("1-Wire 复位时序被中断打断，偶发读不到器件", "sensor-bus-timing"),
+    ("DS18B20 转换等 750ms 用 忙等，主循环卡住", "sensor-bus-conv-wait"),
+    ("总线上并联多个 1-Wire 器件，要做 SEARCH ROM 搜索序列号", "sensor-bus-search"),
+    ("1-Wire 寄生电源供电不足，读数据全是 1", "sensor-bus-power"),
+    ("DS18B20 读了温度没做 CRC 校验，偶尔读错", "sensor-bus-crc"),
+    ("掉电瞬间数据没保存就复位，是不是没开 PVD 电压监控", "pwr-pvd-bor"),
+    ("PVD 掉电抢救 要把中断优先级设最高，快速保存参数", "pwr-pvd-save"),
+    ("I2C EEPROM 页写跨页，长数据只写了一半", "i2c-eeprom-page"),
+    ("发 AT 指令 收不到回包，解析没超时 直接卡死", "uart-at-timeout"),
+    ("AT 模组透传模式退不出，发 +++ 没反应", "uart-at-transparent"),
+    ("RTS CTS 硬流控接反了，只发不收", "uart-rtscts"),
+    ("PWM 意外关闭，刹车输入 break 没弄对", "tim-braker"),
+    ("定时器 用 重复计数 REP 模式，触发更新每 N 次才对", "tim-rep-trig"),
+    ("互补输出 死区 时间用 DTG 位算，tDTS 分频怎么取", "tim-deadzone"),
+    ("注入组触发和 PWM 没同步，采样到的相电流不对", "adc-inject-trig"),
+    ("双 ADC 交替模式主从没配，两片数据不一致", "adc-dual-mode"),
 ]
 
 
@@ -168,51 +278,74 @@ def evaluate():
         for tree in tdb["trees"]:
             trees.walk(tree, terms, [], hits, query.lower())
         got = [(h[1][0] if h[1] else h[2].get("id")) for h in hits]
-        ok = expect in got
-        rows.append(("debug-trees", query, expect, ok, got[:4]))
-        if not ok:
+        rank = got.index(expect) + 1 if expect in got else 0
+        rows.append(("debug-trees", query, expect, rank))
+        if not rank:
             miss.append(("debug-trees", query, expect, got[:4]))
     for query, expect in PITFALL_CASES:
         terms = pitfalls.tokenize(query)
         hits = pitfalls.search(pdb, terms, raw=query.lower())
         got = [h[2]["id"] for h in hits]
-        ok = expect in got
-        rows.append(("pitfalls", query, expect, ok, got[:4]))
-        if not ok:
+        rank = got.index(expect) + 1 if expect in got else 0
+        rows.append(("pitfalls", query, expect, rank))
+        if not rank:
             miss.append(("pitfalls", query, expect, got[:4]))
     total = len(rows)
     hit = sum(1 for r in rows if r[3])
-    return rows, hit, total, miss
+    # precision@1 / MRR
+    p1 = sum(1 for r in rows if r[3] == 1) / total
+    mrr = sum(1.0 / r[3] for r in rows if r[3]) / total
+    return rows, hit, total, miss, p1, mrr
 
 
-def write_doc(rows, hit, total):
+def write_doc(rows, hit, total, p1, mrr):
     lines = [
         "# 知识检索评测（embedded-debug-trees / embedded-peripheral-pitfalls）",
         "",
         "用例 = 真实症状/场景查询 + 期望命中的树或坑位（注入式，逐条 ground truth）；",
         "被测实现 = 技能脚本里的检索函数本体（import 复用，测的就是分发代码）。",
         "",
-        "| 技能 | 用例 | 命中 | 召回 |",
-        "|---|---|---|---|",
+        "| 技能 | 用例 | 命中 | 召回 | p@1 | MRR |",
+        "|---|---|---|---|---|---|",
     ]
     t_rows = [r for r in rows if r[0] == "debug-trees"]
     p_rows = [r for r in rows if r[0] == "pitfalls"]
-    lines.append("| embedded-debug-trees（按树） | %d | %d | %.1f%% |" % (
-        len(t_rows), sum(1 for r in t_rows if r[3]), 100.0 * sum(1 for r in t_rows if r[3]) / len(t_rows)))
-    lines.append("| embedded-peripheral-pitfalls（按坑位） | %d | %d | %.1f%% |" % (
-        len(p_rows), sum(1 for r in p_rows if r[3]), 100.0 * sum(1 for r in p_rows if r[3]) / len(p_rows)))
-    lines.append("| **合计** | **%d** | **%d** | **%.1f%%** |" % (
-        total, hit, 100.0 * hit / total))
+
+    def _metrics(rs):
+        h = sum(1 for r in rs if r[3])
+        return (100.0 * h / len(rs),
+                100.0 * sum(1 for r in rs if r[3] == 1) / len(rs),
+                100.0 * sum(1.0 / r[3] for r in rs if r[3]) / len(rs))
+
+    tr, tp, tm = _metrics(t_rows)
+    pr, pp, pm = _metrics(p_rows)
+    lines.append("| embedded-debug-trees（按树） | %d | %d | %.1f%% | %.1f%% | %.1f%% |" % (
+        len(t_rows), sum(1 for r in t_rows if r[3]), tr, tp, tm))
+    lines.append("| embedded-peripheral-pitfalls（按坑位） | %d | %d | %.1f%% | %.1f%% | %.1f%% |" % (
+        len(p_rows), sum(1 for r in p_rows if r[3]), pr, pp, pm))
+    lines.append("| **合计** | **%d** | **%d** | **%.1f%%** | **%.1f%%** | **%.1f%%** |" % (
+        total, hit, 100.0 * hit / total, 100.0 * p1, 100.0 * mrr))
     lines.append("")
     if hit < total:
         lines.append("## 未命中用例")
         lines.append("")
-        for skill, query, expect, got in [(m[0], m[1], m[2], m[3]) for m in rows if not m[3]]:
-            lines.append("- [%s] %s → 期望 %s，实际命中 %s" % (
-                skill, query, expect, "、".join(got) if got else "（无）"))
+        for m in rows:
+            if not m[3]:
+                lines.append("- [%s] %s → 期望 %s，实际命中否" % (m[0], m[1], m[2]))
+        lines.append("")
+    worse = [m for m in rows if m[3] and m[3] > 3]
+    worse.sort(key=lambda m: -m[3])
+    if worse:
+        lines.append("## 期望排名 >3 的用例（p@1/MRR 可改进点）")
+        lines.append("")
+        lines.append("| 技能 | 用例 | 期望目标 | 排名 |")
+        lines.append("|---|---|---|---|")
+        for skill, query, expect, rank in worse:
+            lines.append("| %s | %s | %s | %d |" % (skill, query, expect, rank))
         lines.append("")
     lines.append("口径：查询经技能自带 tokenize + 同义词 + 反向关键词匹配后，期望的树/坑位出现在"
-                 "命中列表（任意排名）即为命中。")
+                 "命中列表即为命中（召回）；排名=期望目标在命中列表的位置；p@1=期望目标排第 1 的占比；"
+                 "MRR=期望目标倒数排名的均值。召回 100% 是硬门禁，p@1/MRR 首版基线只报告不设门。")
     with open(DOC, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines) + "\n")
     print("已写入 %s" % os.path.relpath(DOC, ROOT))
@@ -226,13 +359,18 @@ def main():
     group.add_argument("--check", action="store_true", help="评测（<100%% 退出码 1）")
     group.add_argument("--doc", action="store_true", help="评测并写 benchmarks/knowledge-recall.md")
     args = parser.parse_args()
-    rows, hit, total, miss = evaluate()
-    print("检索评测：%d/%d 命中（%.1f%%）" % (hit, total, 100.0 * hit / total))
+    rows, hit, total, miss, p1, mrr = evaluate()
+    if os.environ.get("KB_DEBUG"):
+        from collections import Counter
+        print("DBG rank dist:", sorted(Counter(r[3] for r in rows).items()))
+        print("DBG ROOT:", ROOT)
+    print("检索评测：%d/%d 命中（%.1f%%）  p@1=%.1f%%  MRR=%.1f%%"
+          % (hit, total, 100.0 * hit / total, 100.0 * p1, 100.0 * mrr))
     for skill, query, expect, got in miss:
         print("  未命中 [%s] %s → 期望 %s，实际 %s" % (
             skill, query, expect, "、".join(got) if got else "（无）"))
     if args.doc:
-        write_doc(rows, hit, total)
+        write_doc(rows, hit, total, p1, mrr)
     return 0 if hit == total else 1
 
 

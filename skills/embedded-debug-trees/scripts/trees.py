@@ -65,6 +65,33 @@ def tokenize(query):
     return sorted(set(out))
 
 
+def _bigrams(s):
+    """取一段文本里中文连续字符的所有相邻二元组（滑窗，跨零宽断开）。"""
+    out = set()
+    for seg in re.findall(r"[\u4e00-\u9fff]+", s):
+        n = len(seg)
+        for i in range(n - 1):
+            out.add(seg[i:i + 2])
+    return out
+
+
+def bigram_boost(text, raw, weight=0.5):
+    """中文 bigram 兜底排序加成：≤weight。
+
+    仅当节点文本与原始查询串共享若干相邻中文二元组时给少量加分，用于"整句查询
+    没有命中任何关键词"时的排序兜底（与反向关键词匹配叠加，权重 ≤1 不喧宾夺主）。
+    """
+    if len(raw) < 4:
+        return 0.0
+    rb = _bigrams(raw)
+    if not rb:
+        return 0.0
+    tb = _bigrams(text)
+    if not tb:
+        return 0.0
+    return min(weight, weight * len(rb & tb) / len(rb))
+
+
 def node_text(node):
     return " ".join([
         node.get("id", ""), node.get("title", ""),
@@ -79,6 +106,7 @@ def hit_count(node, terms, raw=""):
 
     中文整句查询不做分词——补一层反向匹配：节点关键词（≥2 字中文）出现在原始查询
     串里按命中关键词个数计分（"调试时老是复位" 命中 "调试"+"复位" 计 2 分，排序更准）。
+    bigram_boost 在无关键词反向命中时也给出少量兜底排序加成。
     """
     text = node_text(node)
     n = 0
@@ -91,6 +119,8 @@ def hit_count(node, terms, raw=""):
                          if len(kw) >= 2 and re.search(r"[\u4e00-\u9fff]", kw) and kw in raw)
         elif re.search(r"[a-z0-9_]*%s[a-z0-9_]*" % re.escape(t), text):
             n += 1
+    if n and raw:
+        n += bigram_boost(text, raw)
     return n
 
 
@@ -159,6 +189,8 @@ def cmd_search(args, out):
             print("  对策：%s" % fix)
         if node.get("refs"):
             print("  依据：%s" % "；".join(node["refs"]))
+        if node.get("see"):
+            print("  转入：%s" % node["see"])
         print()
     if total > 8:
         print("（只显示前 8 条，共 %d 条——加限定词或用 show <树名> 收窄）" % total)
@@ -178,6 +210,8 @@ def _render(node, depth, lines):
         lines.append("%s  - 对策：%s" % (pad, fix))
     if node.get("refs"):
         lines.append("%s  - 依据：%s" % (pad, "；".join(node["refs"])))
+    if node.get("see"):
+        lines.append("%s  - 转入：%s" % (pad, node["see"]))
     for child in node.get("children", []):
         _render(child, depth + 1, lines)
 
@@ -263,6 +297,10 @@ def cmd_demo(args, out):
         ("上电起不来", "boot"),
         ("唤醒后乱码", "pwr"),
         ("CAN 通信不通", "can"),
+        ("USB 插上电脑没反应", "usb"),
+        ("Flash 写进去读出来不对", "flash"),
+        ("RTC 每次上电时间都重置", "rtc"),
+        ("屏幕整块白屏不显示", "display"),
     ]
     failed = []
     for query, expect in probes:

@@ -10,7 +10,7 @@
     {
       "name": "embedded-toolkit",
       "source": ".",
-      "description": "四个技能：寄存器百事通（CMSIS SVD 查询/解码/宏/对比/体检）+ 寄存器核验器（核验 C 代码寄存器写入，报/未判定/通过分桶）+ 排障决策树（HardFault/通信/DMA/RTOS/启动/低功耗六棵树）+ 外设避坑清单（十一类外设 61 坑）",
+      "description": "四个技能：寄存器百事通（CMSIS SVD 查询/解码/宏/对比/体检）+ 寄存器核验器（核验 C 代码寄存器写入，报/未判定/通过分桶）+ 排障决策树（HardFault/通信/DMA/RTOS/启动/低功耗/CAN/USB/Flash/RTC/LCD 十一棵树）+ 外设避坑清单（二十五类外设 147 坑）",
       "category": "development",
       "tags": ["embedded", "mcu", "stm32", "svd", "register", "verify", "debug", "pitfalls"]
     }

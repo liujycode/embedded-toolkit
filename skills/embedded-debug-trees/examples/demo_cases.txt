@@ -1,6 +1,6 @@
 /*
  * 排障决策树演示用例：一段"症状卡片"，配合 trees.py 演示检索路径。
- * 本文件不需要编译——它描述的 5 个症状分别命中五棵决策树的典型入口。
+ * 本文件不需要编译——它描述的症状分别命中十一棵决策树的典型入口。
  *
  * 症状 1（hardfault 树 / precise 节点）：
  *   外设时钟未使能就访问寄存器 → HardFault PRECISERR
@@ -30,6 +30,22 @@
  *   CAN 总线无波形，收发器/终端电阻/待机脚问题
  *   演示：python scripts/trees.py search "CAN 终端电阻 波形"
  *
- * 每个检索返回：命中节点路径、证据采集动作、判定、对策。
- * 通读全树：python scripts/trees.py show <hardfault|comm|dma|can|rtos|boot|pwr>
+ * 症状 8（usb 树 / usb-enum 节点）：
+ *   USB 插上电脑没反应，设备管理器没弹设备
+ *   演示：python scripts/trees.py search "USB 插上电脑没反应"
+ *
+ * 症状 9（flash 树 / fl-wait 节点）：
+ *   Flash 整页擦除失败，写完读回还是旧值
+ *   演示：python scripts/trees.py search "Flash 写进去读出来不对"
+ *
+ * 症状 10（rtc 树 / rtc-first 节点）：
+ *   RTC 每次上电时间都重置，备份域配置丢失
+ *   演示：python scripts/trees.py search "RTC 每次上电时间都重置"
+ *
+ * 症状 11（display 树 / disp-backlight 节点）：
+ *   屏幕整块全白没画面，背光是亮的
+ *   演示：python scripts/trees.py search "屏幕整块白屏不显示"
+ *
+ * 每个检索返回：命中节点路径、证据采集动作、判定、对策；部分节点带"转入"跨树线索。
+ * 通读全树：python scripts/trees.py show <hardfault|comm|dma|can|rtos|boot|pwr|usb|flash|rtc|display>
  */

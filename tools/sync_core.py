@@ -21,12 +21,30 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "shared", "etk_core")
 
 
+def _imports_core(scripts):
+    """该技能的 scripts 里是否有任一 .py 真正 import/from etk_core。"""
+    for f in os.listdir(scripts):
+        if not f.endswith(".py"):
+            continue
+        path = os.path.join(scripts, f)
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    s = line.strip()
+                    if s.startswith("import etk_core") or s.startswith("from etk_core"):
+                        return True
+        except OSError:
+            continue
+    return False
+
+
 def skill_targets():
+    """只同步真正 import etk_core 的技能（知识技能等纯检索技能不带核心库）。"""
     base = os.path.join(ROOT, "skills")
     targets = []
     for name in sorted(os.listdir(base)):
         scripts = os.path.join(base, name, "scripts")
-        if os.path.isdir(scripts):
+        if os.path.isdir(scripts) and _imports_core(scripts):
             targets.append(os.path.join(scripts, "etk_core"))
     return targets
 

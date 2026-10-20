@@ -38,10 +38,13 @@ def test_knowledge_schema_and_same_source():
 
 
 def test_knowledge_retrieval_bench():
-    """检索评测：106 条场景查询全部命中期望的树/坑位。"""
-    rows, hit, total, miss = knowledge_bench.evaluate()
+    """检索评测：全部场景查询命中期望的树/坑位（召回 100% 硬门禁）；
+    precision@1 与 MRR 为首版基线，只断言取值在合法区间、不设硬门。"""
+    rows, hit, total, miss, p1, mrr = knowledge_bench.evaluate()
     assert total >= 100, "用例数不应缩水：%d" % total
     assert hit == total, "未命中：%s" % [(m[0], m[1], m[2]) for m in miss]
+    assert 0.0 <= p1 <= 1.0 and 0.0 <= mrr <= 1.0, \
+        "p@1/MRR 应为 0..1（p@1=%.4f, MRR=%.4f）" % (p1, mrr)
 
 
 def test_cli_demo_self_check():
