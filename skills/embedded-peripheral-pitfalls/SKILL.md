@@ -1,16 +1,16 @@
 ---
 name: embedded-peripheral-pitfalls
-description: 配置 MCU 外设前对照避坑清单，或排查"配置看起来都对但就是不工作"：RCC 时钟使能与顺序、GPIO 复用/开漏/上拉/5V 兼容、EXTI 与 NVIC 中断（标志清除/优先级分组）、定时器（ARR/PSC/PWM 频率/死区）、ADC（采样时间/校准/序列）、UART 波特率、I2C（上拉/时钟拉伸/地址）、SPI（CPOL/CPHA/片选/溢出）、CAN（位时序/过滤器/终端电阻）、低功耗（唤醒/待机）、看门狗（喂狗/窗口/调试冻结）。十一类外设 61 个实战坑，每坑=症状+对策，含配置口诀。Use when configuring MCU peripherals, checking init code, or troubleshooting peripheral misconfiguration. 与 verify 分工：verify 查寄存器写入合法性，本库查配置语义陷阱。不用于：故障已发生要定位根因（用 embedded-debug-trees）、寄存器事实查询（用 embedded-register-lookup）。
+description: 配置 MCU 外设前对照避坑清单，或排查"配置看起来都对但就是不工作"：RCC 时钟使能与顺序、GPIO 复用/开漏/上拉/5V 兼容、EXTI 与 NVIC 中断（标志清除/优先级分组）、定时器（ARR/PSC/PWM 频率/死区）、ADC（采样时间/校准/序列）、DMA（循环模式/地址自增/宽度/标志清除/请求映射）、UART 波特率、I2C（上拉/时钟拉伸/地址）、SPI（CPOL/CPHA/片选/溢出）、CAN（位时序/过滤器/终端电阻）、低功耗（唤醒/待机）、看门狗（喂狗/窗口/调试冻结）。十二类外设 69 个实战坑，每坑=症状+对策，含配置口诀。Use when configuring MCU peripherals, checking init code, or troubleshooting peripheral misconfiguration. 与 verify 分工：verify 查寄存器写入合法性，本库查配置语义陷阱。不用于：故障已发生要定位根因（用 embedded-debug-trees）、寄存器事实查询（用 embedded-register-lookup）。
 license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。纯知识检索，不执行用户代码。
 metadata:
   author: liujycode
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # 嵌入式外设配置坑清单
 
-给 AI 编程助手用的配置避坑知识库：十一类外设的实战坑位，**每个坑=症状+对策**，配置类问题先对清单再回答，命中直接给解法不从头推导。
+给 AI 编程助手用的配置避坑知识库：十二类外设的实战坑位，**每个坑=症状+对策**，配置类问题先对清单再回答，命中直接给解法不从头推导。
 
 ## 何时使用
 
@@ -47,7 +47,7 @@ python scripts/pitfalls.py demo                          # 自检：加载 + 检
 
 ## 覆盖的外设类别
 
-RCC/时钟、GPIO、EXTI/NVIC 中断、定时器、ADC、USART、I2C、SPI、CAN/FDCAN、低功耗 PWR、看门狗 IWDG/WWDG。
+RCC/时钟、GPIO、EXTI/NVIC 中断、定时器、ADC、DMA、USART、I2C、SPI、CAN/FDCAN、低功耗 PWR、看门狗 IWDG/WWDG。
 
 ## 与姊妹技能的分工
 

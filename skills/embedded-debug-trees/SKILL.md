@@ -1,16 +1,16 @@
 ---
 name: embedded-debug-trees
-description: 排查 MCU 硬件/固件故障时使用：程序跑飞、HardFault、死机复位、总线错误；串口/UART/I2C/SPI/CAN 通信不通、超时、乱码；DMA 丢数据、只收一次、数据错位、偶发损坏；RTOS 任务不跑、卡死死锁、中断优先级问题；上电起不来、Bootloader 跳转异常、莫名周期复位；低功耗睡死叫不醒、唤醒后外设异常。六棵排障决策树，每步先给证据采集动作（回读寄存器/示波器/故障快照）再下判断，附按实战经验排序的高频根因。Use when debugging MCU crashes, bus faults, I2C/SPI/UART failures, DMA data loss, RTOS deadlocks, boot failures or low-power wake issues. 检索不到明说，不编造决策路径。不用于：寄存器事实查询（用 embedded-register-lookup）、寄存器写入核验（用 embedded-register-verify）、配置语义坑（用 embedded-peripheral-pitfalls）、电机行为故障（电机控制域）。
+description: 排查 MCU 硬件/固件故障时使用：程序跑飞、HardFault、死机复位、总线错误；串口/UART/I2C/SPI/CAN 通信不通、超时、乱码；DMA 丢数据、只收一次、数据错位、偶发损坏；RTOS 任务不跑、卡死死锁、中断优先级问题；上电起不来、Bootloader 跳转异常、莫名周期复位；CAN/CAN-FD 通信不通、错误帧、发不出去、bus-off；低功耗睡死叫不醒、唤醒后外设异常。七棵排障决策树，每步先给证据采集动作（回读寄存器/示波器/故障快照）再下判断，附按实战经验排序的高频根因。Use when debugging MCU crashes, bus faults, I2C/SPI/UART failures, DMA data loss, RTOS deadlocks, CAN/CAN-FD failures, boot failures or low-power wake issues. 检索不到明说，不编造决策路径。不用于：寄存器事实查询（用 embedded-register-lookup）、寄存器写入核验（用 embedded-register-verify）、配置语义坑（用 embedded-peripheral-pitfalls）、电机行为故障（电机控制域）。
 license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。纯知识检索，不执行用户代码。
 metadata:
   author: liujycode
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # 嵌入式排障决策树
 
-给 AI 编程助手用的排障知识库：六棵决策树覆盖嵌入式软件最高频的故障面（跑飞/不通/丢数据/卡死/起不来/低功耗），**每步都要求先取证据再下判断**，杜绝"直接开药"。
+给 AI 编程助手用的排障知识库：七棵决策树覆盖嵌入式软件最高频的故障面（跑飞/不通/丢数据/卡死/起不来/CAN 通信不通/低功耗），**每步都要求先取证据再下判断**，杜绝"直接开药"。
 
 ## 何时使用
 
@@ -18,6 +18,7 @@ metadata:
 - I2C/SPI/UART 链路不通、超时、乱码
 - DMA 丢数据、只收一次、数据错位
 - RTOS 任务不跑、偶发死锁、中断优先级坑
+- CAN/CAN-FD 通信不通、错误帧、发不出去、bus-off
 - 上电起不来、卡在时钟配置、Bootloader 跳转后异常
 - 低功耗睡死叫不醒、唤醒后外设乱码、进不了停机模式
 
@@ -38,6 +39,7 @@ python scripts/trees.py search "乱码" --tree comm    # 限定在某棵树内�
 python scripts/trees.py show hardfault               # 展示整棵决策树
 python scripts/trees.py show dma
 python scripts/trees.py show comm
+python scripts/trees.py show can
 python scripts/trees.py show rtos
 python scripts/trees.py show boot
 python scripts/trees.py show pwr
@@ -58,6 +60,7 @@ python scripts/trees.py demo                          # 自检：知识库加载
 | hardfault | 跑飞/总线错误/栈溢出/未定义指令/NOCP/LOCKUP（按 CFSR 分支） |
 | comm | I2C/SPI/UART 不通（配置层→时序层→数据流三层）+ 半双工方向切换 |
 | dma | 丢数据/只收一次/错位/偶发损坏（含 Cache 一致性、DMAMUX） |
+| can | CAN/CAN-FD 通信不通（物理层/位时序/过滤器/发送邮箱/bus-off） |
 | rtos | 任务不跑/死锁/优先级反转/FromISR 大坑/时基没跑 |
 | boot | 起不来/时钟卡死/向量表偏移/复位源判定/SWD 连不上 |
 | pwr | 睡死叫不醒/唤醒后时钟回落/进不了低功耗/调试器影响 |

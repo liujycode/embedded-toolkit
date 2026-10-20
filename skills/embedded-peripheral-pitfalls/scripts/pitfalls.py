@@ -17,7 +17,7 @@ import os
 import re
 import sys
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(os.path.dirname(HERE), "assets", "pitfalls.json")
@@ -139,6 +139,8 @@ def cmd_search(args, out):
         print("## [%s] %s" % (cat["title"], p["title"]))
         print("  症状：%s" % p.get("symptom", "-"))
         print("  对策：%s" % p.get("fix", "-"))
+        if p.get("refs"):
+            print("  依据：%s" % "；".join(p["refs"]))
         print()
     if len(hits) > 8:
         print("（只显示前 8 条，共 %d 条——加限定词或用 show <类别> 收窄）" % len(hits))
@@ -162,6 +164,9 @@ def cmd_show(args, out):
     print("|---|---|---|")
     for p in cat.get("pitfalls", []):
         print("| %s | %s | %s |" % (p["title"], p.get("symptom", "-"), p.get("fix", "-")))
+    for p in cat.get("pitfalls", []):
+        if p.get("refs"):
+            print("- [%s] %s 依据：%s" % (p["id"], p["title"], "；".join(p["refs"])))
     return 0
 
 
@@ -209,6 +214,7 @@ def cmd_demo(args, out):
         ("看门狗调试复位", "wdg"),
         ("停机模式唤醒乱码", "pwr"),
         ("CAN 收不到报文", "can"),
+        ("DMA 收不到数据", "dma"),
     ]
     failed = []
     for query, expect in probes:

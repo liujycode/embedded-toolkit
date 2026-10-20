@@ -16,36 +16,42 @@
   - 症状：HardFault 已触发，先定位现场
   - 证据动作：判断用 PSP 还是 MSP（EXC_RETURN bit2），取 PC/LR；有 RTOS 先分清是哪个任务的栈
   - 判定：拿到出错 PC 后进入 CFSR 解读分支
+  - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
   - **iaccvio** 非法地址访问（IACCVIOL/MUNSTALL）
     - 症状：CFSR.IACCVIOL 或 MemManage 置位
     - 证据动作：查 PC 指向：0xE0000000 段=函数指针未初始化；随机地址=野指针
     - 判定：野指针/函数指针问题
     - 对策：dump 调用栈，找最近的数组/指针操作
     - 对策：检查函数指针表初始化顺序
+    - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
   - **precise** 精确总线错误（PRECISERR）
     - 症状：CFSR.PRECISERR 置位，出错指令可直接定位
     - 证据动作：查该指令访问的地址——通常是外设没开时钟就访问
     - 判定：RCC 使能遗漏（最高频）或地址越界
     - 对策：核对 RCC->AHB1ENR/APB1ENR/APB2ENR 对应位
     - 对策：用 embedded-register-verify check 复查全部寄存器写入
+    - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
   - **imprecise** 非精确总线错误（IMPRECISERR）
     - 症状：CFSR.IMPRECISERR 置位，写缓冲延迟导致 PC 不准
     - 证据动作：开启 write-through 或查 DMA 目标地址合法性
     - 判定：DMA 目标地址错误或写缓冲时序
     - 对策：核对 DMA 的 M0AR/M1AR 目标地址
     - 对策：暂时关写缓冲（SCnB 位）复现定位
+    - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
   - **undefinstr** 未定义指令（UNDEFINSTR）
     - 症状：CFSR.UNDEFINSTR 置位
     - 证据动作：查函数指针是否跳到数据区；查中断向量表位置与编译优化
     - 判定：函数指针/向量表错位
     - 对策：核对 VTOR 偏移（Bootloader 跳 App 必查）
     - 对策：检查链接脚本的向量表段
+    - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
   - **stkerr** 栈溢出（STKERR/MSTKERR）
     - 症状：CFSR.STKERR 或 MSTKERR 置位
     - 证据动作：填充栈为 0xA5 查水位；RTOS 用 uxTaskGetStackHighWaterMark
     - 判定：栈溢出（高频！）
     - 对策：加大任务栈/去局部大数组
     - 对策：开 FreeRTOS 的 configCHECK_FOR_STACK_OVERFLOW=2
+    - 依据：FreeRTOS 官方文档（uxTaskGetStackHighWaterMark / 栈溢出检查）
 - **snapshot** 复现策略
   - 症状：故障偶发难抓
   - 证据动作：加故障快照：fault 时把 CFSR/HFSR/栈帧 dump 到保留 RAM 或串口，复位后打印
@@ -56,12 +62,14 @@
   - 判定：FPU 未使能或编译选项与硬件不匹配
   - 对策：SystemInit 里使能 CP10/CP11（或开编译器的硬件浮点选项让启动文件代做）
   - 对策：FreeRTOS 注意浮点上下文保存与懒压栈配置
+  - 依据：CMSIS Core (SCB->CPACR/FPU 使能)；ARMv7-M Architecture Reference Manual (DDI 0403)
 - **lockup** LOCKUP 状态（fault 处理器里又 fault）
   - 症状：整机无响应且复位才恢复；调试器连上看到内核处于 LOCKUP
   - 证据动作：查 HFSR（FORCED/VECTTBL）；配合故障快照看第一现场——是不是在 NMI/HardFault 处理器里又触发了 fault
   - 判定：双重故障进入 LOCKUP
   - 对策：fault 处理器里只做最安全的记录动作（别再碰外设、别再嵌套）
   - 对策：先解决被 FORCED 升级成 HardFault 的原始 fault
+  - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
 
 ## comm — 通信链路不通（I2C/SPI/UART）
 
@@ -135,6 +143,7 @@
   - 对策：收方向：SCB_InvalidateDCache_by_Addr
   - 对策：发方向：SCB_CleanDCache_by_Addr
   - 对策：或把缓冲放非 Cache 区并 32 字节对齐
+  - 依据：STM32 参考手册（如 RM0433，Cache 一致性）
 - **not-start** DMA 根本没启动
   - 症状：配置全做了但没有传输
   - 证据动作：查外设侧 DMA 请求使能（USART 的 DMAR/DMAT 位）+ DMA 控制器时钟
@@ -147,6 +156,7 @@
   - 判定：请求映射/复用问题
   - 对策：按参考手册的 DMAMUX 请求表核对 DMAREQ_ID
   - 对策：确认 MUX 通道与 DMA 通道的对应关系（不是每片都一样）
+  - 依据：STM32 参考手册（如 RM0440，DMA 章节）
 
 ## rtos — RTOS 应用异常
 
@@ -165,6 +175,7 @@
   - 对策：加大任务栈
   - 对策：任务循环加 vTaskDelay/队列阻塞
   - 对策：理清抢占与时间片
+  - 依据：FreeRTOS 官方文档（uxTaskGetStackHighWaterMark / 栈溢出检查）
 - **deadlock** 偶发死锁
   - 症状：系统跑一段时间卡死
   - 证据动作：查互斥锁获取顺序是否全局一致；查中断里是否误用非 FromISR API
@@ -172,24 +183,28 @@
   - 对策：所有任务按同一顺序拿锁
   - 对策：开 configASSERT 抓现场
   - 对策：中断一律用 xxxFromISR 后缀 API
+  - 依据：FreeRTOS 官方文档（FromISR API 语义）
 - **prio-invert** 优先级反转
   - 症状：高优先级任务被低优先级任务长期阻塞
   - 证据动作：查资源保护用的是互斥量（带优先级继承）还是二值信号量
   - 判定：优先级反转
   - 对策：改用 xSemaphoreCreateMutex（继承机制）
   - 对策：缩小临界区范围
+  - 依据：FreeRTOS 官方文档（互斥量优先级继承）
 - **nvic-map** 中断优先级映射大坑
   - 症状：中断里调 RTOS API 就挂死
   - 证据动作：核对中断优先级数值与 configMAX_SYSCALL_INTERRUPT_PRIORITY；记住 Cortex-M 数值越大优先级越低（反直觉）
   - 判定：优先级映射错误
   - 对策：需要调 RTOS API 的中断：优先级数值必须 ≥ configMAX_SYSCALL...（即逻辑上不高于）
   - 对策：全工程统一 NVIC 分组并只初始化一次
+  - 依据：FreeRTOS 官方文档（configMAX_SYSCALL_INTERRUPT_PRIORITY / 中断安全 API）
 - **tick-dead** 任务卡在 vTaskDelay 不再继续
   - 症状：任务跑到第一个延时/队列等待就永远停住
   - 证据动作：查 SysTick 计数器是否在走；查 SysTick 优先级有没有被应用代码改掉；查有没有临界区把中断关了没恢复
   - 判定：时基没跑或被屏蔽
   - 对策：FreeRTOS 启动时自设 SysTick 优先级——应用别再动它
   - 对策：检查进/出临界区是否成对（PRIMASK/BASEPRI 恢复）
+  - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
 
 ## boot — 启动失败
 
@@ -207,18 +222,21 @@
   - 判定：晶振/PLL 配置问题
   - 对策：临时切 HSI 运行缩小范围
   - 对策：查 datasheet 的 VOS 档位与最高频率对应表
+  - 依据：STM32 参考手册（如 RM0440，时钟/复位控制 RCC 章节）
 - **vtor** Bootloader 跳 App 后异常
   - 症状：Bootloader 正常，跳转后 HardFault/不跑
   - 证据动作：查 App 里是否设置 VTOR；查向量表与链接脚本；查栈顶值（SP 初始化）
   - 判定：向量表/栈指针未重定位
   - 对策：跳转前关中断，App 开头 SCB->VTOR = FLASH_BASE | offset
   - 对策：确认 App 向量表第一项是栈顶地址、第二项是 Reset_Handler
+  - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
 - **reset-source** 复位原因判定
   - 症状：设备周期性复位/复位原因不明
   - 证据动作：读 RCC->CSR（或同系列复位标志寄存器）分清：IWDG/WWDG/软复位/上电/引脚复位
   - 判定：看门狗循环或电源问题
   - 对策：IWDG 复位→查喂狗路径（哪个任务喂、卡在哪没喂到）
   - 对策：引脚复位→查 NRST 电路与干扰
+  - 依据：STM32 参考手册（如 RM0440，时钟/复位控制 RCC 章节）
 - **boot-pins** BOOT 引脚状态
   - 症状：App 不跑但 SWD 能连
   - 证据动作：查 BOOT0/BOOT1 电平；读 DBGMCU 确认 CPU 在哪个区执行
@@ -232,6 +250,59 @@
   - 对策：初始化代码保留 SWD 引脚复用
   - 对策：Connect under Reset（拉低 NRST 时连接）
   - 对策：调试期低功耗要开 DBGMCU 的 DBG_STOP/DBG_STANDBY 保持调试连接
+  - 依据：STM32 参考手册（如 RM0440，低功耗章节）
+
+## can — CAN / CAN-FD 通信不通
+
+高频根因（按实战经验排序，非实测统计）：
+
+1. 物理层故障（终端电阻/收发器供电/显性电平不对，最多见）
+2. 位时序不匹配（波特率/采样点不一致，偶发不定时错帧）
+3. GPIO 复用模式与 CAN 外设时钟未配对使能
+4. CAN 过滤器配置错误（把帧全滤掉，收不到）
+5. 发送邮箱满/未清、发送失败后未复位邮箱导致发不出去
+
+- **can-phy** 物理层先量（示波器）
+  - 症状：CAN_H/CAN_L 差分电平异常或无波形，完全收不到也不发
+  - 证据动作：用示波器量显性/隐性电平下 CAN_H/CAN_L 差动电压；核对总线两端是否各有一个 120Ω 终端电阻；确认收发器供电与 STB/standby 待机脚电平
+  - 判定：物理层故障（电平/终端/收发器供电）
+  - 对策：在总线两端各接一个 120Ω 终端电阻（中间节点不加）
+  - 对策：核对收发器供电与待机脚 STB 电平（STB 应为正常工作态）
+  - 对策：排查收发器虚焊/接反/CAN_H 与 CAN_L 接错
+  - 对策：用示波器确认显性差动电平约 2V
+  - 依据：ISO 11898-1:2015；ISO 11898-2:2016
+- **can-bit** 位时序与采样点
+  - 症状：低速偶发错误帧、越远越长线越出错，或两端速率不一致直接不通
+  - 证据动作：核对双方位速率（仲裁段/数据段）一致；回读位时序寄存器确认采样点；CAN-FD 需分别核对仲裁段与数据段采样点
+  - 判定：位时序不匹配（波特率/采样点）
+  - 对策：把仲裁段采样点配到 75%–87.5%
+  - 对策：CAN-FD：数据段按更高速率单独配采样点，保证双方一致
+  - 对策：两端用同一参考源（外部晶振）并核对 SJW 取 1–4
+  - 依据：ISO 11898-1:2015；STM32 参考手册（如 RM0440/RM0090，FDCAN/ bxCAN 位时序寄存器章节）
+- **can-filter** 过滤器从全收开始
+  - 症状：能发能收但就是收不到目标 ID 报文，HAL 收到满却匹配不上
+  - 证据动作：先把过滤器掩码配全 0（全收）验证链路通；确认过滤器初始化与信道初始化顺序一致；核对过滤的 mask/id 掩码位方向
+  - 判定：过滤器配置把目标帧滤掉了
+  - 对策：调试期用掩码全 0（接收所有 ID）先验证链路，再逐步收紧到目标 mask+id
+  - 对策：核对过滤器初始化与信道初始化的先后顺序（不同库口径）
+  - 对策：核对 RTR/扩展帧标准帧位与 mask 位数对应关系
+  - 依据：STM32 参考手册（如 RM0440/RM0090，FDCAN/ bxCAN 过滤器章节）
+- **can-tx** 发不出去
+  - 症状：应用调发送返回忙/超时，或只发一次就再也不发；对方始终收不到
+  - 证据动作：回读发送邮箱状态寄存器（该系列手册口径）确认邮箱满/空；发送失败后检查错误计数是否累积、邮箱是否仍占用；定位是否只发送了首帧
+  - 判定：发送邮箱满/未清或发送失败未复位
+  - 对策：等到有空邮箱（空闲位）再放新报文，失败后按手册清发送优先级/复位邮箱
+  - 对策：避免只发一次就死：发送完成标志未清或邮箱优先级配置导致后续排队阻塞
+  - 对策：确认发送完成中断或轮询等待逻辑无初始化漏洞
+  - 依据：STM32 参考手册（如 RM0440/RM0090，FDCAN/ bxCAN 发送邮箱与发送优先级章节）
+- **can-busoff** 错误帧与 bus-off
+  - 症状：一直插入错误帧，累计后进 bus-off 收也收不到，改错误计数又复现
+  - 证据动作：回读错误计数寄存器初步定位错误类型（该系列手册口径）；回读协议信号位区分位错误/位填充/形式错误；bus-off 后按手册确认自动还是手动重进入初始化
+  - 判定：错误计数器超阈值/bus-off
+  - 对策：读 TEC/REC 错误计数：TEC 高侧重发送侧错误，REC 高侧重接收干扰
+  - 对策：bus-off 后按手册的自动恢复或触发重进入初始化的流程，不要跳过
+  - 对策：排查总线短路/端子/星型拓扑与阻抗不匹配等诱因
+  - 依据：ISO 11898-1:2015；STM32 参考手册（如 RM0440/RM0090，FDCAN/ bxCAN 错误计数与中断状态章节）
 
 ## pwr — 低功耗与唤醒异常
 
@@ -248,21 +319,25 @@
   - 判定：唤醒后时钟未重配
   - 对策：唤醒后第一时间重跑时钟初始化（重启 PLL 并切换）
   - 对策：或外设时钟源改用唤醒后仍可用的源，并重算波特率/分频
+  - 依据：STM32 参考手册（如 RM0440，低功耗章节）
 - **wakeup-src** 睡死叫不醒
   - 症状：进入停机/待机后唤醒不了
   - 证据动作：逐项核对唤醒源：EXTI 线与边沿、RTC 闹钟/唤醒定时器；查唤醒标志（WUF 等）是否在进睡前清掉
   - 判定：唤醒源配置/标志未清
   - 对策：进睡前先清唤醒标志，再使能唤醒源，最后进低功耗
   - 对策：待机模式的唤醒源只有少数特定引脚/RTC——查手册的唤醒源表，别按停机模式的经验配
+  - 依据：STM32 参考手册（如 RM0440，低功耗章节）
 - **sleep-not-enter** 进不了低功耗（电流降不下来）
   - 症状：调了 WFI 但整板电流没变
   - 证据动作：查未清的外设中断标志（一进停机立刻被唤醒）；查外设时钟是否全关、引脚是否悬空漏电
   - 判定：标志未清/外设未关
   - 对策：进睡前清干净全部外设标志、关闭不用的外设时钟
   - 对策：配 GPIO 为模拟输入防悬空漏电；量电流波形找唤醒瞬间
+  - 依据：STM32 参考手册（如 RM0440，低功耗章节）
 - **dbg-block** 调试器挂着正常，拔了就异常
   - 症状：联调时低功耗/时序行为与脱机不一致
   - 证据动作：查 DBGMCU 的 DBG_STOP/DBG_STANDBY（调试期冻结低功耗）；排查是否依赖了调试器在场的时序
   - 判定：调试器改变时序/低功耗行为
   - 对策：需要脱机复现时关掉调试冻结位，或改用故障快照/串口打印
   - 对策：时序敏感逻辑不依赖调试期时序
+  - 依据：STM32 参考手册（如 RM0440，低功耗章节）

@@ -29,7 +29,7 @@ import sync_core  # noqa: E402
 
 STDLIB_ALLOWED = {
     "__future__", "argparse", "collections", "dataclasses", "difflib", "glob",
-    "hashlib", "json", "os", "re", "sys", "tempfile", "time", "typing", "xml",
+    "hashlib", "json", "math", "os", "re", "sys", "tempfile", "time", "typing", "xml",
 }
 LOCAL_PACKAGES = {"etk_core"}  # 随技能分发的本地核心库，不是第三方依赖
 LOCAL_SKILL_MODULES = {"cscan", "crules"}  # 核验器技能内的本地模块

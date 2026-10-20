@@ -45,6 +45,19 @@ def _iter_nodes(node):
         yield from _iter_nodes(child)
 
 
+def _lint_refs(node, problems):
+    """refs 若存在，必须是**非空**字符串数组（防占位）。"""
+    if "refs" not in node:
+        return
+    refs = node.get("refs")
+    if not isinstance(refs, list) or not refs:
+        problems.append("%s 的 refs 存在但为空（应为非空字符串数组）" % node.get("id", "?"))
+        return
+    for i, r in enumerate(refs):
+        if not isinstance(r, str) or not r.strip():
+            problems.append("%s 的 refs 第 %d 项非法（必须是非空字符串）" % (node.get("id", "?"), i + 1))
+
+
 def lint_db(skill, db, problems):
     """schema 校验：必填字段、唯一 id、keywords/fixes 非空。"""
     seen = set()
@@ -70,6 +83,7 @@ def lint_db(skill, db, problems):
                     problems.append("节点 %s 缺 symptom" % nid)
                 if not node.get("keywords"):
                     problems.append("节点 %s 缺 keywords" % nid)
+                _lint_refs(node, problems)
     else:
         for cat in db["categories"]:
             if not cat.get("pitfalls"):
@@ -86,6 +100,7 @@ def lint_db(skill, db, problems):
                         problems.append("坑位 %s 缺 %s" % (pid, field))
                 if p.get("fix_alt") is not None and "fix_alt" in p:
                     problems.append("坑位 %s 含遗留字段 fix_alt" % pid)
+                _lint_refs(p, problems)
         if not db.get("rule"):
             problems.append("缺配置口诀 rule")
     return seen
@@ -119,6 +134,8 @@ def _render_node(node, depth, lines):
         lines.append("%s  - 判定：%s" % (pad, node["verdict"]))
     for fix in node.get("fixes", []):
         lines.append("%s  - 对策：%s" % (pad, fix))
+    if node.get("refs"):
+        lines.append("%s  - 依据：%s" % (pad, "；".join(node["refs"])))
     for child in node.get("children", []):
         _render_node(child, depth + 1, lines)
 
@@ -133,6 +150,10 @@ def _pitfalls_md(db):
         for p in cat["pitfalls"]:
             lines.append("| %s | %s | %s |" % (
                 p["title"], p.get("symptom", "-"), p.get("fix", "-")))
+        lines.append("")
+        for p in cat["pitfalls"]:
+            if p.get("refs"):
+                lines.append("- **%s** 依据：%s" % (p["title"], "；".join(p["refs"])))
         lines.append("")
     lines.append("## 配置口诀")
     lines.append("")

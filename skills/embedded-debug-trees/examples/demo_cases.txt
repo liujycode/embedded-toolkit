@@ -26,6 +26,10 @@
  *   停机模式唤醒后时钟回落 HSI，UART 乱码
  *   演示：python scripts/trees.py search "唤醒后串口乱码"
  *
+ * 症状 7（can 树 / can-phy 节点）：
+ *   CAN 总线无波形，收发器/终端电阻/待机脚问题
+ *   演示：python scripts/trees.py search "CAN 终端电阻 波形"
+ *
  * 每个检索返回：命中节点路径、证据采集动作、判定、对策。
- * 通读全树：python scripts/trees.py show <hardfault|comm|dma|rtos|boot|pwr>
+ * 通读全树：python scripts/trees.py show <hardfault|comm|dma|can|rtos|boot|pwr>
  */

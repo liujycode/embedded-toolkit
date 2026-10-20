@@ -17,7 +17,7 @@ import os
 import re
 import sys
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(os.path.dirname(HERE), "assets", "trees.json")
@@ -157,6 +157,8 @@ def cmd_search(args, out):
             print("  判定：%s" % node["verdict"])
         for fix in node.get("fixes", []):
             print("  对策：%s" % fix)
+        if node.get("refs"):
+            print("  依据：%s" % "；".join(node["refs"]))
         print()
     if total > 8:
         print("（只显示前 8 条，共 %d 条——加限定词或用 show <树名> 收窄）" % total)
@@ -174,6 +176,8 @@ def _render(node, depth, lines):
         lines.append("%s  - 判定：%s" % (pad, node["verdict"]))
     for fix in node.get("fixes", []):
         lines.append("%s  - 对策：%s" % (pad, fix))
+    if node.get("refs"):
+        lines.append("%s  - 依据：%s" % (pad, "；".join(node["refs"])))
     for child in node.get("children", []):
         _render(child, depth + 1, lines)
 
@@ -258,6 +262,7 @@ def cmd_demo(args, out):
         ("任务卡死", "rtos"),
         ("上电起不来", "boot"),
         ("唤醒后乱码", "pwr"),
+        ("CAN 通信不通", "can"),
     ]
     failed = []
     for query, expect in probes:
