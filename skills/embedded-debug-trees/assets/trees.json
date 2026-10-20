@@ -91,7 +91,8 @@
               ],
               "refs": [
                 "ARMv7-M Architecture Reference Manual (DDI 0403)"
-              ]
+              ],
+              "see": "dma/corrupt"
             },
             {
               "id": "undefinstr",
@@ -133,7 +134,8 @@
                 "FreeRTOS 官方文档（uxTaskGetStackHighWaterMark / 栈溢出检查）"
               ]
             }
-          ]
+          ],
+          "see": "boot/vtor"
         },
         {
           "id": "snapshot",
@@ -171,7 +173,8 @@
           "refs": [
             "CMSIS Core (SCB->CPACR/FPU 使能)",
             "ARMv7-M Architecture Reference Manual (DDI 0403)"
-          ]
+          ],
+          "see": "rtos/nvic-map"
         },
         {
           "id": "lockup",
@@ -193,7 +196,8 @@
           ],
           "refs": [
             "ARMv7-M Architecture Reference Manual (DDI 0403)"
-          ]
+          ],
+          "see": "boot/reset-source"
         }
       ]
     },
@@ -230,7 +234,8 @@
             "uart",
             "不通",
             "收不到"
-          ]
+          ],
+          "see": "boot/clock-stuck"
         },
         {
           "id": "layer2-timing",
@@ -253,7 +258,9 @@
             "示波器",
             "乱码",
             "超时"
-          ]
+          ],
+          "next": "波特率/采样点等精确数字用 embedded-timing-calc 算（UART BRR/I2C Rp/CAN 位时序）",
+          "see": "pwr/stop-clock"
         },
         {
           "id": "layer3-dataflow",
@@ -273,7 +280,8 @@
             "标志位",
             "缓存",
             "丢字节"
-          ]
+          ],
+          "see": "dma/not-start"
         },
         {
           "id": "half-duplex",
@@ -373,7 +381,8 @@
             "ping-pong",
             "覆盖",
             "cache"
-          ]
+          ],
+          "see": "hardfault/imprecise"
         },
         {
           "id": "cache",
@@ -417,7 +426,8 @@
             "dmar",
             "请求",
             "en"
-          ]
+          ],
+          "see": "comm/layer3-dataflow"
         },
         {
           "id": "dmamux",
@@ -479,7 +489,8 @@
           ],
           "refs": [
             "FreeRTOS 官方文档（uxTaskGetStackHighWaterMark / 栈溢出检查）"
-          ]
+          ],
+          "see": "hardfault/stkerr"
         },
         {
           "id": "deadlock",
@@ -572,7 +583,7 @@
           "refs": [
             "ARMv7-M Architecture Reference Manual (DDI 0403)"
           ],
-          "see": "boot/clock-stuck"
+          "see": "pwr/stop-clock"
         }
       ]
     },
@@ -631,7 +642,8 @@
           ],
           "refs": [
             "ARMv7-M Architecture Reference Manual (DDI 0403)"
-          ]
+          ],
+          "see": "hardfault/iaccvio"
         },
         {
           "id": "reset-source",
@@ -785,7 +797,8 @@
           "refs": [
             "ISO 11898-1:2015",
             "STM32 参考手册（如 RM0440/RM0090，FDCAN/ bxCAN 位时序寄存器章节）"
-          ]
+          ],
+          "next": "位时序段长/采样点用 embedded-timing-calc 的 CAN 位时序计算核对"
         },
         {
           "id": "can-filter",
@@ -955,7 +968,8 @@
           ],
           "refs": [
             "STM32 参考手册（如 RM0440，低功耗章节）"
-          ]
+          ],
+          "see": "rtos/tick-dead"
         },
         {
           "id": "dbg-block",
@@ -977,7 +991,8 @@
           ],
           "refs": [
             "STM32 参考手册（如 RM0440，低功耗章节）"
-          ]
+          ],
+          "see": "boot/swd-locked"
         }
       ]
     },
@@ -1059,8 +1074,8 @@
           "action": "抓 USB 总线（USB 分析仪/逻辑分析仪）看 GET_DESCRIPTOR 包是否被正确应答；核对描述符长度、字符串索引、地址设置后的时序（SET_ADDRESS 后需延时再响应）",
           "verdict": "端点 0 描述符/地址时序处理错",
           "fixes": [
-            "核对描述符长度与请求 wLength 一致，配置描述符别超 18 字节限制",
-            "SET_ADDRESS 后延时约 2ms 再收下一个包",
+            "设备描述符固定 18 字节；配置描述符核对 wTotalLength 与实际返回字节数一致（含接口/端点子描述符，长度不符主机会中止配置）",
+            "SET_ADDRESS 后延时约 2ms 再收下一个包（经验值；别在改地址前回带新地址的描述符请求）",
             "字符串描述符索引与语言 ID 配对无误"
           ],
           "keywords": [
@@ -1124,7 +1139,8 @@
           "refs": [
             "USB 2.0 规范（枚举流程）",
             "STM32 参考手册（如 RM0440，USB 章节）"
-          ]
+          ],
+          "see": "comm/layer1-config"
         }
       ]
     },
@@ -1353,7 +1369,8 @@
           ],
           "refs": [
             "STM32 参考手册（如 RM0440，RTC 章节）"
-          ]
+          ],
+          "see": "boot/clock-stuck"
         },
         {
           "id": "rtc-sync",
@@ -1489,7 +1506,8 @@
           ],
           "refs": [
             "对应显示控制器数据手册（初始化/时序章节）"
-          ]
+          ],
+          "see": "comm/layer2-timing"
         },
         {
           "id": "disp-tear",

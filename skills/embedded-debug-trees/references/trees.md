@@ -17,6 +17,7 @@
   - 证据动作：判断用 PSP 还是 MSP（EXC_RETURN bit2），取 PC/LR；有 RTOS 先分清是哪个任务的栈
   - 判定：拿到出错 PC 后进入 CFSR 解读分支
   - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
+  - 转入：boot/vtor
   - **iaccvio** 非法地址访问（IACCVIOL/MUNSTALL）
     - 症状：CFSR.IACCVIOL 或 MemManage 置位
     - 证据动作：查 PC 指向：0xE0000000 段=函数指针未初始化；随机地址=野指针
@@ -38,6 +39,7 @@
     - 对策：核对 DMA 的 M0AR/M1AR 目标地址
     - 对策：暂时关写缓冲（SCnB 位）复现定位
     - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
+    - 转入：dma/corrupt
   - **undefinstr** 未定义指令（UNDEFINSTR）
     - 症状：CFSR.UNDEFINSTR 置位
     - 证据动作：查函数指针是否跳到数据区；查中断向量表位置与编译优化
@@ -63,6 +65,7 @@
   - 对策：SystemInit 里使能 CP10/CP11（或开编译器的硬件浮点选项让启动文件代做）
   - 对策：FreeRTOS 注意浮点上下文保存与懒压栈配置
   - 依据：CMSIS Core (SCB->CPACR/FPU 使能)；ARMv7-M Architecture Reference Manual (DDI 0403)
+  - 转入：rtos/nvic-map
 - **lockup** LOCKUP 状态（fault 处理器里又 fault）
   - 症状：整机无响应且复位才恢复；调试器连上看到内核处于 LOCKUP
   - 证据动作：查 HFSR（FORCED/VECTTBL）；配合故障快照看第一现场——是不是在 NMI/HardFault 处理器里又触发了 fault
@@ -70,6 +73,7 @@
   - 对策：fault 处理器里只做最安全的记录动作（别再碰外设、别再嵌套）
   - 对策：先解决被 FORCED 升级成 HardFault 的原始 fault
   - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
+  - 转入：boot/reset-source
 
 ## comm — 通信链路不通（I2C/SPI/UART）
 
@@ -87,6 +91,7 @@
   - 判定：回读值与预期不符=配置问题，本层解决
   - 对策：按'时钟→GPIO→外设→中断→使能'顺序逐项回读
   - 对策：用 embedded-register-verify check 复查初始化代码
+  - 转入：boot/clock-stuck
 - **layer2-timing** 第二层：时序对不对（要仪器）
   - 症状：配置回读全对但通信仍失败
   - 证据动作：示波器/逻辑分析仪抓波形：I2C 看 ACK 卡在哪个字节；SPI 比对第一字节位序；UART 看波特率误差
@@ -94,6 +99,7 @@
   - 对策：I2C：SDA 拉死→9 脉冲解救或复位外设电源
   - 对策：SPI：CPOL/CPHA 先读从机手册时序图，四组合试错不如读手册
   - 对策：UART：波特率误差<2%，HSI±1% 精度不够就换 HSE
+  - 转入：pwr/stop-clock
 - **layer3-dataflow** 第三层：数据流对不对
   - 症状：物理层通了但数据不对
   - 证据动作：查 DMA 配置（内存段/宽度/循环）、中断标志清除顺序、IDLE+DMA 不定长方案
@@ -101,6 +107,7 @@
   - 对策：I2C F1 系：先读 SR 再读 DR 的顺序陷阱
   - 对策：UART 空闲中断：先清 IDLE 再使能，用 NDTR 算长度
   - 对策：缓冲区放 DMA 可达内存段（H7 的 DTCM 到不了）
+  - 转入：dma/not-start
 - **half-duplex** 半双工链路（RS485 等）方向切换
   - 症状：对端收得到我发的，我收不到回包；或报文最后一字节丢
   - 证据动作：查 DE/RE 方向脚的切换时机与极性：是否等发送完成就切回接收
@@ -138,6 +145,7 @@
   - 判定：并发/时效问题
   - 对策：做 ping-pong 双缓冲
   - 对策：缩短 ISR 或用半满/全满双中断
+  - 转入：hardfault/imprecise
 - **cache** Cache 一致性（H7/F7）
   - 症状：DMA 收到的数据是旧数据/主核读到旧数据
   - 证据动作：检查 D-Cache 使能状态；对缓冲区做 Invalidate/Clean；确认 32 字节对齐
@@ -152,6 +160,7 @@
   - 判定：请求链没打通
   - 对策：开外设的 DMA 使能位
   - 对策：回读 DMA_CR 确认 EN 位已置
+  - 转入：comm/layer3-dataflow
 - **dmamux** DMAMUX 请求映射错（G4/H7/L4+ 等新系列）
   - 症状：DMA 触发不了，或被不相干的请求误触发
   - 证据动作：查 DMAMUX 通道的 DMAREQ_ID 选择；查是否多个通道映射到同一请求线
@@ -178,6 +187,7 @@
   - 对策：任务循环加 vTaskDelay/队列阻塞
   - 对策：理清抢占与时间片
   - 依据：FreeRTOS 官方文档（uxTaskGetStackHighWaterMark / 栈溢出检查）
+  - 转入：hardfault/stkerr
 - **deadlock** 偶发死锁
   - 症状：系统跑一段时间卡死
   - 证据动作：查互斥锁获取顺序是否全局一致；查中断里是否误用非 FromISR API
@@ -207,7 +217,7 @@
   - 对策：FreeRTOS 启动时自设 SysTick 优先级——应用别再动它
   - 对策：检查进/出临界区是否成对（PRIMASK/BASEPRI 恢复）
   - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
-  - 转入：boot/clock-stuck
+  - 转入：pwr/stop-clock
 
 ## boot — 启动失败
 
@@ -233,6 +243,7 @@
   - 对策：跳转前关中断，App 开头 SCB->VTOR = FLASH_BASE | offset
   - 对策：确认 App 向量表第一项是栈顶地址、第二项是 Reset_Handler
   - 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
+  - 转入：hardfault/iaccvio
 - **reset-source** 复位原因判定
   - 症状：设备周期性复位/复位原因不明
   - 证据动作：读 RCC->CSR（或同系列复位标志寄存器）分清：IWDG/WWDG/软复位/上电/引脚复位
@@ -338,6 +349,7 @@
   - 对策：进睡前清干净全部外设标志、关闭不用的外设时钟
   - 对策：配 GPIO 为模拟输入防悬空漏电；量电流波形找唤醒瞬间
   - 依据：STM32 参考手册（如 RM0440，低功耗章节）
+  - 转入：rtos/tick-dead
 - **dbg-block** 调试器挂着正常，拔了就异常
   - 症状：联调时低功耗/时序行为与脱机不一致
   - 证据动作：查 DBGMCU 的 DBG_STOP/DBG_STANDBY（调试期冻结低功耗）；排查是否依赖了调试器在场的时序
@@ -345,6 +357,7 @@
   - 对策：需要脱机复现时关掉调试冻结位，或改用故障快照/串口打印
   - 对策：时序敏感逻辑不依赖调试期时序
   - 依据：STM32 参考手册（如 RM0440，低功耗章节）
+  - 转入：boot/swd-locked
 
 ## usb — USB 枚举失败 / CDC 不通
 
@@ -375,8 +388,8 @@
   - 症状：枚举卡在某一步（卡 SET_ADDRESS 或描述符请求后不继续）；设备管理器报错 43
   - 证据动作：抓 USB 总线（USB 分析仪/逻辑分析仪）看 GET_DESCRIPTOR 包是否被正确应答；核对描述符长度、字符串索引、地址设置后的时序（SET_ADDRESS 后需延时再响应）
   - 判定：端点 0 描述符/地址时序处理错
-  - 对策：核对描述符长度与请求 wLength 一致，配置描述符别超 18 字节限制
-  - 对策：SET_ADDRESS 后延时约 2ms 再收下一个包
+  - 对策：设备描述符固定 18 字节；配置描述符核对 wTotalLength 与实际返回字节数一致（含接口/端点子描述符，长度不符主机会中止配置）
+  - 对策：SET_ADDRESS 后延时约 2ms 再收下一个包（经验值；别在改地址前回带新地址的描述符请求）
   - 对策：字符串描述符索引与语言 ID 配对无误
   - 依据：USB 2.0 规范（枚举流程）；STM32 参考手册（如 RM0440，USB 章节）
   - 转入：usb-clock
@@ -394,6 +407,7 @@
   - 对策：核对 CDC 描述符表：接口与端点方向/数量匹配
   - 对策：换主机或装标准 CDC 驱动复现，排除本地驱动与 INF 因素
   - 依据：USB 2.0 规范（枚举流程）；STM32 参考手册（如 RM0440，USB 章节）
+  - 转入：comm/layer1-config
 
 ## flash — 片内 Flash 编程/擦除异常
 
@@ -474,6 +488,7 @@
   - 对策：起振失败时兜底切到 LSI 并置错误标记（精度会下降）
   - 对策：用 MCO/旁路输出验证外部晶振是否真在工作
   - 依据：STM32 参考手册（如 RM0440，RTC 章节）
+  - 转入：boot/clock-stuck
 - **rtc-sync** 日历同步
   - 症状：读时间有时对有时不对，或读数会跳变
   - 证据动作：读日历前先等数据同步标志就绪或加同步锁；连续读两次校验一致性
@@ -521,6 +536,7 @@
   - 对策：8080 波形检查建立/保持时间，SPI 核对相位与速率上限
   - 对策：RGB 接口按数据手册核对 DE/HSYNC/VSYNC 极性、行场消隐与像素时钟
   - 依据：对应显示控制器数据手册（初始化/时序章节）
+  - 转入：comm/layer2-timing
 - **disp-tear** 花屏与撕裂
   - 症状：画面局部错乱，或刷新时上下撕裂
   - 证据动作：核对帧缓冲格式（RGB565/888、字节序）、行宽对齐与起始地址；有 TE 同步引脚则用 TE 握手+双缓冲

@@ -16,7 +16,7 @@
 | 注入组触发与相电流采样没同步 | 采样到的相电流点不对、波动大 | 注入组触发要与 PWM 对齐（如 TRGO=更新/比较事件），在 PWM 周期内正确时刻采样，别随手触发 |
 | 双 ADC 交替/同步模式没配主从 | 两片 ADC 数据相位/值不一致 | 核对主从关系：交替模式确认共享触发与 DMA 同步，同步模式确认共享时钟与触发源 |
 
-- **采样时间太短** 下一步：embedded-timing-calc adc-rad --ts <采样周期cycles> --fadc <ADC时钟>
+- **采样时间太短** 下一步：采样时间与源阻抗的配比用 embedded-timing-calc 的 ADC 源阻抗公式核算，别拍脑袋给 1.5 周期
 - **没做校准（F1/F3）** 依据：STM32 参考手册（如 RM0008，ADC 章节）
 - **DMA 缓冲区不可达（H7 DTCM）** 依据：STM32 参考手册（如 RM0433，Cache 一致性）
 - **带着使能去校准** 依据：STM32 参考手册（如 RM0440，ADC 章节）
@@ -54,10 +54,11 @@
 | 没有先做环回自测 | 分不清是总线/收发器问题还是代码问题 | 先用环回模式（loopback）自发自收验证代码，再上真实总线 |
 | FDCAN 内核时钟没选对 | 位时序怎么调都错/通信速率不对 | FDCAN 的内核时钟要单独选源使能，位时序按它计算——内核时钟错了采样点全错 |
 
-- **位时序段配错（采样点位置）** 依据：ISO 11898-1:2015；STM32 参考手册（如 RM0090，CAN 控制器章节）；下一步：embedded-timing-calc can-bit --clk <外设时钟> --baud <速率kbit/s>
+- **位时序段配错（采样点位置）** 依据：ISO 11898-1:2015；STM32 参考手册（如 RM0090，CAN 控制器章节）；下一步：各段时长与采样点用 embedded-timing-calc 的 CAN 位时序计算核对（支持 bxCAN 与 CAN-FD 两种口径）
 - **过滤器没配对** 依据：STM32 参考手册（如 RM0090，CAN 控制器章节）
 - **TX 邮箱满没等** 依据：STM32 参考手册（如 RM0090，CAN 控制器章节）
 - **终端电阻缺失** 依据：ISO 11898-1:2015
+- **FDCAN 内核时钟没选对** 下一步：数据段速率与采样点用 embedded-timing-calc 的 CAN-FD 位时序计算核对
 
 ## crc — CRC 校验（4 坑）
 
@@ -83,7 +84,7 @@
 | 噪声/参考源引入误差 | 输出噪声大、抖动或随供电漂 | 用低噪声稳定的参考源给 DAC 供电基准，参考引脚做去耦，避免供电纹波叠加到输出 |
 
 - **输出缓冲/摆率受限** 依据：STM32 参考手册（如 RM0440，DAC 章节）
-- **负载太重/直连高阻误判** 依据：STM32 参考手册（如 RM0440，DAC 章节）
+- **负载太重/直连高阻误判** 依据：STM32 参考手册（如 RM0440，DAC 章节）；下一步：输出建立时间与负载电容用 embedded-timing-calc 的 RC 公式估
 - **DMA 双通道/对齐配置错** 依据：STM32 参考手册（如 RM0440，DAC 章节）
 - **噪声/参考源引入误差** 依据：STM32 参考手册（如 RM0440，DAC 章节）
 
@@ -123,7 +124,7 @@
 - **突发长度与 FIFO 阈值矛盾** 依据：STM32G4 参考手册 RM0440；STM32H7 参考手册 RM0433
 - **外设请求线/DMAMUX 源选错** 依据：STM32G4 参考手册 RM0440；STM32H7 参考手册 RM0433
 - **高带宽流优先级太低欠载** 依据：STM32 参考手册（如 RM0440，DMA 通道/流传输优先级 PL）
-- **标志清除顺序/口径用错（写 1 清）** 依据：STM32 参考手册（如 RM0440，DMA 状态标志与写 1 清零清除寄存器 IFCR）
+- **标志清除顺序/口径用错（写 1 清）** 依据：STM32 参考手册（如 RM0440，DMA 状态标志与写 1 清零清除寄存器 IFCR）；下一步：IFCR 各清除位名用 embedded-register-lookup 核对（该系列是 IFCR 还是 ISR/ICR 分立）
 
 ## eth — 以太网 / LWIP（5 坑）
 
@@ -154,6 +155,7 @@
 
 - **标志位没清/清错位置** 依据：STM32 参考手册（如 RM0440，EXTI 章节，PR 写 1 清零）
 - **FreeRTOS：超 MAX_SYSCALL 优先级调 API** 依据：FreeRTOS 官方文档（configMAX_SYSCALL_INTERRUPT_PRIORITY / 中断安全 API）
+- **EXTI 使能了但 NVIC 没开** 下一步：EXTI 线映射与 NVIC IRQn 编号用 embedded-register-lookup 核对
 
 ## flash — 片内 Flash（5 坑）
 
@@ -165,11 +167,11 @@
 | 擦写期间取指被暂停 | 擦写时中断/主流程卡顿，尤其跑在 flash 里的代码 | flash 擦写期间 CPU/ISR 取指可能被暂停；把期间必须响应的关键中断向量或代码搬到 RAM 执行，或推迟 flash 操作到空闲窗口 |
 | 选项字节改写后没重载/双 bank 没处理好 | 改了的配置不生效，或 bank 映射/启动有问题 | 改写选项字节后按参考手册触发重载（系统复位）使其生效；双 bank 芯片写另一 bank 时注意总线接口与地址映射 |
 
-- **擦写前没解锁且没等 BSY** 依据：STM32 参考手册（如 RM0440，片内闪存章节）；下一步：embedded-register-verify check <你的代码目录> --svd <你的芯片>.svd
+- **擦写前没解锁且没等 BSY** 依据：STM32 参考手册（如 RM0440，片内闪存章节）；下一步：KEYR/CR/SR 位定义用 embedded-register-lookup 核对
 - **在中断里做页擦除** 依据：STM32 参考手册（如 RM0440，片内闪存章节）
 - **写入粒度/对齐没按 flash 要求** 依据：STM32 参考手册（如 RM0440，片内闪存章节）
 - **擦写期间取指被暂停** 依据：STM32 参考手册（如 RM0440，片内闪存章节）
-- **选项字节改写后没重载/双 bank 没处理好** 依据：STM32 参考手册（如 RM0440，片内闪存章节）
+- **选项字节改写后没重载/双 bank 没处理好** 依据：STM32 参考手册（如 RM0440，片内闪存章节）；下一步：选项字节重载位名用 embedded-register-lookup 核对
 
 ## gpio — GPIO（6 坑）
 
@@ -182,6 +184,7 @@
 | 两个外设抢同一个引脚 | 其中一个外设莫名失效（后配置的把复用抢走） | 对照引脚复用表做全局分配；初始化顺序定好并注释谁在用哪个引脚 |
 | 输出速率档位没配 | 高速信号边沿畸变、EMI 超标 | 按信号速率选 OSPEEDR 档位；低速信号降档降 EMI |
 
+- **I2C 引脚配成推挽** 下一步：改回 AF 开漏后，Rp 取值用 embedded-timing-calc 的 I2C 上拉公式算
 
 ## i2c — I2C（7 坑）
 
@@ -195,7 +198,7 @@
 | 总线挂死没有恢复机制 | 一次从机拉死，之后永久瘫痪 | 驱动里加超时+恢复路径（9 脉冲/外设复位/重上电），别裸等标志 |
 | I2C EEPROM 页写越界 | 跨页写长数据只写了部分、数据错 | 按页边界断开、每页写不超过页大小；每页写完等写周期（~5ms，用 ACK 轮询或延时） |
 
-- **上拉电阻没接/太大** 下一步：embedded-timing-calc i2c-rp --bus <i2c1|i2c2> --cb <总线电容pF>
+- **上拉电阻没接/太大** 下一步：标准/快速模式的 Rp 取值范围用 embedded-timing-calc 的 I2C 上拉公式算（两种模式系数不同）
 - **I2C EEPROM 页写越界** 依据：STM32 参考手册（如 RM0440，对应外设章节）
 
 ## link — 启动与链接（6 坑）
@@ -238,13 +241,13 @@
 |---|---|---|
 | 区域大小与对齐 | MPU 区域设置不生效或使能时配置被拒 | 区域大小必须是 2 的幂，基址按该大小对齐；先算好对齐关系再写配置，不要随手给任意尺寸 |
 | 子区域掩码 SRD 误禁 | 区域内有一部分地址被意外禁止访问 | 检查子区域禁止位 SRD：只有大小 ≥128 字节的 region 才能用 SRD 拆分，被屏蔽的子区不属于允许范围；核对 SRD 与真实使用区间 |
-| 背景区域（region 0）语义 | 没被任何 region 覆盖的地址访问行为异常 | 属性默认来自背景区域（background）——即 region 0；想改默认内存属性就改 region 0，而不是漏配所有地址 |
+| 背景区域（默认内存映射）语义 | 没被任何 region 覆盖的地址访问行为异常 | 未被任何 region 覆盖的地址走默认内存映射（背景区域），是否对特权代码开放由 MPU CTRL 的 PRIVDEFENA 决定；想改默认属性就新增一个覆盖该地址范围的 region，别把 region 0 当成背景区域 |
 | 先配 region 再使能 MPU | 使能后内存访问仍不受预期约束 | 先逐个配置 region，最后写使能；使能后再改 region 要按规范重写并重新使能，顺序不能反 |
 | XN 位与取指 | CPU 跳进数据区/受保护区取指触发 HardFault | 可执行区域不要设 XN；数据区设 XN 防止数据被当指令执行；跳转前确认目标区域的可执行属性 |
 
 - **区域大小与对齐** 依据：ARMv7-M Architecture Reference Manual (DDI 0403)；CMSIS Core（MPU 配置）
 - **子区域掩码 SRD 误禁** 依据：ARMv7-M Architecture Reference Manual (DDI 0403)；CMSIS Core（MPU 配置）
-- **背景区域（region 0）语义** 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
+- **背景区域（默认内存映射）语义** 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
 - **先配 region 再使能 MPU** 依据：ARMv7-M Architecture Reference Manual (DDI 0403)；CMSIS Core（MPU 配置）
 - **XN 位与取指** 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
 
@@ -276,8 +279,8 @@
 | LSE 起振慢或不起，RTC 走不准 | RTC 停走/走时异常，等 LSERDY 超时 | 查 32.768k 晶振负载电容；起振等待要带超时兜底（起振失败走 LSI 并报错） |
 | MCO 引脚看不到时钟 | 示波器上 MCO 无输出 | MCO 也要配 AF 复用；查 MCO 源选择与分频是否生效 |
 
-- **外设时钟没开就访问寄存器** 依据：STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）
-- **HSI 精度当晶振用** 依据：STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）
+- **外设时钟没开就访问寄存器** 依据：STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）；下一步：使能位与寄存器偏移用 embedded-register-lookup 核对；修完用 embedded-register-verify 验证写入已生效
+- **HSI 精度当晶振用** 依据：STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）；下一步：HSI 派生时钟下的精确波特率用 embedded-timing-calc 核对分频误差是否可接受
 - **定时器时钟源选错（APB×1 vs ×2）** 依据：STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）；下一步：embedded-timing-calc timer --pclk <APB时钟> --freq <目标频率>
 - **LSE 起振慢或不起，RTC 走不准** 依据：STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）
 
@@ -295,7 +298,7 @@
 - **上电首次初始化判定不准** 依据：STM32 参考手册（如 RM0440，RTC 章节）
 - **LSE 起振慢/没起** 依据：STM32 参考手册（如 RM0440，RTC 章节）
 - **日历寄存器同步/锁没处理** 依据：STM32 参考手册（如 RM0440，RTC 章节）
-- **唤醒定时器时钟口径/单位搞错** 依据：STM32 参考手册（如 RM0440，RTC 章节）
+- **唤醒定时器时钟口径/单位搞错** 依据：STM32 参考手册（如 RM0440，RTC 章节）；下一步：唤醒周期换算用 embedded-timing-calc 的预分频+重装模型核对
 
 ## sd — SD 卡 / FATFS（5 坑）
 
@@ -326,7 +329,7 @@
 - **1-Wire 微秒时序被中断打断** 依据：Dallas Semiconductor 1-Wire 协议规范
 - **转换等待用忙等** 依据：DS18B20 数据手册
 - **多器件并联没做搜索序列** 依据：Dallas Semiconductor 1-Wire 协议规范
-- **上拉/寄生电源供电** 依据：Dallas Semiconductor 1-Wire 协议规范；DS18B20 数据手册
+- **上拉/寄生电源供电** 依据：Dallas Semiconductor 1-Wire 协议规范；DS18B20 数据手册；下一步：上拉阻值与寄生电容的充电时间用 embedded-timing-calc 的 RC 公式估
 - **读了数据没做 CRC 校验** 依据：Dallas Semiconductor 1-Wire 协议规范；DS18B20 数据手册
 
 ## spi — SPI（5 坑）
@@ -354,13 +357,13 @@
 | 重复计数器 REP 与触发同步没对齐 | 每 N 次才更新一次、触发不同步 | 重复计数模式下更新事件/触发与 REP+1 对齐；需要每次更新就同步时把 REP 设 0 |
 | 互补死区数值算错 | 死区波形不对、有直通风险 | 死区时间由 DTG 位域按分频与 tDTS 计算公式得出——先查相应用作死区计算的数值坑（next: timing-calc），别拿印象值手填 |
 
-- **ARR/PSC 与实际频率对不上** 依据：STM32 参考手册（如 RM0090，通用定时器章节）；下一步：embedded-timing-calc timer --pclk <时钟> --freq <目标频率>
+- **ARR/PSC 与实际频率对不上** 依据：STM32 参考手册（如 RM0090，通用定时器章节）；下一步：目标频率 ↔ PSC/ARR 用 embedded-timing-calc 双向换算
 - **只改 ARR 没产生更新事件** 依据：STM32 参考手册（如 RM0090，通用定时器章节）
-- **互补输出没配死区/刹车** 下一步：embedded-timing-calc deadtime --fsw <开关频率> --dt <目标死区>
+- **互补输出没配死区/刹车** 下一步：BDTR 各位段定义用 embedded-register-lookup 核对；死区数值用 embedded-timing-calc 换算
 - **定时器配完忘了启动** 依据：STM32 参考手册（如 RM0090，通用定时器章节）
 - **刹车输入 break 没弄对** 依据：STM32 参考手册（如 RM0440，对应外设章节）
 - **重复计数器 REP 与触发同步没对齐** 依据：STM32 参考手册（如 RM0440，对应外设章节）；下一步：embedded-register-lookup set <TIMx>.RCR REP=<重复次数> --chip <芯片>
-- **互补死区数值算错** 依据：STM32 参考手册（如 RM0440，对应外设章节）；下一步：embedded-timing-calc deadtime --fsw <开关频率> --dt <目标死区>
+- **互补死区数值算错** 依据：STM32 参考手册（如 RM0440，对应外设章节）；下一步：死区微秒 ↔ DTG 寄存器值用 embedded-timing-calc 的死区换算
 
 ## uart — USART / UART（8 坑）
 
@@ -375,7 +378,7 @@
 | AT 模组透传模式退不出 | 发 +++ 没反应，一直停在数据透传 | +++ 前后需静默间隔（常为毫秒级静默 + 无回显），按模组手册确认 +++ 退出序列与静默时间 |
 | 硬流控 RTS/CTS 接反 | 只发不收、丢数据 | 核对 RTS/CTS 与对端接线（RTS↔CTS 交叉），示波器查 CTS 是否常拉低、使能位置 |
 
-- **波特率寄存器手算错** 依据：STM32 参考手册（如 RM0090，USART 章节）；下一步：embedded-timing-calc uart --pclk <APB时钟> --baud 115200
+- **波特率寄存器手算错** 依据：STM32 参考手册（如 RM0090，USART 章节）；下一步：波特率 ↔ BRR 与分频误差用 embedded-timing-calc 的 UART 计算核对
 - **DMA+空闲中断：IDLE 标志顺序错** 依据：STM32 参考手册（如 RM0090，USART 章节）
 - **RS485 方向脚切换时机** 依据：STM32 参考手册（如 RM0090，USART 章节）
 - **AT 指令响应解析没超时** 依据：STM32 参考手册（如 RM0440，对应外设章节）
