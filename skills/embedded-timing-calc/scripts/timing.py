@@ -957,6 +957,9 @@ def calc_sensor_lsb(raw, fsr, nbits=16, unipolar=False):
 
 
 def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(prog="timing.py", description="嵌入式时序计算器")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--format", choices=("text", "json"), default="text",
