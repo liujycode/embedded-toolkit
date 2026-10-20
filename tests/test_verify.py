@@ -1414,9 +1414,9 @@ def test_clock_enable_underscore_alias_is_conservative():
 def _write_patch_repo(tmp_path, name, full, diff):
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / name).write_text(full, encoding="utf-8", newline="\n")
+    (repo / name).write_bytes(full.encode("utf-8"))
     patch_file = repo / "changes.diff"
-    patch_file.write_text(diff, encoding="utf-8", newline="\n")
+    patch_file.write_bytes(diff.encode("utf-8"))
     return patch_file
 
 
