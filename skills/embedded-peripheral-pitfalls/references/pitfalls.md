@@ -16,9 +16,12 @@
 | 注入组触发与相电流采样没同步 | 采样到的相电流点不对、波动大 | 注入组触发要与 PWM 对齐（如 TRGO=更新/比较事件），在 PWM 周期内正确时刻采样，别随手触发 |
 | 双 ADC 交替/同步模式没配主从 | 两片 ADC 数据相位/值不一致 | 核对主从关系：交替模式确认共享触发与 DMA 同步，同步模式确认共享时钟与触发源 |
 
-- **采样时间太短** 下一步：embedded-timing-calc adc-rad --ts <Ts_cycles> --fadc <Fadc_Hz>
+- **采样时间太短** 依据：STM32 参考手册（如 RM0440，ADC 章节）；下一步：embedded-timing-calc adc-rad --ts <Ts_cycles> --fadc <Fadc_Hz>
 - **没做校准（F1/F3）** 依据：STM32 参考手册（如 RM0008，ADC 章节）
+- **规则组/注入组概念混** 依据：STM32 参考手册（如 RM0440，ADC 章节）
+- **VREF 没接好/参考电压漂** 依据：STM32 参考手册（如 RM0440，ADC 章节）
 - **DMA 缓冲区不可达（H7 DTCM）** 依据：STM32 参考手册（如 RM0433，Cache 一致性）
+- **转换序列长度没配** 依据：STM32 参考手册（如 RM0440，ADC 章节）
 - **带着使能去校准** 依据：STM32 参考手册（如 RM0440，ADC 章节）
 - **注入组触发与相电流采样没同步** 依据：STM32 参考手册（如 RM0440，对应外设章节）
 - **双 ADC 交替/同步模式没配主从** 依据：STM32 参考手册（如 RM0440，对应外设章节）
@@ -58,7 +61,8 @@
 - **过滤器没配对** 依据：STM32 参考手册（如 RM0090，CAN 控制器章节）
 - **TX 邮箱满没等** 依据：STM32 参考手册（如 RM0090，CAN 控制器章节）
 - **终端电阻缺失** 依据：ISO 11898-1:2015
-- **FDCAN 内核时钟没选对** 下一步：embedded-timing-calc can-bit --clk <CAN_clk_Hz> --baud <baud_bps> --sp <sample_point> --family fdcan
+- **没有先做环回自测** 依据：STM32 参考手册（如 RM0440，FDCAN 章节）
+- **FDCAN 内核时钟没选对** 依据：STM32 参考手册（如 RM0440，FDCAN 章节）；下一步：embedded-timing-calc can-bit --clk <CAN_clk_Hz> --baud <baud_bps> --sp <sample_point> --family fdcan
 
 ## crc — CRC 校验（4 坑）
 
@@ -154,8 +158,11 @@
 | EXTI 使能了但 NVIC 没开 | pending 置位但就是不进中断 | EXTI 的 IMR/EMR + NVIC 的 ISER/优先级，两层使能缺一不可 |
 
 - **标志位没清/清错位置** 依据：STM32 参考手册（如 RM0440，EXTI 章节，PR 写 1 清零）
+- **优先级分组理解错** 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
+- **高优先级中断里做慢活** 依据：ARMv7-M Architecture Reference Manual (DDI 0403)
 - **FreeRTOS：超 MAX_SYSCALL 优先级调 API** 依据：FreeRTOS 官方文档（configMAX_SYSCALL_INTERRUPT_PRIORITY / 中断安全 API）
-- **EXTI 使能了但 NVIC 没开** 下一步：embedded-register-lookup irq <EXTI_IRQn> --chip <芯片>
+- **EXTI 线映射配错（同一号线多端口）** 依据：STM32 参考手册（如 RM0440，EXTI/SYSCFG 章节）
+- **EXTI 使能了但 NVIC 没开** 依据：STM32 参考手册（如 RM0440，EXTI/SYSCFG 章节）；下一步：embedded-register-lookup irq <EXTI_IRQn> --chip <芯片>
 
 ## flash — 片内 Flash（6 坑）
 
@@ -186,7 +193,12 @@
 | 两个外设抢同一个引脚 | 其中一个外设莫名失效（后配置的把复用抢走） | 对照引脚复用表做全局分配；初始化顺序定好并注释谁在用哪个引脚 |
 | 输出速率档位没配 | 高速信号边沿畸变、EMI 超标 | 按信号速率选 OSPEEDR 档位；低速信号降档降 EMI |
 
-- **I2C 引脚配成推挽** 下一步：embedded-timing-calc i2c-rp --bus fast --cb <Cb_pF>
+- **复用没切 AF 模式** 依据：STM32 参考手册（如 RM0440，GPIO 章节）
+- **I2C 引脚配成推挽** 依据：STM32 参考手册（如 RM0440，GPIO 章节）；下一步：embedded-timing-calc i2c-rp --bus fast --cb <Cb_pF>
+- **非 FT 引脚接 5V** 依据：对应芯片数据手册（引脚 FT 标记/绝对最大额定值）
+- **模拟脚没设模拟模式** 依据：STM32 参考手册（如 RM0440，GPIO 章节）
+- **两个外设抢同一个引脚** 依据：STM32 参考手册（如 RM0440，GPIO 章节）
+- **输出速率档位没配** 依据：STM32 参考手册（如 RM0440，GPIO 章节）
 
 ## i2c — I2C（7 坑）
 
@@ -200,7 +212,12 @@
 | 总线挂死没有恢复机制 | 一次从机拉死，之后永久瘫痪 | 驱动里加超时+恢复路径（9 脉冲/外设复位/重上电），别裸等标志 |
 | I2C EEPROM 页写越界 | 跨页写长数据只写了部分、数据错 | 按页边界断开、每页写不超过页大小；每页写完等写周期（~5ms，用 ACK 轮询或延时） |
 
-- **上拉电阻没接/太大** 下一步：embedded-timing-calc i2c-rp --bus fast --cb <Cb_pF>
+- **上拉电阻没接/太大** 依据：UM10204 I2C-bus specification；STM32 参考手册（如 RM0440，I2C 章节）；下一步：embedded-timing-calc i2c-rp --bus fast --cb <Cb_pF>
+- **从机地址 7 位/8 位写法混** 依据：STM32 参考手册（如 RM0440，I2C 章节）；UM10204 I2C-bus specification
+- **总线被从机拉死** 依据：UM10204 I2C-bus specification
+- **读 SR 后必须读 DR 的老 F1 陷阱** 依据：STM32F1 参考手册 RM0008（I2C 章节）
+- **时钟拉伸没考虑** 依据：UM10204 I2C-bus specification
+- **总线挂死没有恢复机制** 依据：UM10204 I2C-bus specification
 - **I2C EEPROM 页写越界** 依据：STM32 参考手册（如 RM0440，对应外设章节）
 
 ## link — 启动与链接（6 坑）
@@ -267,6 +284,7 @@
 - **唤醒后时钟回落没重配** 依据：STM32 参考手册（如 RM0440，低功耗章节）
 - **进睡前唤醒标志没清** 依据：STM32 参考手册（如 RM0440，低功耗章节）
 - **待机模式 SRAM 不保持** 依据：STM32 参考手册（如 RM0440，低功耗章节）
+- **低功耗电流降不下来先查引脚** 依据：STM32 参考手册（如 RM0440，GPIO 章节，未用引脚处理）
 - **PVD/BOR 电压监控没用来抢掉电** 依据：STM32 参考手册（如 RM0440，对应外设章节）
 - **掉电抢救放慢中断里** 依据：STM32 参考手册（如 RM0440，对应外设章节）
 
@@ -282,9 +300,11 @@
 | MCO 引脚看不到时钟 | 示波器上 MCO 无输出 | MCO 也要配 AF 复用；查 MCO 源选择与分频是否生效 |
 
 - **外设时钟没开就访问寄存器** 依据：STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）；下一步：embedded-register-verify check <file.c> --chip <芯片>
+- **PLL 超频电压档没跟上** 依据：STM32 参考手册（如 RM0440，RCC 章节）
 - **HSI 精度当晶振用** 依据：STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）；下一步：embedded-timing-calc uart --pclk <HSI_Hz> --baud <baud_bps>
 - **定时器时钟源选错（APB×1 vs ×2）** 依据：STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）；下一步：embedded-timing-calc timer --pclk <APB_Hz> --freq <Hz>
 - **LSE 起振慢或不起，RTC 走不准** 依据：STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）
+- **MCO 引脚看不到时钟** 依据：STM32 参考手册（如 RM0440，RCC 章节）
 
 ## rtc — RTC 实时时钟（5 坑）
 
@@ -344,6 +364,11 @@
 | 全双工只写不读 | RX 溢出 OVR 置位 | 写同时读 DR（或开 RX DMA）清溢出 |
 | 片选用硬件 NSS 的坑 | 片选行为怪异（首字节丢/主机从机切不动） | 常规做法是软件片选：GPIO 输出、初始电平为高（未选中），握手期间拉低 |
 
+- **CPOL/CPHA 配错** 依据：STM32 参考手册（如 RM0440，SPI 章节）
+- **片选拉高太早** 依据：STM32 参考手册（如 RM0440，SPI 章节）
+- **16 位/8 位帧格式混** 依据：STM32 参考手册（如 RM0440，SPI 章节）
+- **全双工只写不读** 依据：STM32 参考手册（如 RM0440，SPI 章节）
+- **片选用硬件 NSS 的坑** 依据：STM32 参考手册（如 RM0440，SPI 章节）
 
 ## tim — 定时器（9 坑）
 
@@ -361,8 +386,10 @@
 
 - **ARR/PSC 与实际频率对不上** 依据：STM32 参考手册（如 RM0090，通用定时器章节）；下一步：embedded-timing-calc timer --pclk <APB_Hz> --freq <Hz>
 - **只改 ARR 没产生更新事件** 依据：STM32 参考手册（如 RM0090，通用定时器章节）
-- **互补输出没配死区/刹车** 下一步：embedded-timing-calc deadtime --fsw <fsw_Hz> --dt <dt_s>
+- **互补输出没配死区/刹车** 依据：STM32 参考手册（如 RM0440，TIM 章节）；下一步：embedded-timing-calc deadtime --fsw <fsw_Hz> --dt <dt_s>
+- **编码器模式读数跳变** 依据：STM32 参考手册（如 RM0440，TIM 章节）
 - **定时器配完忘了启动** 依据：STM32 参考手册（如 RM0090，通用定时器章节）
+- **多定时器不同步** 依据：STM32 参考手册（如 RM0440，TIM 章节）
 - **刹车输入 break 没弄对** 依据：STM32 参考手册（如 RM0440，对应外设章节）
 - **重复计数器 REP 与触发同步没对齐** 依据：STM32 参考手册（如 RM0440，对应外设章节）；下一步：embedded-register-lookup set <TIMx>.RCR REP=<重复次数> --chip <芯片>
 - **互补死区数值算错** 依据：STM32 参考手册（如 RM0440，对应外设章节）；下一步：embedded-timing-calc deadtime --fsw <fsw_Hz> --dt <dt_s>
@@ -381,7 +408,9 @@
 | 硬流控 RTS/CTS 接反 | 只发不收、丢数据 | 核对 RTS/CTS 与对端接线（RTS↔CTS 交叉），示波器查 CTS 是否常拉低、使能位置 |
 
 - **波特率寄存器手算错** 依据：STM32 参考手册（如 RM0090，USART 章节）；下一步：embedded-timing-calc uart --pclk <PCLK_Hz> --baud <baud_bps>
+- **只开中断没开 USART 时钟/引脚** 依据：STM32 参考手册（如 RM0440，USART 章节）
 - **DMA+空闲中断：IDLE 标志顺序错** 依据：STM32 参考手册（如 RM0090，USART 章节）
+- **9 位模式/校验位两端不一致** 依据：STM32 参考手册（如 RM0440，USART 章节）
 - **RS485 方向脚切换时机** 依据：STM32 参考手册（如 RM0090，USART 章节）
 - **AT 指令响应解析没超时** 依据：STM32 参考手册（如 RM0440，对应外设章节）
 - **AT 模组透传模式退不出** 依据：STM32 参考手册（如 RM0440，对应外设章节）
@@ -415,7 +444,9 @@
 | 选项字节开了硬件看门狗 | 代码里没有任何 IWDG/WWDG 配置，上电仍复位循环 | 查选项字节的硬件看门狗位（硬件使能后一上电就跑）；用查/改选项字节的工具核对 |
 
 - **调试时看门狗不停** 依据：STM32 参考手册（如 RM0440，独立/窗口看门狗 IWDG/WWDG 章节）
+- **喂狗位置不合理** 依据：STM32 参考手册（如 RM0440，IWDG/WWDG 与选项字节章节）
 - **WWDG 喂太快也复位** 依据：STM32 参考手册（如 RM0440，独立/窗口看门狗 IWDG/WWDG 章节）
+- **选项字节开了硬件看门狗** 依据：STM32 参考手册（如 RM0440，IWDG/WWDG 与选项字节章节）
 
 ## 配置口诀
 

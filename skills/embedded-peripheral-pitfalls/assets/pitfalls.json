@@ -16,7 +16,10 @@
             "精度",
             "抖动"
           ],
-          "next": "embedded-timing-calc adc-rad --ts <Ts_cycles> --fadc <Fadc_Hz>"
+          "next": "embedded-timing-calc adc-rad --ts <Ts_cycles> --fadc <Fadc_Hz>",
+          "refs": [
+            "STM32 参考手册（如 RM0440，ADC 章节）"
+          ]
         },
         {
           "id": "adc-cal",
@@ -43,6 +46,9 @@
             "规则组",
             "注入组",
             "顺序"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，ADC 章节）"
           ]
         },
         {
@@ -56,6 +62,9 @@
             "参考电压",
             "比例",
             "vrefint"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，ADC 章节）"
           ]
         },
         {
@@ -86,6 +95,9 @@
             "sqr",
             "多通道",
             "rank"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，ADC 章节）"
           ]
         },
         {
@@ -345,6 +357,9 @@
             "自测",
             "loopback",
             "调试"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，FDCAN 章节）"
           ]
         },
         {
@@ -359,7 +374,10 @@
             "位时序",
             "采样点"
           ],
-          "next": "embedded-timing-calc can-bit --clk <CAN_clk_Hz> --baud <baud_bps> --sp <sample_point> --family fdcan"
+          "next": "embedded-timing-calc can-bit --clk <CAN_clk_Hz> --baud <baud_bps> --sp <sample_point> --family fdcan",
+          "refs": [
+            "STM32 参考手册（如 RM0440，FDCAN 章节）"
+          ]
         }
       ]
     },
@@ -862,6 +880,9 @@
             "分组",
             "嵌套",
             "nvic"
+          ],
+          "refs": [
+            "ARMv7-M Architecture Reference Manual (DDI 0403)"
           ]
         },
         {
@@ -875,6 +896,9 @@
             "慢",
             "饿死",
             "看门狗"
+          ],
+          "refs": [
+            "ARMv7-M Architecture Reference Manual (DDI 0403)"
           ]
         },
         {
@@ -904,6 +928,9 @@
             "exticr",
             "端口",
             "引脚"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，EXTI/SYSCFG 章节）"
           ]
         },
         {
@@ -918,7 +945,10 @@
             "pending",
             "不进中断"
           ],
-          "next": "embedded-register-lookup irq <EXTI_IRQn> --chip <芯片>"
+          "next": "embedded-register-lookup irq <EXTI_IRQn> --chip <芯片>",
+          "refs": [
+            "STM32 参考手册（如 RM0440，EXTI/SYSCFG 章节）"
+          ]
         }
       ]
     },
@@ -1043,6 +1073,9 @@
             "af",
             "无输出",
             "moder"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，GPIO 章节）"
           ]
         },
         {
@@ -1057,7 +1090,10 @@
             "上拉",
             "卡死"
           ],
-          "next": "embedded-timing-calc i2c-rp --bus fast --cb <Cb_pF>"
+          "next": "embedded-timing-calc i2c-rp --bus fast --cb <Cb_pF>",
+          "refs": [
+            "STM32 参考手册（如 RM0440，GPIO 章节）"
+          ]
         },
         {
           "id": "gpio-5v",
@@ -1069,6 +1105,9 @@
             "ft",
             "电平",
             "容忍"
+          ],
+          "refs": [
+            "对应芯片数据手册（引脚 FT 标记/绝对最大额定值）"
           ]
         },
         {
@@ -1081,6 +1120,9 @@
             "analog",
             "噪声",
             "adc"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，GPIO 章节）"
           ]
         },
         {
@@ -1093,6 +1135,9 @@
             "复用",
             "冲突",
             "引脚分配"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，GPIO 章节）"
           ]
         },
         {
@@ -1106,6 +1151,9 @@
             "ospeed",
             "边沿",
             "emi"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，GPIO 章节）"
           ]
         }
       ]
@@ -1125,7 +1173,11 @@
             "电阻",
             "上升沿"
           ],
-          "next": "embedded-timing-calc i2c-rp --bus fast --cb <Cb_pF>"
+          "next": "embedded-timing-calc i2c-rp --bus fast --cb <Cb_pF>",
+          "refs": [
+            "UM10204 I2C-bus specification",
+            "STM32 参考手册（如 RM0440，I2C 章节）"
+          ]
         },
         {
           "id": "i2c-addr",
@@ -1138,6 +1190,10 @@
             "7位",
             "8位",
             "nak"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，I2C 章节）",
+            "UM10204 I2C-bus specification"
           ]
         },
         {
@@ -1151,6 +1207,9 @@
             "拉死",
             "sda",
             "解救"
+          ],
+          "refs": [
+            "UM10204 I2C-bus specification"
           ]
         },
         {
@@ -1165,6 +1224,9 @@
             "dr",
             "ev",
             "状态机"
+          ],
+          "refs": [
+            "STM32F1 参考手册 RM0008（I2C 章节）"
           ]
         },
         {
@@ -1177,6 +1239,9 @@
             "时钟拉伸",
             "stretch",
             "速率"
+          ],
+          "refs": [
+            "UM10204 I2C-bus specification"
           ]
         },
         {
@@ -1190,6 +1255,9 @@
             "恢复",
             "拉死",
             "健壮性"
+          ],
+          "refs": [
+            "UM10204 I2C-bus specification"
           ]
         },
         {
@@ -1556,6 +1624,9 @@
             "引脚",
             "电流",
             "模拟"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，GPIO 章节，未用引脚处理）"
           ]
         },
         {
@@ -1626,6 +1697,9 @@
             "超频",
             "电压",
             "不稳"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，RCC 章节）"
           ]
         },
         {
@@ -1689,6 +1763,9 @@
             "mco",
             "时钟输出",
             "示波器"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，RCC 章节）"
           ]
         }
       ]
@@ -1971,6 +2048,9 @@
             "cpha",
             "错位",
             "0xff"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，SPI 章节）"
           ]
         },
         {
@@ -1984,6 +2064,9 @@
             "cs",
             "bsy",
             "丢失"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，SPI 章节）"
           ]
         },
         {
@@ -1997,6 +2080,9 @@
             "8位",
             "dff",
             "字节序"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，SPI 章节）"
           ]
         },
         {
@@ -2010,6 +2096,9 @@
             "溢出",
             "全双工",
             "只写"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，SPI 章节）"
           ]
         },
         {
@@ -2023,6 +2112,9 @@
             "cs",
             "nss",
             "gpio"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，SPI 章节）"
           ]
         }
       ]
@@ -2076,7 +2168,10 @@
             "bdtr",
             "直通"
           ],
-          "next": "embedded-timing-calc deadtime --fsw <fsw_Hz> --dt <dt_s>"
+          "next": "embedded-timing-calc deadtime --fsw <fsw_Hz> --dt <dt_s>",
+          "refs": [
+            "STM32 参考手册（如 RM0440，TIM 章节）"
+          ]
         },
         {
           "id": "tim-enc",
@@ -2089,6 +2184,9 @@
             "跳变",
             "ti1",
             "ti2"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，TIM 章节）"
           ]
         },
         {
@@ -2117,6 +2215,9 @@
             "主从",
             "trgo",
             "itr"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，TIM 章节）"
           ]
         },
         {
@@ -2203,6 +2304,9 @@
             "uart",
             "时钟",
             "无响应"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，USART 章节）"
           ]
         },
         {
@@ -2233,6 +2337,9 @@
             "字长",
             "停止位",
             "9位"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，USART 章节）"
           ]
         },
         {
@@ -2442,6 +2549,9 @@
             "喂狗",
             "复位",
             "健康检查"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，IWDG/WWDG 与选项字节章节）"
           ]
         },
         {
@@ -2469,6 +2579,9 @@
             "选项字节",
             "硬件看门狗",
             "复位循环"
+          ],
+          "refs": [
+            "STM32 参考手册（如 RM0440，IWDG/WWDG 与选项字节章节）"
           ]
         }
       ]
