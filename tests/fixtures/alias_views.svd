@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  地址反查夹具：宽寄存器 W32（0x0，4 字节）与窄别名 B2（0x2，1 字节）并存。
+  用于验证 addr=0x3 仍应判为 W32 内部（旧实现按"最大起始地址"会误判为 gap），
+  以及 addr==0x4（W32 结束地址）不算包含。
+-->
+<device schemaVersion="1.1">
+  <name>ALIASCHIP</name>
+  <version>1.0</version>
+  <description>Address alias fixture for inside_register</description>
+  <vendor>Test</vendor>
+  <cpu>
+    <name>CM0</name>
+  </cpu>
+  <size>32</size>
+  <peripherals>
+    <peripheral>
+      <name>P</name>
+      <description>Wide register with a narrow byte alias</description>
+      <baseAddress>0x40000000</baseAddress>
+      <registers>
+        <register>
+          <name>W32</name>
+          <description>32-bit view at offset 0</description>
+          <addressOffset>0x0</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>B2</name>
+          <description>8-bit view at offset 2</description>
+          <addressOffset>0x2</addressOffset>
+          <size>8</size>
+        </register>
+        <register>
+          <name>AFTER</name>
+          <description>Next register, keeps the peripheral span open past 0x4</description>
+          <addressOffset>0x10</addressOffset>
+          <size>32</size>
+        </register>
+      </registers>
+    </peripheral>
+  </peripherals>
+</device>

@@ -1,6 +1,6 @@
 /*
  * 排障决策树演示用例：一段"症状卡片"，配合 trees.py 演示检索路径。
- * 本文件不需要编译——它描述的症状分别命中十一棵决策树的典型入口。
+ * 本文件不需要编译——它描述的症状分别命中十二棵决策树的典型入口。
  *
  * 症状 1（hardfault 树 / precise 节点）：
  *   外设时钟未使能就访问寄存器 → HardFault PRECISERR
@@ -46,6 +46,10 @@
  *   屏幕整块全白没画面，背光是亮的
  *   演示：python scripts/trees.py search "屏幕整块白屏不显示"
  *
+ * 症状 12（fpga-rtl 树 / silent-default 节点）：
+ *   FPGA 综合 0 ERROR、帧流正常，但某个通道数据恒 0
+ *   演示：python scripts/trees.py search "FPGA 综合后数据全零"
+ *
  * 每个检索返回：命中节点路径、证据采集动作、判定、对策；部分节点带"转入"跨树线索。
- * 通读全树：python scripts/trees.py show <hardfault|comm|dma|can|rtos|boot|pwr|usb|flash|rtc|display>
+ * 通读全树：python scripts/trees.py show <hardfault|comm|dma|can|rtos|boot|pwr|usb|flash|rtc|display|fpga-rtl>
  */

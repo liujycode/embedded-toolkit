@@ -1,0 +1,237 @@
+{
+  "schema": "etk-timing-thresholds/1.0",
+  "thresholds": [
+    {
+      "id": "uart-baud-error",
+      "value": 2.0,
+      "unit": "%",
+      "rule": "actual_error <= 2.0",
+      "source": "通用嵌入式实践：8N1 帧 10 位累计漂移不越采样窗；与 STM32 手册推荐一致（RM0008 USART 章节）",
+      "label": "UART 波特率误差上限"
+    },
+    {
+      "id": "can-sp-low",
+      "value": 75.0,
+      "unit": "%",
+      "rule": "sample_point >= 75.0",
+      "source": "CiA 301 推荐采样点 87.5%（500k 及以上）；低速段常用 80-90%；下限 75% 保传播段",
+      "label": "CAN 采样点下限"
+    },
+    {
+      "id": "can-sp-high",
+      "value": 87.5,
+      "unit": "%",
+      "rule": "sample_point <= 87.5",
+      "source": "CiA 301 推荐采样点 87.5%；过高留不出信息处理时间",
+      "label": "CAN 采样点上限"
+    },
+    {
+      "id": "i2c-rise-std",
+      "value": 1000,
+      "unit": "ns",
+      "rule": "tr <= 1000",
+      "source": "I2C-bus specification Rev7.0（NXP）：标准模式最大上升时间 1000ns、Cb<=400pF；Rp(max)=tr/(0.8473×Cb)（TI SLVA689）",
+      "label": "I2C 标准模式上升时间上限"
+    },
+    {
+      "id": "i2c-rise-fast",
+      "value": 300,
+      "unit": "ns",
+      "rule": "tr <= 300",
+      "source": "I2C-bus specification Rev7.0（NXP）：快速模式最大上升时间 300ns、Cb<=400pF；std/fast/fm+ 同用 Rp(max)=tr/(0.8473×Cb)（TI SLVA689），速率提高靠 tr 收紧而非换系数",
+      "label": "I2C 快速模式上升时间上限"
+    },
+    {
+      "id": "i2c-rise-fmplus",
+      "value": 120,
+      "unit": "ns",
+      "rule": "tr <= 120",
+      "source": "I2C-bus specification Rev7.0（NXP）：快速+模式最大上升时间 120ns、Cb<=550pF；Rp(max)=tr/(0.8473×Cb) 同式，tr/Cb 收紧后自然比 fast 更严（TI SLVA689）",
+      "label": "I2C 快速+模式上升时间上限"
+    },
+    {
+      "id": "i2c-cb-max-std",
+      "value": 400,
+      "unit": "pF",
+      "rule": "cb <= 400",
+      "source": "I2C-bus specification Rev7.0：标准模式最大总线电容 400pF",
+      "label": "I2C 标准模式总线电容上限"
+    },
+    {
+      "id": "i2c-cb-max-fast",
+      "value": 400,
+      "unit": "pF",
+      "rule": "cb <= 400",
+      "source": "I2C-bus specification Rev7.0：快速模式最大总线电容 400pF",
+      "label": "I2C 快速模式总线电容上限"
+    },
+    {
+      "id": "i2c-cb-max-fmplus",
+      "value": 550,
+      "unit": "pF",
+      "rule": "cb <= 550",
+      "source": "I2C-bus specification Rev7.0：快速+模式最大总线电容 550pF",
+      "label": "I2C 快速+模式总线电容上限"
+    },
+    {
+      "id": "adc-fs-clamp",
+      "value": 0.5,
+      "unit": "ratio",
+      "rule": "Rsrc_max = ts/(Csample×ln(2^(n+2))) − Radc（整定到 1/4 LSB，Radc 由 --radc 扣减）",
+      "source": "datasheet 通式：Rsrc_max = ts / (Csample × ln(2^(n+2))) − Radc——整定到 1/4 LSB（N+2 位），比 1/2 LSB 口径保守一档；Cs/Radc 随芯片不同，以目标芯片 datasheet 为准",
+      "label": "ADC 源阻抗与采样周期关系（通用式）"
+    },
+    {
+      "id": "nyquist-margin",
+      "value": 2.0,
+      "unit": "x",
+      "rule": "fs >= 2 * fbw（工程建议 5-10 倍防混叠与重建质量）",
+      "source": "Nyquist–Shannon 采样定理；工程惯例 5-10x",
+      "label": "采样率对信号带宽倍数"
+    },
+    {
+      "id": "deadtime-ratio",
+      "value": 5.0,
+      "unit": "%",
+      "rule": "dt/fsw_period <= 5.0（超过提示效率损失，深水区转电机专家）",
+      "source": "功率级工程惯例：死区占比 >5% 明显压缩有效占空比",
+      "label": "死区占开关周期比上限（提示级）"
+    },
+    {
+      "id": "fpga-slack-ok",
+      "value": 0.0,
+      "unit": "ns",
+      "rule": "slack >= 0（=0 算通过但提示零裕量）",
+      "source": "静态时序分析通式：slack = Tclk - (Tco + Tlogic + Troute + Tsu)",
+      "label": "FPGA 建立时间 slack 下限"
+    },
+    {
+      "id": "fpga-slack-warn",
+      "value": 1.0,
+      "unit": "ns",
+      "rule": "slack < 1.0 提示裕量偏紧（PVT 漂移风险）",
+      "source": "工程惯例：关键路径裕量 <1ns 需关注跨角漂移",
+      "label": "FPGA slack 裕量提示线"
+    },
+    {
+      "id": "esp32-apb-clk",
+      "value": 80000000.0,
+      "unit": "Hz",
+      "rule": "信息项：ESP32 经典款外设时钟默认 80MHz（APB），驱动/库常硬编码此值",
+      "source": "Espressif ESP32 Technical Reference Manual：APB 时钟 80MHz；SDK 默认外设频率按此推导",
+      "label": "ESP32 APB 外设时钟"
+    },
+    {
+      "id": "rp2040-div-int",
+      "value": 1,
+      "unit": "int",
+      "rule": "RP2040 UART divider 为 IBRD 16 位整数 + FBRD 6 位小数（1/64 步进）；FBRD 四舍五入到 64 时向 IBRD 进位、FBRD 归 0",
+      "source": "RP2040 Datasheet §4.2 UART / Pico C/C++ SDK：BAUDDIV = clk_peri/(16×baud) = IBRD + FBRD/64，IBRD 16 位整数、FBRD 6 位小数（0-63）；不是 6.12 定点格式",
+      "label": "RP2040 UART 分频格式"
+    },
+    {
+      "id": "pwm-resolution-min",
+      "value": 8,
+      "unit": "bits",
+      "rule": "PWM/LED 调光分辨率 >= 8 位（256 级），低于则可见台阶/呼吸灯断层",
+      "source": "人眼对 8 位以下亮度跳变可感知（显示/照明工程惯例）；电机场景另议",
+      "label": "PWM 调光分辨率下限"
+    },
+    {
+      "id": "ws2812-timing-tolerance",
+      "value": 150.0,
+      "unit": "ns",
+      "rule": "高电平必查：T0H 300±150ns、T1H 800±150ns；可选低电平：T0L 850±150ns、T1L 450±150ns（给了 --t0l/--t1l 才判）",
+      "source": "Worldsemi WS2812B 系列 datasheet：T0H 0.3-0.4µs/T1H 0.8µs、T0L 0.85µs/T1L 0.45µs，均 ±150ns；本工具高电平按 300ns 中心（WS2812B-V5 常见值，老 WS2812B 标称 0.4µs，具体以批次型号 datasheet 为准）。未覆盖：复位低电平 >50µs、WS2812B-V5/SK6812 等型号差异",
+      "label": "WS2812 位时序容差"
+    },
+    {
+      "id": "servo-pwm",
+      "value": 50.0,
+      "unit": "Hz",
+      "rule": "舵机 PWM 标准 50Hz（20ms 周期），脉宽 0.5-2.5ms 对应 0-180°",
+      "source": " hobby 舵机行业通用标准（Hitec/Futaba/JX 等）",
+      "label": "舵机 PWM 标准"
+    },
+    {
+      "id": "stepper-pulse-min",
+      "value": 2.0,
+      "unit": "µs",
+      "rule": "步进驱动器 STEP 脉宽最小 2µs（A4988/DRV8825/TB6600 量级），方向信号建立 200ns",
+      "source": "Allegro A4988 datasheet：STEP 最小脉宽 1.9µs（取整 2µs）；DRV8825 1.9µs；TI/东芝驱动同量级",
+      "label": "步进 STEP 最小脉宽"
+    },
+    {
+      "id": "sensor-i2c-addr-detect",
+      "value": 400.0,
+      "unit": "pF",
+      "rule": "I2C 器件扫描的时钟上限建议 fast（400kHz）——部分老器件 std-only，扫描从 std 开始",
+      "source": "I2C spec + 常见传感器 datasheet（BME280 支持 3.4MHz，AT24 系 EEPROM 多 std/fast）",
+      "label": "器件扫描速率建议"
+    },
+    {
+      "id": "stepper-serial-baud",
+      "value": 115200.0,
+      "unit": "bps",
+      "rule": "常用串口器件默认波特率速查：GPS(NMEA)9600、蓝牙 AT 9600-115200、ESP AT 115200、调试口 115200",
+      "source": "各模块默认值（ublox/HC-05/ESP32 ROM loader 等）",
+      "label": "常用串口默认波特率速查"
+    },
+    {
+      "id": "modbus-silence-35",
+      "value": 3.5,
+      "unit": "chars",
+      "rule": "RTU 帧间隔 = 3.5 字符传输时间（ASCII 为 1s 固定）；发送端不得小于此，接收端以此判定帧结束",
+      "source": "Modbus over Serial Line Specification V1.02：RTU 帧间隔 3.5 字符（每字符 11 位）",
+      "label": "Modbus RTU 帧间隔"
+    },
+    {
+      "id": "usb-48m",
+      "value": 48000000.0,
+      "unit": "Hz",
+      "rule": "USB 全速/高速时钟必须精确 48MHz（误差 0%）——从主频 PLL 推导链上必须可整除；整数可分 ≠ RCC 实际支持该分频档位",
+      "source": "USB 2.0 spec：FS 位速率 12MHz，收发器需 48MHz（4x 过采样）；STM32 USBCLK = PLL/1.5 等推导；PLLQ/USBPRE 可用档位以目标芯片 RCC 章节为准",
+      "label": "USB 48MHz 精确要求"
+    },
+    {
+      "id": "rtc-crystal-ppm",
+      "value": 20.0,
+      "unit": "ppm",
+      "rule": "32.768kHz 晶振典型 ±20ppm → 日误差 ±1.7s；±5ppm 高精度 → ±0.43s/日",
+      "source": "32.768kHz 表晶 datasheet 通例（Epson/TXC）；日误差 = ppm × 86400e-6 s",
+      "label": "LSE 晶振精度与日走时"
+    },
+    {
+      "id": "flash-endurance",
+      "value": 10000.0,
+      "unit": "cycles",
+      "rule": "片内 Flash 擦写寿命典型 10K cycles（G 系列 30K）；erases/year = writes/year × record_bytes/page_bytes（两者都给时），缺 --record 按一次写入=一次擦除保守口径，wear-leveling 后按最小磨损单元计算",
+      "source": "STM32 datasheet（F1/F4 10K，G0/G4/L4 30K）；记录类应用必须 wear-leveling",
+      "label": "片内 Flash 擦写寿命"
+    },
+    {
+      "id": "swd-swo-baud",
+      "value": 2000000.0,
+      "unit": "bps",
+      "rule": "SWO 波特率 = 异步跟踪口径时由 TPIU 分频；常见 2Mbps；须与 IDE/RTT 接收端一致",
+      "source": "ARM CoreSight TPIU 架构；ST-Link 实用默认 2Mbps",
+      "label": "SWO 典型波特率"
+    },
+    {
+      "id": "battery-endurance",
+      "value": 80.0,
+      "unit": "%",
+      "rule": "电池可用容量按标称 80% 计（低温/老化/放电平台），续航 = 0.8×mAh/平均电流 mA",
+      "source": "锂电工程惯例：标称容量按 0.2C 放电测定，实际应用打 8 折；物联网续航估算通则",
+      "label": "电池可用容量折减"
+    },
+    {
+      "id": "sensor-lsb-typical",
+      "value": 1.0,
+      "unit": "x",
+      "rule": "换算通式：物理量 = raw × span/(2^nbits)；双极性 span=2×FSR（默认），单极性 span=FSR（--unipolar）；FSR 与量程档位来自器件 datasheet",
+      "source": "MEMS 传感器通用换算（BNO085/ICM-45686/LIS3DH 等 accel ±2g 档：span=4g、16384 LSB/g；单极性器件才按 0~FSR 折算）",
+      "label": "传感器 LSB 换算通式"
+    }
+  ]
+}

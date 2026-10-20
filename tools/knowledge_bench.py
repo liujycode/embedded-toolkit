@@ -103,6 +103,17 @@ TREE_CASES = [
     ("复位脚脉宽不够，屏偶尔不亮，上电序列要先查", "display"),
     ("USART 收发老丢字节，最后一个字节总丢，方向切换时机对不对", "comm"),
     ("DMA 请求使能没开，配置都对就是不搬", "dma"),
+    # FPGA/RTL：综合后行为异常 / 资源 / CDC / 仿真器 / 时序收敛
+    ("FPGA 综合后数据全零", "fpga-rtl"),
+    ("跨时钟域 亚稳态", "fpga-rtl"),
+    ("FPGA 资源压不下去", "fpga-rtl"),
+    ("仿真器 打出的结果 不可信", "fpga-rtl"),
+    ("非阻塞赋值 读到旧值", "fpga-rtl"),
+    ("综合工具 警告 端口 漏接", "fpga-rtl"),
+    ("存储数组 复位 导致 RAM 推断失败", "fpga-rtl"),
+    ("时序违例 建立时间 不满足", "fpga-rtl"),
+    # 排序回归：CLI 与评测共用 rank_hits，此查询必须排第 1
+    ("USB 识别不到", "usb"),
 ]
 
 # (查询, 期望坑位 id)
@@ -279,6 +290,7 @@ def evaluate():
         hits = []
         for tree in tdb["trees"]:
             trees.walk(tree, terms, [], hits, query.lower())
+        trees.rank_hits(hits)  # 与 CLI cmd_search 同一排序
         got = [(h[1][0] if h[1] else h[2].get("id")) for h in hits]
         rank = got.index(expect) + 1 if expect in got else 0
         rows.append(("debug-trees", query, expect, rank))
@@ -346,8 +358,9 @@ def write_doc(rows, hit, total, p1, mrr):
             lines.append("| %s | %s | %s | %d |" % (skill, query, expect, rank))
         lines.append("")
     lines.append("口径：查询经技能自带 tokenize + 同义词 + 反向关键词匹配后，期望的树/坑位出现在"
-                 "命中列表即为命中（召回）；排名=期望目标在命中列表的位置；p@1=期望目标排第 1 的占比；"
-                 "MRR=期望目标倒数排名的均值。召回 100% 是硬门禁，p@1/MRR 首版基线只报告不设门。")
+                 "命中列表即为命中（召回）；排名=期望目标在命中列表的位置（与 CLI search 共用同一排序）；"
+                 "p@1=期望目标排第 1 的占比；MRR=期望目标倒数排名的均值。召回 100% 与 p@1≥0.9 为门禁，"
+                 "MRR 只报告趋势。")
     with open(DOC, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines) + "\n")
     print("已写入 %s" % os.path.relpath(DOC, ROOT))

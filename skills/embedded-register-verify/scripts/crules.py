@@ -90,6 +90,26 @@ def _hardware_flag_like(field):
     return name.endswith("F") and not name.endswith("EN")
 
 
+def _enum_match(enums, value):
+    """枚举匹配：显式项（非 isDefault）先匹配；都不中时仅当存在默认项才放行。
+
+    SVD 把无值的 isDefault 项解析为 mask=0/value=0（匹配任意值），直接 any()
+    会让默认项恒真、无法与显式枚举区分；这里显式项优先，默认项只作兜底。
+    """
+    has_default = False
+    for item in enums:
+        if getattr(item, "is_default", False):
+            has_default = True
+        elif (value & item.mask) == item.value:
+            return True
+    return has_default
+
+
+def _enum_options(enums):
+    return "、".join(e.name for e in enums
+                     if e.name and not getattr(e, "is_default", False))
+
+
 def _count_by_class(findings):
     """按规则号统计问题条数（如 {"E04": 2, "E10": 1}），用于报告汇总。"""
     counts = {}
@@ -601,7 +621,8 @@ class Verifier:
         sets = set()
         unknown_set_regs = set()
         periph_first = {}
-        rcc_enabled = set()
+        # EN 字段名 -> 首次使能行号（E07 要求使能早于该外设的首次访问）
+        rcc_enabled = {}
         hal_enables = set(parsed["enables"])
         write_buckets = []
         write_lines = []
@@ -648,20 +669,20 @@ class Verifier:
                         sets.add((periph.name.upper(), reg.name.upper(), field.name.upper()))
                     if periph.name.upper() == "RCC":
                         for _macro, field, _info in mapped:
-                            rcc_enabled.add(field.name.upper())
+                            rcc_enabled.setdefault(field.name.upper(), write["line"])
                 elif write["op"] in ("write_reg", "modify_reg") and len(args) >= 2:
                     expr = args[2] if write["op"] == "modify_reg" and len(args) >= 3 else args[1]
                     mapped, _missing, _unmapped, _dim, value = self._fields_for_expr(expr, periph, reg, defines)
                     for _macro, field, _info in mapped:
                         sets.add((periph.name.upper(), reg.name.upper(), field.name.upper()))
                         if periph.name.upper() == "RCC":
-                            rcc_enabled.add(field.name.upper())
+                            rcc_enabled.setdefault(field.name.upper(), write["line"])
                     if value is not None and value >= 0:
                         for field in reg.fields:
                             if value & (field.mask << field.lsb):
                                 sets.add((periph.name.upper(), reg.name.upper(), field.name.upper()))
                                 if periph.name.upper() == "RCC":
-                                    rcc_enabled.add(field.name.upper())
+                                    rcc_enabled.setdefault(field.name.upper(), write["line"])
             else:
                 rhs = write.get("rhs") or ""
                 if write["op"] == "|=":
@@ -669,13 +690,13 @@ class Verifier:
                     for _macro, field, _info in mapped:
                         sets.add((periph.name.upper(), reg.name.upper(), field.name.upper()))
                         if periph.name.upper() == "RCC":
-                            rcc_enabled.add(field.name.upper())
+                            rcc_enabled.setdefault(field.name.upper(), write["line"])
                     if value is not None and value >= 0:
                         for field in reg.fields:
                             if value & (field.mask << field.lsb):
                                 sets.add((periph.name.upper(), reg.name.upper(), field.name.upper()))
                                 if periph.name.upper() == "RCC":
-                                    rcc_enabled.add(field.name.upper())
+                                    rcc_enabled.setdefault(field.name.upper(), write["line"])
                 elif write["op"] == "=":
                     value = cscan.eval_int(rhs, defines) if rhs else None
                     if value is not None and value >= 0:
@@ -683,7 +704,7 @@ class Verifier:
                             if value & (field.mask << field.lsb):
                                 sets.add((periph.name.upper(), reg.name.upper(), field.name.upper()))
                                 if periph.name.upper() == "RCC":
-                                    rcc_enabled.add(field.name.upper())
+                                    rcc_enabled.setdefault(field.name.upper(), write["line"])
                     else:
                         unknown_set_regs.add((periph.name.upper(), reg.name.upper()))
 
@@ -731,21 +752,33 @@ class Verifier:
             write_lines.append(write["line"])
             index += 1
 
-        if len(parsed["grouping_lines"]) > 1:
-            lines_text = "、".join(str(n) for n in parsed["grouping_lines"])
+        # 文件级规则：补丁模式用整文件判断"多处"，只在补丁新增了分组设置时归因给补丁。
+        # （只筛 grouping_lines 会漏掉"旧文件已有一处、补丁又加一处"这种真实新增违例）
+        grouping_lines = parsed["grouping_lines"]
+        reported = grouping_lines if patch_lines is None else [
+            n for n in grouping_lines if n in patch_lines]
+        if len(grouping_lines) > 1 and reported:
+            lines_text = "、".join(str(n) for n in grouping_lines)
             findings.append({
                 "class": "E09", "bucket": "报",
                 "severity": _SEVERITY["E09"], "label": _LABELS["E09"],
-                "line": parsed["grouping_lines"][0], "code": "NVIC_SetPriorityGrouping(...)",
+                "line": reported[0], "code": "NVIC_SetPriorityGrouping(...)",
                 "message": "本文件有 %d 处 NVIC_SetPriorityGrouping（第 %s 行），中断分组应只设置一次" % (
-                    len(parsed["grouping_lines"]), lines_text),
+                    len(grouping_lines), lines_text),
                 "suggestion": "保留一处分组设置；多处设置会互相覆盖，需确认哪一处生效。",
                 "peripheral": None, "register": None, "field": None,
                 "lookup": None,
             })
 
-        # 文件级规则：E11 使能后写 DMA 计数/地址寄存器（文本级，不依赖外设名能否解析）
-        for item in self._enable_order_findings(parsed["writes"], defines):
+        # 文件级规则：E11 使能后写 DMA 计数/地址寄存器（文本级，不依赖外设名能否解析）。
+        # 补丁模式用整文件判先后（使能可能在补丁外），只在"使能行或配置写行落在补丁内"时
+        # 归因给补丁；否则会把补丁外的旧违例算到本次改动头上。
+        order_findings = self._enable_order_findings(parsed["writes"], defines)
+        if patch_lines is not None:
+            order_findings = [
+                item for item in order_findings
+                if item["line"] in patch_lines or item["en_line"] in patch_lines]
+        for item in order_findings:
             findings.append({
                 "class": "E11", "bucket": "报",
                 "severity": _SEVERITY["E11"], "label": _LABELS["E11"],
@@ -991,9 +1024,8 @@ class Verifier:
                                 lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
                                     periph.name, reg.name, target_field.name),
                                     reason="查看该位域的宽度与访问属性"))
-                elif op == "=" and target_field.enums and not any(
-                        (value & e.mask) == e.value for e in target_field.enums):
-                    options = "、".join(e.name for e in target_field.enums if e.name)
+                elif op == "=" and target_field.enums and not _enum_match(target_field.enums, value):
+                    options = _enum_options(target_field.enums)
                     add_finding(write, "E05",
                                 "值 0x%X 不是位域 %s.%s.%s 的合法枚举（可选：%s）" % (
                                     value, periph.name, reg.name, target_field.name, options),
@@ -1146,8 +1178,8 @@ class Verifier:
                             lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
                                 periph.name, reg.name, field.name),
                                 reason="查看该位域的宽度"))
-            elif field.enums and not any((value & e.mask) == e.value for e in field.enums):
-                options = "、".join(e.name for e in field.enums if e.name)
+            elif field.enums and not _enum_match(field.enums, value):
+                options = _enum_options(field.enums)
                 add_finding(write, "E05",
                             "值 0x%X 不是位域 %s.%s.%s 的合法枚举（可选：%s）" % (
                                 value, periph.name, reg.name, field.name, options),
@@ -1339,8 +1371,8 @@ class Verifier:
                             periph=periph.name, register=reg.name, field=field.name,
                             lookup=_lookup_hint("lookup", path="%s.%s.%s" % (
                                 periph.name, reg.name, field.name), reason="查看该位域宽度与枚举"))
-            elif field.enums and not any((cmp_value & e.mask) == e.value for e in field.enums):
-                options = "、".join(e.name for e in field.enums if e.name)
+            elif field.enums and not _enum_match(field.enums, cmp_value):
+                options = _enum_options(field.enums)
                 add_finding(write, "E05",
                             "值 0x%X 不是位域 %s 的合法枚举（可选：%s）" % (cmp_value, field.name, options),
                             periph=periph.name, register=reg.name, field=field.name,
@@ -1445,6 +1477,20 @@ class Verifier:
 
     # ---------- E07 ----------
 
+    @staticmethod
+    def _find_enable_field(rcc, periph_name):
+        """在 RCC 中找该外设的时钟使能位（寄存器, 位域）。
+
+        先精确 <PERIPH>EN；找不到时只接受 <PERIPH>_EN 这一种别名。
+        不做包含/前缀模糊匹配，避免把 USART10EN 误当成 USART1 的使能位。
+        """
+        for wanted in (periph_name + "EN", periph_name + "_EN"):
+            for reg in rcc.registers:
+                for field in reg.fields:
+                    if field.name.upper() == wanted:
+                        return reg, field
+        return None, None
+
     def _clock_findings(self, periph_first, rcc_enabled, hal_enables):
         rcc = self._periph("RCC")
         if rcc is None:
@@ -1453,25 +1499,26 @@ class Verifier:
         for periph_name, (line, code) in sorted(periph_first.items()):
             if periph_name in ("RCC",) or periph_name in CORE_PERIPHERALS:
                 continue
-            enable_field = None
-            enable_reg = None
-            for reg in rcc.registers:
-                for field in reg.fields:
-                    if field.name.upper() == periph_name + "EN":
-                        enable_field = field
-                        enable_reg = reg
-                        break
-                if enable_field is not None:
-                    break
+            enable_reg, enable_field = self._find_enable_field(rcc, periph_name)
             if enable_field is None:
                 continue
-            if enable_field.name.upper() in rcc_enabled or periph_name in hal_enables:
+            if periph_name in hal_enables:
                 continue
+            # 使能必须早于该外设的首次访问；只使能过但更晚 → 仍报
+            enable_line = rcc_enabled.get(enable_field.name.upper())
+            if enable_line is not None and enable_line < line:
+                continue
+            if enable_line is None:
+                message = "写入 %s 前未见该外设时钟使能（%s.%s 未置位）；若在其它文件使能请忽略" % (
+                    periph_name, enable_reg.name, enable_field.name)
+            else:
+                message = ("写入 %s 前未见该外设时钟使能：%s.%s 直到第 %d 行才置位（晚于首次访问）；"
+                           "若在其它文件使能请忽略" % (
+                               periph_name, enable_reg.name, enable_field.name, enable_line))
             out.append({
                 "line": line,
                 "code": code,
-                "message": "写入 %s 前未见该外设时钟使能（%s.%s 未置位）；若在其它文件使能请忽略" % (
-                    periph_name, enable_reg.name, enable_field.name),
+                "message": message,
                 "suggestion": "用 --no-clock-check 可关闭本项检查。",
                 "peripheral": periph_name,
                 "lookup": _lookup_hint("lookup", path="RCC.%s" % enable_reg.name,

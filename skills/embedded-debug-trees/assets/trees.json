@@ -261,7 +261,7 @@
             "乱码",
             "超时"
           ],
-          "next": "波特率/采样点等精确数字用 embedded-timing-calc 算（UART BRR/I2C Rp/CAN 位时序）",
+          "next": "embedded-timing-calc uart --pclk <PCLK_Hz> --baud <baud_bps>",
           "see": "pwr/stop-clock"
         },
         {
@@ -800,7 +800,7 @@
             "ISO 11898-1:2015",
             "STM32 参考手册（如 RM0440/RM0090，FDCAN/ bxCAN 位时序寄存器章节）"
           ],
-          "next": "位时序段长/采样点用 embedded-timing-calc 的 CAN 位时序计算核对"
+          "next": "embedded-timing-calc can-bit --clk <CAN_clk_Hz> --baud <baud_bps> --sp <sample_point> --family <bxcan|fdcan>"
         },
         {
           "id": "can-filter",
@@ -1557,6 +1557,245 @@
             "对应显示控制器数据手册（初始化/时序章节）"
           ],
           "see": "comm/layer2-timing"
+        }
+      ]
+    },
+    {
+      "id": "fpga-rtl",
+      "title": "FPGA/RTL 排障（综合后行为异常/资源/工具链）",
+      "rootcauses": [
+        "parameter/端口漏透传到全部例化点——静默取默认或只报警告、位流照常生成（最高频）",
+        "存储阵列加复位循环杀死 RAM 推断，退化成 N×W 个触发器（不报任何警告）",
+        "跨时钟域违例：多 bit 直接同步、无格雷码指针、复位未同步释放",
+        "I2C 主控把从机时钟拉伸误判为本地超时（等电平与拉伸是同一观测）",
+        "实验脚手架/诊断探针长期留在生产路径上，'过于整齐'的异常其实是配置",
+        "仿真器静默假信息（格式化输出串分支、$fatal 不置退出码）误导判决",
+        "误判工具/流程信号：进程在≠编译在跑（看 CPU 时间），读数 0≠链路断（先交叉验证量具）"
+      ],
+      "children": [
+        {
+          "id": "silent-default",
+          "title": "帧流/位流正常但某功能全零或恒定 —— 先查漏透传",
+          "symptom": "综合 0 ERROR、功能自测 PASS，但某个值恒 0/恒全 F/恒不动；或'帧流正常但 payload 全 0'",
+          "action": "grep 新改 parameter/端口的模块名 → 逐个例化点核对透传（含中间封装层，每层都要过）；再看构建日志里的端口/参数告警逐条读",
+          "verdict": "parameter 漏接=完全不报（静默取默认，同 C 未初始化变量）；port 漏接=只报警告、照样出位流",
+          "fixes": [
+            "默认值按频率/场景自动推导（parameter integer P = (F>=300000) ? 1 : 0），让'漏接'的兜底行为仍是对的",
+            "定位三步：git log 锁上一个好版本 → git diff 好坏版本找行为变更 → grep 例化点核对透传",
+            "A/B 位流对照（同下载路径、唯一变量=位流）是最终判据，别用推理代替实测"
+          ],
+          "keywords": [
+            "fpga",
+            "rtl",
+            "verilog",
+            "parameter",
+            "端口",
+            "例化",
+            "透传",
+            "静默",
+            "全零",
+            "恒定",
+            "warn",
+            "默认值",
+            "漏接"
+          ],
+          "refs": [
+            "IEEE 1364-2005 Verilog LRM（parameter 与端口连接语义）",
+            "Gowin 综合用户指南（Synthesis User Guide）"
+          ]
+        },
+        {
+          "id": "ram-inferr",
+          "title": "资源压不下去 —— 复位循环杀 RAM 推断 / 先算资源账",
+          "symptom": "把存储改成数组想省 REG，综合后 REG 没明显下降、SSRAM/BSRAM 计数没涨（或为 0）；或砍 REG 几乎不降 CLS",
+          "action": "先查存储数组有没有复位循环（for mem[i] <= 0）——有则综合器放弃 RAM 推断，退化成 N×W 个触发器且不报错；再读综合报告的 LUT/REG/CLS 占比，确认资源账由谁主导",
+          "verdict": "门禁若是 CLS，先看它由 LUT 还是 REG 主导：SSRAM/BSRAM 不涨说明推断没成功；砍非主导项收益极低",
+          "fixes": [
+            "存储数组：无复位循环、无 integer reset_index；上电初值靠配置期初值；'哪些通道有效'用独立位图（channel_valid），不靠读数判 0",
+            "推断成功的标志：REG 数量下降 + SSRAM/BSRAM 计数上升（具体数值以综合报告为准）；不涨就是没推断成功",
+            "小型'宽×深'存储优先分布式 RAM（LUTRAM）：异步读无需地址对齐计数器，比显式 BSRAM 原语（同步读）简单",
+            "网表归因别猜：.vg 网表按外层 module 分桶统计 LUT/FF 得每路成本，再按驱动网名找单项大户",
+            "'宽扁平总线夹在两棵 mux 树之间'是常见资源黑洞——数据改按地址访问，mux 树整棵消失"
+          ],
+          "keywords": [
+            "fpga",
+            "rtl",
+            "资源",
+            "cls",
+            "lut",
+            "reg",
+            "ram",
+            "推断",
+            "复位",
+            "面积",
+            "压缩",
+            "bram",
+            "ssram",
+            "分布式ram",
+            "mux",
+            "黑洞"
+          ],
+          "refs": [
+            "Gowin 综合用户指南（Synthesis User Guide）",
+            "AMD/Xilinx UG901 Vivado Synthesis（RAM 推断编码风格）"
+          ]
+        },
+        {
+          "id": "cdc",
+          "title": "跨时钟域（CDC）——偶发数据撕裂/亚稳态/复位异常",
+          "symptom": "偶发数据错位、概率性异常、复位后部分逻辑状态不对、综合器 CDC 报告有违例",
+          "action": "按数据宽度分类：单 bit 控制信号→两级触发器同步器；快→慢域打拍+边沿检测；多 bit 总线→禁止直接同步，用握手(req/ack)或异步 FIFO；计数器跨域→格雷码；复位→每域独立异步复位、同步释放",
+          "verdict": "多 bit 直接同步必偶发撕裂；计数器跨域非格雷码必读脏值；门控时钟/行波计数器是 CDC 工具必查项",
+          "fixes": [
+            "用综合工具 CDC 报告兜底（Vivado report_cdc / Gowin 时序报告的跨域路径）",
+            "异步 FIFO 指针必须格雷码（相邻只变 1 位），空/满判定用同步后的指针",
+            "异步 FIFO 深度按写入/读出速率与突发长度核算，避免上溢/下溢（可用 embedded-timing-calc fpga-fifo 校验）"
+          ],
+          "keywords": [
+            "fpga",
+            "cdc",
+            "跨时钟域",
+            "亚稳态",
+            "格雷码",
+            "同步器",
+            "异步fifo",
+            "握手",
+            "复位",
+            "撕裂",
+            "偶发"
+          ],
+          "refs": [
+            "Cummings, Clock Domain Crossing (CDC) Design & Verification Techniques Using SystemVerilog（SNUG 2008）",
+            "Cummings, Simulation and Synthesis Techniques for Asynchronous FIFO Design（SNUG 2002）",
+            "Gowin 时序分析用户指南（Timing Analysis User Guide）"
+          ]
+        },
+        {
+          "id": "i2c-stretch",
+          "title": "I2C 主控偶发整路冻结 —— 时钟拉伸被本地超时误杀",
+          "symptom": "事务随机中止、host 失步、整路永久停摆；日志里 timeout_error 频发；且'等 SCL 变高'的等待窗口远小于从机实际拉伸时长",
+          "action": "先确认：master 观测到 scl_in 为低时无法区分①总线 RC 爬升（百 ns 级）还是②从机时钟拉伸（可达毫秒级）——任何'爬升兜底'短超时都会把正常拉伸判成超时",
+          "verdict": "'等电平'与'等拉伸'落在同一观测上，本地短超时必然误杀；等待必须统一交给按拉伸量级设计的 stretch 检测器",
+          "fixes": [
+            "新增任何'等待电平/事件'状态前先问：这个等待会不会与从机时钟拉伸落在同一观测上？是则复用 stretch 检测器，禁止另设短超时",
+            "仿真必须覆盖拉伸档位：从 0 到百 µs 级扫描，'拉伸下 timeout_error 恒 0'是验收条件——光测正常时序不算过",
+            "I2C 规范要求主控支持时钟拉伸：支持拉伸=允许等待（超时策略统一兜底）",
+            "历史'某频率失败'的记录先存疑：可能是把'短超时<从机拉伸'误归因为'频率不可行'"
+          ],
+          "keywords": [
+            "fpga",
+            "i2c",
+            "时钟拉伸",
+            "clock stretching",
+            "超时",
+            "冻结",
+            "失步",
+            "scl",
+            "爬升",
+            "timeout"
+          ],
+          "refs": [
+            "NXP UM10204 I2C-bus specification and user manual（clock stretching）",
+            "BNO08X datasheet（clock stretching 要求）"
+          ]
+        },
+        {
+          "id": "nba-oldval",
+          "title": "RTL 仿真行为诡异 —— 非阻塞赋值同拍读旧值 / 仿真器静默假信息",
+          "symptom": "同拍内先赋值后使用读到旧值（NBA 语义）；仿真报告一行里同时出现 PASS 和 FAIL 字样；$fatal 后退出码仍是 0",
+          "action": "NBA（<=）同拍读旧值是 Verilog 语义——把'本拍应读到新值'的逻辑拆到下一拍或改阻塞赋值（仅限组合 always）；仿真报告判据只认数字行",
+          "verdict": "iverilog 四坑：%s+三目会同时打出两分支文本（改 if/else）；$fatal 不置非零退出码（判决只读报告正文）；sticky 标志修复前后同值不配当判据；判读历史报告以数字为准忽略判定文字",
+          "fixes": [
+            "凡 %s 参数是三目，一律改 if/else 分条打印",
+            "做变异体对照前先问：这个量在两版下真会不同吗？不同才配当判据",
+            "仿真定向复现'坏行为'再改——改完必须复现消失，不能只靠上板"
+          ],
+          "keywords": [
+            "fpga",
+            "rtl",
+            "verilog",
+            "nba",
+            "非阻塞",
+            "iverilog",
+            "仿真",
+            "fatal",
+            "三目",
+            "旧值",
+            "仿真器",
+            "假信息"
+          ],
+          "refs": [
+            "IEEE 1364-2005 Verilog LRM（非阻塞赋值与仿真调度语义）",
+            "IEEE 1800-2017 SystemVerilog LRM（$fatal 与仿真退出语义）"
+          ]
+        },
+        {
+          "id": "measure-vs-fault",
+          "title": "实测数值'过于整齐'或量具读零 —— 先查配置与量具，再怀疑缺陷",
+          "symptom": "某几路严格恒定同一数值/同一周期（过于整齐）；或诊断探针读恒 0/恒全 F；或串口读 0 字节",
+          "action": "两步走：①'过于整齐'（严格整周期、多路相等）= 被配置成周期任务的指纹 → grep 该路 localparam/分频/周期配置（实验脚手架/诊断探针类命名默认是待撤项）；②读数恒 0 → 第一嫌疑是量具没接上（串口监听工具不可信，用独立串口库或逻辑分析仪交叉验证）",
+          "verdict": "'过于整齐'先找配置，'过于随机'（换路/时长不定）才查缺陷；量具与被测对象必须分开怀疑——先证量具干净",
+          "fixes": [
+            "实验脚手架/诊断探针默认待撤，撤时一次只撤一个维度",
+            "诊断实验设计成'配对独特值'：激励值互不相同且不与自然结果重合，让两个假设给出可区分的读数（配对量同结构互为对照组）",
+            "串口/量具读 0 先用另一条独立通路交叉验证，再改 RTL/下结论",
+            "后台编译完成与否看构建日志的时间戳与内容，不看进程是否存在；进程忙闲看 CPU 时间（长时间低 CPU 占用=空转）"
+          ],
+          "keywords": [
+            "fpga",
+            "实测",
+            "恒定",
+            "整齐",
+            "探针",
+            "量具",
+            "串口",
+            "读零",
+            "脚手架",
+            "交叉验证",
+            "gw_sh",
+            "编译"
+          ],
+          "refs": [
+            "Gowin 云源软件用户指南（Cloud Source User Guide）",
+            "IEEE 1364-2005 Verilog LRM（仿真输出与系统任务语义）"
+          ]
+        },
+        {
+          "id": "regression-attrib",
+          "title": "改完 RTL 某路异常 —— 嫌疑排序：先查自己再查硬件",
+          "symptom": "改动+重综合+重下载后某路没数据/冻结；但改动前该路正常，物理连线没动",
+          "action": "按嫌疑度排序逐项自查：①回烧改前位流对照（恢复=改动引入，查 diff）②PnR 布局漂移/拥塞③下载部分失败（重下排除）④上电时序⑤全排除才查物理接线",
+          "verdict": "凡'之前好好的、我改完才坏'，一律先写'未定位，疑改动回归'再自查——物理嫌疑排最后，需回烧对照+物理复测双证据才有资格落'硬件问题'",
+          "fixes": [
+            "保留上一个好版本位流与备份路径，A/B 对照是定位利器",
+            "每次重综合布局会漂移——'布通过'不代表'每次都布通过'，资源/时序余量要留（如 CLS ≤95%）",
+            "时序报告 WNS/TNS 为负时先降频或砍组合逻辑深度，别靠反复重综合碰运气",
+            "注意板级事实的分清：'暂时缺'与'设计上就没有'不同——后者不进缺口清单"
+          ],
+          "keywords": [
+            "fpga",
+            "rtl",
+            "回归",
+            "回烧",
+            "对照",
+            "位流",
+            "改动",
+            "嫌疑",
+            "硬件",
+            "误判",
+            "pnr",
+            "布局",
+            "时序违例",
+            "建立时间",
+            "保持时间",
+            "slack",
+            "wns",
+            "tns"
+          ],
+          "refs": [
+            "Gowin 时序分析用户指南（Timing Analysis User Guide）",
+            "Gowin 综合用户指南（Synthesis User Guide）"
+          ]
         }
       ]
     }

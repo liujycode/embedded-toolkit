@@ -27,7 +27,8 @@ from .svd import (
     load_device as _load_device,
 )
 
-CACHE_FORMAT = 1
+# 2: EnumValue.usage（读/写枚举分组）——旧缓存缺该字段，必须整体失效
+CACHE_FORMAT = 2
 ENV_NO_CACHE = "ETK_NO_CACHE"
 ENV_CACHE_DIR = "ETK_CACHE_DIR"
 

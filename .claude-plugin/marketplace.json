@@ -4,13 +4,13 @@
     "name": "liujycode"
   },
   "metadata": {
-    "description": "嵌入式开发工具箱：离线、带出处的 Agent 技能（寄存器查询与核验 + 排障决策树 + 外设配置坑清单）"
+    "description": "嵌入式开发工具箱：离线、带出处的 Agent 技能五件套（寄存器查询与核验 + 排障决策树 12 棵/77 节点 + 外设配置坑 148 条 + 时序计算器 37 个）"
   },
   "plugins": [
     {
       "name": "embedded-toolkit",
       "source": ".",
-      "description": "四个技能：寄存器百事通（CMSIS SVD 查询/解码/宏/对比/体检）+ 寄存器核验器（核验 C 代码寄存器写入，报/未判定/通过分桶）+ 排障决策树（HardFault/通信/DMA/RTOS/启动/低功耗/CAN/USB/Flash/RTC/LCD 十一棵树）+ 外设避坑清单（二十五类外设 147 坑）",
+      "description": "五个技能：寄存器百事通（CMSIS SVD 查询/解码/宏/对比/体检）+ 寄存器核验器（核验 C 代码寄存器写入，报/未判定/通过分桶）+ 排障决策树（HardFault/通信/DMA/RTOS/启动/低功耗/CAN/USB/Flash/RTC/LCD/FPGA 十二棵树/77 节点）+ 外设避坑清单（二十五类外设 148 坑）+ 时序计算器（UART/定时器/I2C/CAN/ADC/SPI/FPGA 等 37 个计算器）",
       "category": "development",
       "tags": ["embedded", "mcu", "stm32", "svd", "register", "verify", "debug", "pitfalls"]
     }

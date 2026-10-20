@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  读语义夹具：寄存器本身没有 readAction / modifiedWriteValues，
+  但各字段带 readAction=clear/set/modify。用于验证读改写（reg |= x）提示
+  会纳入字段级读语义；PLAIN_STAT 无任何读语义，不应提示。
+-->
+<device schemaVersion="1.1">
+  <name>FIELDACTION</name>
+  <version>1.0</version>
+  <description>Field-level readAction fixture</description>
+  <vendor>Test</vendor>
+  <cpu>
+    <name>CM0</name>
+  </cpu>
+  <size>32</size>
+  <peripherals>
+    <peripheral>
+      <name>P</name>
+      <baseAddress>0x40010000</baseAddress>
+      <registers>
+        <register>
+          <name>STAT</name>
+          <addressOffset>0x0</addressOffset>
+          <size>32</size>
+          <fields>
+            <field>
+              <name>RF</name>
+              <description>读取后清零</description>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+              <readAction>clear</readAction>
+            </field>
+            <field>
+              <name>SF</name>
+              <description>读取后置位</description>
+              <bitOffset>1</bitOffset>
+              <bitWidth>1</bitWidth>
+              <readAction>set</readAction>
+            </field>
+            <field>
+              <name>MF</name>
+              <description>读取时修改</description>
+              <bitOffset>2</bitOffset>
+              <bitWidth>1</bitWidth>
+              <readAction>modify</readAction>
+            </field>
+            <field>
+              <name>NF</name>
+              <description>普通字段</description>
+              <bitOffset>3</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+          </fields>
+        </register>
+        <register>
+          <name>PLAIN_STAT</name>
+          <addressOffset>0x4</addressOffset>
+          <size>32</size>
+          <fields>
+            <field>
+              <name>BIT0</name>
+              <bitOffset>0</bitOffset>
+              <bitWidth>1</bitWidth>
+            </field>
+          </fields>
+        </register>
+      </registers>
+    </peripheral>
+  </peripherals>
+</device>

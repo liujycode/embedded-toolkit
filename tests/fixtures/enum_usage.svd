@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  枚举 usage 夹具：同一个位域同时声明 usage=read 与 usage=write 两组枚举。
+  读视角应只取 read 组，写视角（decode 的 write 模式 / set）应只取 write 组；
+  field.enums 仍保留全部枚举以兼容既有调用。PLAIN 不带 usage，两组共用。
+-->
+<device schemaVersion="1.1">
+  <name>ENUMUSAGE</name>
+  <version>1.0</version>
+  <description>enumeratedValues usage fixture</description>
+  <vendor>Test</vendor>
+  <cpu>
+    <name>CM0</name>
+  </cpu>
+  <size>32</size>
+  <peripherals>
+    <peripheral>
+      <name>P</name>
+      <baseAddress>0x50000000</baseAddress>
+      <registers>
+        <register>
+          <name>CTRL</name>
+          <addressOffset>0x0</addressOffset>
+          <size>32</size>
+          <fields>
+            <field>
+              <name>MODE</name>
+              <description>读枚举 R0/R1，写枚举 W0/W1</description>
+              <bitOffset>0</bitOffset>
+              <bitWidth>2</bitWidth>
+              <enumeratedValues>
+                <usage>read</usage>
+                <enumeratedValue>
+                  <name>R0</name>
+                  <value>0</value>
+                </enumeratedValue>
+                <enumeratedValue>
+                  <name>R1</name>
+                  <value>1</value>
+                </enumeratedValue>
+              </enumeratedValues>
+              <enumeratedValues>
+                <usage>write</usage>
+                <enumeratedValue>
+                  <name>W0</name>
+                  <value>0</value>
+                </enumeratedValue>
+                <enumeratedValue>
+                  <name>W1</name>
+                  <value>1</value>
+                </enumeratedValue>
+              </enumeratedValues>
+            </field>
+            <field>
+              <name>PLAIN</name>
+              <description>不带 usage 的普通枚举</description>
+              <bitOffset>4</bitOffset>
+              <bitWidth>1</bitWidth>
+              <enumeratedValues>
+                <enumeratedValue>
+                  <name>OFF</name>
+                  <value>0</value>
+                </enumeratedValue>
+                <enumeratedValue>
+                  <name>ON</name>
+                  <value>1</value>
+                </enumeratedValue>
+              </enumeratedValues>
+            </field>
+          </fields>
+        </register>
+      </registers>
+    </peripheral>
+  </peripherals>
+</device>

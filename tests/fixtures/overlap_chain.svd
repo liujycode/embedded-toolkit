@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  lint 夹具：3 个寄存器、3 个位域两两部分重叠（没有任何一对完全包含），
+  只比较相邻项的实现会漏掉第一项与第三项。另放一个不重叠的寄存器/位域，
+  用于确认不误报。
+-->
+<device schemaVersion="1.1">
+  <name>OVERLAPCHAIN</name>
+  <version>1.0</version>
+  <description>Chain overlap fixture for lint</description>
+  <vendor>Test</vendor>
+  <cpu>
+    <name>CM0</name>
+  </cpu>
+  <size>32</size>
+  <peripherals>
+    <peripheral>
+      <name>P</name>
+      <baseAddress>0x50000000</baseAddress>
+      <registers>
+        <register>
+          <name>REGA</name>
+          <description>bytes 0x00-0x03</description>
+          <addressOffset>0x00</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>REGB</name>
+          <description>bytes 0x01-0x04</description>
+          <addressOffset>0x01</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>REGC</name>
+          <description>bytes 0x02-0x09</description>
+          <addressOffset>0x02</addressOffset>
+          <size>64</size>
+        </register>
+        <register>
+          <name>CLEAN</name>
+          <description>不与其他寄存器重叠</description>
+          <addressOffset>0x20</addressOffset>
+          <size>32</size>
+        </register>
+        <register>
+          <name>REGF</name>
+          <description>位域链式重叠</description>
+          <addressOffset>0x40</addressOffset>
+          <fields>
+            <field>
+              <name>FA</name>
+              <description>bits 0-4</description>
+              <bitOffset>0</bitOffset>
+              <bitWidth>5</bitWidth>
+            </field>
+            <field>
+              <name>FB</name>
+              <description>bits 1-6</description>
+              <bitOffset>1</bitOffset>
+              <bitWidth>6</bitWidth>
+            </field>
+            <field>
+              <name>FC</name>
+              <description>bits 2-8</description>
+              <bitOffset>2</bitOffset>
+              <bitWidth>7</bitWidth>
+            </field>
+            <field>
+              <name>FZ</name>
+              <description>bits 24-25，不与上面三个重叠</description>
+              <bitOffset>24</bitOffset>
+              <bitWidth>2</bitWidth>
+            </field>
+          </fields>
+        </register>
+      </registers>
+    </peripheral>
+  </peripherals>
+</device>

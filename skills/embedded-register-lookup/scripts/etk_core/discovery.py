@@ -39,6 +39,9 @@ _PACKAGE_SUFFIX = re.compile(r"(?<=\d{3})[A-Z][A-Z0-9]*$")
 _PROJECT_MAX_DEPTH = 6
 _PROJECT_MAX_DIRS = 4000
 _PROJECT_MAX_FILES = 50
+# ETK_SVD_DIR 是用户显式指定的 SVD 目录（常见于整包 SVD 集合），文件数上限放宽，
+# 且截断状态会透传到 notes，不再静默丢弃。
+_ENV_MAX_FILES = 500
 _PROJECT_SKIP_DIRS = frozenset({
     "node_modules", "__pycache__", "site-packages",
     "appdata", "windows", "program files", "program files (x86)",
@@ -62,7 +65,8 @@ def find_config(start):
 
 def read_config(path):
     try:
-        with open(path, encoding="utf-8") as fh:
+        # utf-8-sig：兼容 Windows 编辑器保存出的 UTF-8 BOM 配置文件
+        with open(path, encoding="utf-8-sig") as fh:
             data = json.load(fh)
     except (OSError, ValueError) as exc:
         raise EtkError(
@@ -166,9 +170,10 @@ def _sdk_svds(candidates=None):
     return sorted(found)
 
 
-def project_svds(start):
+def project_svds(start, max_files=_PROJECT_MAX_FILES):
     """在项目目录内浅层扫描 .svd：深度 ≤ 6，跳过隐藏与依赖目录。
 
+    max_files 为文件数上限（项目内默认 50，ETK_SVD_DIR 用更宽的上限）。
     返回 (按文件名自然排序的列表, 是否达到上限)。
     """
     root0 = os.path.abspath(start)
@@ -190,7 +195,7 @@ def project_svds(start):
         for name in files:
             if name.lower().endswith(".svd"):
                 found.append(os.path.normpath(os.path.join(root, name)))
-                if len(found) >= _PROJECT_MAX_FILES:
+                if len(found) >= max_files:
                     truncated = True
                     break
         if truncated:
@@ -198,11 +203,13 @@ def project_svds(start):
     return sorted(found, key=_natural), truncated
 
 
-def _scan_roots(roots):
+def _scan_roots(roots, max_files=None):
+    if max_files is None:
+        max_files = _ENV_MAX_FILES
     found = []
     truncated = False
     for root in roots:
-        items, limit_hit = project_svds(root)
+        items, limit_hit = project_svds(root, max_files=max_files)
         found.extend(items)
         truncated = truncated or limit_hit
     return _dedup(found), truncated
@@ -343,11 +350,15 @@ def find_svd(svd=None, chip=None, project_dir=None):
             tried.append("项目内扫描：没有 .svd")
         env_roots = extra_svd_roots()
         if env_roots:
-            env_files, _ = _scan_roots(env_roots)
+            env_files, env_truncated = _scan_roots(env_roots)
+            if env_truncated:
+                notes.append("ETK_SVD_DIR 扫描达到上限（每个目录最多 %d 个 .svd），可能还有更多文件；"
+                             "可用 --svd 明确指定" % _ENV_MAX_FILES)
             picked = _pick_from(chip, env_files, "ETK_SVD_DIR ", notes) if env_files else None
             if picked:
                 return picked, "环境变量 ETK_SVD_DIR", notes
-            tried.append("ETK_SVD_DIR（%d 个 .svd）未匹配 %s" % (len(env_files), chip))
+            tried.append("ETK_SVD_DIR（%d 个 .svd%s）未匹配 %s" % (
+                len(env_files), "，扫描已截断" if env_truncated else "", chip))
         roots = pack_roots()
         tried.append("CMSIS-Pack 目录：%s" % (", ".join(roots) if roots else "未找到"))
         picked = _pick_from(chip, _pack_svds(roots), "本机", notes)
@@ -416,8 +427,11 @@ def list_devices(start=None, keyword=None, limit=200):
     add_source("项目内扫描", project_files, note=start)
     env_roots = extra_svd_roots()
     if env_roots:
-        env_files, _ = _scan_roots(env_roots)
-        add_source("ETK_SVD_DIR", env_files, note="；".join(env_roots))
+        env_files, env_truncated = _scan_roots(env_roots)
+        env_note = "；".join(env_roots)
+        if env_truncated:
+            env_note += "（达到上限：每个目录最多 %d 个 .svd，可能还有更多）" % _ENV_MAX_FILES
+        add_source("ETK_SVD_DIR", env_files, note=env_note)
     add_source("CMSIS-Pack", _pack_svds(pack_roots()))
     for label, root, patterns in sdk_svd_candidates():
         if os.path.isdir(root):
@@ -480,13 +494,15 @@ def doctor_report(start=None, demo_path=None):
 
     env_roots = extra_svd_roots()
     env_files = []
+    env_note = "未设置（可指向自备 SVD 目录，多个用 %s 分隔）" % os.pathsep
     if env_roots:
-        env_files, _ = _scan_roots(env_roots)
+        env_files, env_truncated = _scan_roots(env_roots)
         all_files.extend(env_files)
+        env_note = "；".join(env_roots)
+        if env_truncated:
+            env_note += "（达到上限：每个目录最多 %d 个 .svd，可能还有更多）" % _ENV_MAX_FILES
     add("环境变量 ETK_SVD_DIR", os.environ.get(ENV_SVD_DIR) or None, bool(env_roots),
-        len(env_files) if env_roots else None,
-        "；".join(env_roots) if env_roots
-        else "未设置（可指向自备 SVD 目录，多个用 %s 分隔）" % os.pathsep)
+        len(env_files) if env_roots else None, env_note)
 
     for label, path in pack_candidates():
         absolute = os.path.abspath(path)

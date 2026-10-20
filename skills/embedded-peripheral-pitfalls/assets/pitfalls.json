@@ -16,7 +16,7 @@
             "精度",
             "抖动"
           ],
-          "next": "采样时间与源阻抗的配比用 embedded-timing-calc 的 ADC 源阻抗公式核算，别拍脑袋给 1.5 周期"
+          "next": "embedded-timing-calc adc-rad --ts <Ts_cycles> --fadc <Fadc_Hz>"
         },
         {
           "id": "adc-cal",
@@ -286,7 +286,7 @@
             "ISO 11898-1:2015",
             "STM32 参考手册（如 RM0090，CAN 控制器章节）"
           ],
-          "next": "各段时长与采样点用 embedded-timing-calc 的 CAN 位时序计算核对（支持 bxCAN 与 CAN-FD 两种口径）"
+          "next": "embedded-timing-calc can-bit --clk <CAN_clk_Hz> --baud <baud_bps> --sp <sample_point> --family <bxcan|fdcan>"
         },
         {
           "id": "can-filter",
@@ -359,7 +359,7 @@
             "位时序",
             "采样点"
           ],
-          "next": "数据段速率与采样点用 embedded-timing-calc 的 CAN-FD 位时序计算核对"
+          "next": "embedded-timing-calc can-bit --clk <CAN_clk_Hz> --baud <baud_bps> --sp <sample_point> --family fdcan"
         }
       ]
     },
@@ -469,7 +469,7 @@
           "refs": [
             "STM32 参考手册（如 RM0440，DAC 章节）"
           ],
-          "next": "输出建立时间与负载电容用 embedded-timing-calc 的 RC 公式估"
+          "next": "embedded-timing-calc rc-settle --r <R_ohm> --c <C_F>"
         },
         {
           "id": "dac-dma-align",
@@ -734,7 +734,7 @@
           "refs": [
             "STM32 参考手册（如 RM0440，DMA 状态标志与写 1 清零清除寄存器 IFCR）"
           ],
-          "next": "IFCR 各清除位名用 embedded-register-lookup 核对（该系列是 IFCR 还是 ISR/ICR 分立）"
+          "next": "embedded-register-lookup fields <DMA>.IFCR --chip <芯片>"
         }
       ]
     },
@@ -918,7 +918,7 @@
             "pending",
             "不进中断"
           ],
-          "next": "EXTI 线映射与 NVIC IRQn 编号用 embedded-register-lookup 核对"
+          "next": "embedded-register-lookup irq <EXTI_IRQn> --chip <芯片>"
         }
       ]
     },
@@ -941,7 +941,7 @@
           "refs": [
             "STM32 参考手册（如 RM0440，片内闪存章节）"
           ],
-          "next": "KEYR/CR/SR 位定义用 embedded-register-lookup 核对"
+          "next": "embedded-register-lookup fields <FLASH>.KEYR <FLASH>.CR <FLASH>.SR --chip <芯片>"
         },
         {
           "id": "fl-erase-in-isr",
@@ -1007,7 +1007,7 @@
           "refs": [
             "STM32 参考手册（如 RM0440，片内闪存章节）"
           ],
-          "next": "选项字节重载位名用 embedded-register-lookup 核对"
+          "next": "embedded-register-lookup fields <FLASH>.OPTCR --chip <芯片>"
         },
         {
           "id": "fl-qspi-xip",
@@ -1057,7 +1057,7 @@
             "上拉",
             "卡死"
           ],
-          "next": "改回 AF 开漏后，Rp 取值用 embedded-timing-calc 的 I2C 上拉公式算"
+          "next": "embedded-timing-calc i2c-rp --bus fast --cb <Cb_pF>"
         },
         {
           "id": "gpio-5v",
@@ -1125,7 +1125,7 @@
             "电阻",
             "上升沿"
           ],
-          "next": "标准/快速模式的 Rp 取值范围用 embedded-timing-calc 的 I2C 上拉公式算（两种模式系数不同）"
+          "next": "embedded-timing-calc i2c-rp --bus fast --cb <Cb_pF>"
         },
         {
           "id": "i2c-addr",
@@ -1613,7 +1613,7 @@
           "refs": [
             "STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）"
           ],
-          "next": "使能位与寄存器偏移用 embedded-register-lookup 核对；修完用 embedded-register-verify 验证写入已生效"
+          "next": "embedded-register-verify check <file.c> --chip <芯片>"
         },
         {
           "id": "rcc-vos",
@@ -1644,7 +1644,7 @@
           "refs": [
             "STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）"
           ],
-          "next": "HSI 派生时钟下的精确波特率用 embedded-timing-calc 核对分频误差是否可接受"
+          "next": "embedded-timing-calc uart --pclk <HSI_Hz> --baud <baud_bps>"
         },
         {
           "id": "rcc-tim-clk",
@@ -1661,7 +1661,7 @@
           "refs": [
             "STM32 参考手册（如 RM0440，复位与时钟控制 RCC 章节）"
           ],
-          "next": "embedded-timing-calc timer --pclk <APB时钟> --freq <目标频率>"
+          "next": "embedded-timing-calc timer --pclk <APB_Hz> --freq <Hz>"
         },
         {
           "id": "rcc-lse-startup",
@@ -1776,7 +1776,7 @@
           "refs": [
             "STM32 参考手册（如 RM0440，RTC 章节）"
           ],
-          "next": "唤醒周期换算用 embedded-timing-calc 的预分频+重装模型核对"
+          "next": "embedded-timing-calc timer --pclk <RTC_CLK_Hz> --freq <wake_Hz>"
         }
       ]
     },
@@ -1935,7 +1935,7 @@
             "Dallas Semiconductor 1-Wire 协议规范",
             "DS18B20 数据手册"
           ],
-          "next": "上拉阻值与寄生电容的充电时间用 embedded-timing-calc 的 RC 公式估"
+          "next": "embedded-timing-calc rc-settle --r <R_ohm> --c <C_F>"
         },
         {
           "id": "sensor-bus-crc",
@@ -2047,7 +2047,7 @@
           "refs": [
             "STM32 参考手册（如 RM0090，通用定时器章节）"
           ],
-          "next": "目标频率 ↔ PSC/ARR 用 embedded-timing-calc 双向换算"
+          "next": "embedded-timing-calc timer --pclk <APB_Hz> --freq <Hz>"
         },
         {
           "id": "tim-ug",
@@ -2076,7 +2076,7 @@
             "bdtr",
             "直通"
           ],
-          "next": "BDTR 各位段定义用 embedded-register-lookup 核对；死区数值用 embedded-timing-calc 换算"
+          "next": "embedded-timing-calc deadtime --fsw <fsw_Hz> --dt <dt_s>"
         },
         {
           "id": "tim-enc",
@@ -2158,7 +2158,7 @@
           "id": "tim-deadzone",
           "title": "互补死区数值算错",
           "symptom": "死区波形不对、有直通风险",
-          "fix": "死区时间由 DTG 位域按分频与 tDTS 计算公式得出——先查相应用作死区计算的数值坑（next: timing-calc），别拿印象值手填",
+          "fix": "死区时间由 DTG 位域按分频与 tDTS 计算公式得出——先查相应用作死区计算的数值坑，别拿印象值手填（用 embedded-timing-calc deadtime 换算）",
           "keywords": [
             "tim",
             "死区",
@@ -2170,7 +2170,7 @@
           "refs": [
             "STM32 参考手册（如 RM0440，对应外设章节）"
           ],
-          "next": "死区微秒 ↔ DTG 寄存器值用 embedded-timing-calc 的死区换算"
+          "next": "embedded-timing-calc deadtime --fsw <fsw_Hz> --dt <dt_s>"
         }
       ]
     },
@@ -2192,7 +2192,7 @@
           "refs": [
             "STM32 参考手册（如 RM0090，USART 章节）"
           ],
-          "next": "波特率 ↔ BRR 与分频误差用 embedded-timing-calc 的 UART 计算核对"
+          "next": "embedded-timing-calc uart --pclk <PCLK_Hz> --baud <baud_bps>"
         },
         {
           "id": "uart-clk",

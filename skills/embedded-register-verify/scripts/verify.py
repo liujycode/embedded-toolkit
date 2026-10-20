@@ -31,7 +31,7 @@ from etk_core.errors import E_INPUT_INVALID, E_INTERNAL, E_SVD_NOT_FOUND, EtkErr
 from etk_core.output import envelope  # noqa: E402
 
 TOOL = "embedded-register-verify"
-__version__ = "1.16.1"
+__version__ = "1.16.2"
 DEMO_SVD = os.path.normpath(os.path.join(_HERE, os.pardir, "assets", "demo.svd"))
 MAX_FILES = 200
 MAX_WARNINGS_SHOWN = 20
@@ -663,9 +663,17 @@ def main(argv=None):
     if not env["ok"]:
         return 1
     if args.command == "check":
-        report = sum(res.get("counts", {}).get("report", 0) for res in env["results"])
-        if report:
-            return 1
+        for res in env["results"]:
+            counts = res.get("counts") or {}
+            if counts.get("report"):
+                return 1
+            # 文件级问题（E09/E11）不对应某条写入，counts.report 不含它们：
+            # 任一 result 的 findings 里有"报"桶即返回 1。
+            if any(f.get("bucket") == "报" for f in res.get("findings") or []):
+                return 1
+            # findings 可能被 --limit 截断；report_by_class 按截断前的全部 findings 统计
+            if any((counts.get("report_by_class") or {}).values()):
+                return 1
     return 0
 
 

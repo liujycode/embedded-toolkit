@@ -312,3 +312,24 @@ def test_derived_peripheral_declared_interrupts_replace_inherited(device):
 def test_multiple_interrupts_per_peripheral(device):
     assert [(i.name, i.value) for i in device.peripheral("DMA1").interrupts] == [
         ("DMA1_Channel1_IRQn", 11), ("DMA1_Channel2_IRQn", 12)]
+
+
+def test_enum_usage_splits_read_and_write_views():
+    """enumeratedValues 的 usage：enums 仍是全部枚举，read_enums/write_enums 各取一组。"""
+    import os
+
+    from helpers import FIXTURES
+
+    dev = load_device(os.path.join(FIXTURES, "enum_usage.svd"))
+    ctrl = dev.peripheral("P").register("CTRL")
+    mode = ctrl.field("MODE")
+    assert [e.name for e in mode.enums] == ["R0", "R1", "W0", "W1"]
+    assert [e.usage for e in mode.enums] == ["read", "read", "write", "write"]
+    assert [e.name for e in mode.read_enums] == ["R0", "R1"]
+    assert [e.name for e in mode.write_enums] == ["W0", "W1"]
+
+    # 不带 usage 的枚举组按 read-write 处理，两个视角都保留（兼容旧行为）
+    plain = ctrl.field("PLAIN")
+    assert [e.name for e in plain.enums] == ["OFF", "ON"]
+    assert [e.name for e in plain.read_enums] == ["OFF", "ON"]
+    assert [e.name for e in plain.write_enums] == ["OFF", "ON"]

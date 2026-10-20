@@ -17,7 +17,7 @@ import os
 import re
 import sys
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(os.path.dirname(HERE), "assets", "trees.json")
@@ -132,6 +132,16 @@ def walk(node, terms, path, hits, raw=""):
         walk(child, terms, path + [node.get("id", "?")], hits, raw)
 
 
+def rank_hits(hits):
+    """统一排序：分数降序（稳定排序，同分保持遍历顺序）。
+
+    检索 CLI 与评测脚本（tools/knowledge_bench.py）必须共用此函数，
+    否则评测排名会和用户实际看到的顺序不一致。
+    """
+    hits.sort(key=lambda h: -h[0])
+    return hits
+
+
 def cmd_search(args, out):
     db = load_db()
     terms = tokenize(args.query)
@@ -155,7 +165,7 @@ def cmd_search(args, out):
             print("可用决策树：%s" % ", ".join(t["id"] for t in db["trees"]))
             print("建议：换更具体的现象词（如 'SDA 卡死' '只收一次' '栈溢出'），或用 show <树名> 通读全树。")
         return 1
-    hits.sort(key=lambda h: -h[0])
+    rank_hits(hits)
     total = len(hits)
     if args.format == "json":
         items = []
@@ -301,6 +311,9 @@ def cmd_demo(args, out):
         ("Flash 写进去读出来不对", "flash"),
         ("RTC 每次上电时间都重置", "rtc"),
         ("屏幕整块白屏不显示", "display"),
+        ("FPGA 综合后数据全零", "fpga-rtl"),
+        ("跨时钟域 亚稳态", "fpga-rtl"),
+        ("FPGA 资源压不下去", "fpga-rtl"),
     ]
     failed = []
     for query, expect in probes:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -61,11 +62,73 @@ def _lint_refs(node, problems, version):
             problems.append("%s 的 refs 第 %d 项非法（必须是非空字符串）" % (node.get("id", "?"), i + 1))
 
 
-NEXT_SKILLS = ("lookup", "verify", "debug-trees", "pitfalls", "timing-calc")
+# next 必须是可直接执行的命令：`<skill-id> <subcommand> [--flag <占位符>]`。
+# 子命令/参数白名单与五个技能 CLI 的 argparse 定义保持同步（新增子命令时同步此表）。
+NEXT_SKILLS = {
+    "embedded-register-lookup": {
+        "subcommands": frozenset((
+            "lookup", "addr", "search", "irq", "decode", "fields", "diagram", "set",
+            "macros", "diff", "range", "lint", "info", "list", "devices", "doctor",
+        )),
+        "flags": frozenset((
+            "--project-dir", "--format", "--out", "--svd", "--svd-a", "--svd-b",
+            "--chip", "--chip-a", "--chip-b", "--demo", "--limit", "--from", "--all",
+            "--filter", "--kind", "--peripheral", "--write",
+        )),
+    },
+    "embedded-register-verify": {
+        "subcommands": frozenset(("check", "rules")),
+        "flags": frozenset((
+            "--project-dir", "--format", "--out", "--svd", "--chip", "--demo",
+            "--define", "--headers", "--patch", "--no-clock-check", "--checklist",
+            "--explain", "--limit",
+        )),
+    },
+    "embedded-debug-trees": {
+        "subcommands": frozenset(("search", "show", "rootcauses", "list", "demo")),
+        "flags": frozenset(("--format", "--tree")),
+    },
+    "embedded-peripheral-pitfalls": {
+        "subcommands": frozenset(("search", "show", "list", "rule", "demo")),
+        "flags": frozenset(("--format", "--category")),
+    },
+    "embedded-timing-calc": {
+        "subcommands": frozenset((
+            "uart", "timer", "i2c-rp", "i2c-time", "can-bit", "adc-rad", "rc", "spi",
+            "nyquist", "deadtime", "fpga-uart", "fpga-slack", "fpga-pwm", "wdg", "pll",
+            "divider", "ntc", "rc-settle", "ppm", "esp32-clk", "rp2040-uart",
+            "pwm-dim", "ws2812", "servo", "stepper", "serial-baud", "rtc-drift",
+            "usb-clk", "battery", "modbus-silence", "flash-wear", "spi-time",
+            "sensor-lsb", "fpga-i2c", "fpga-debounce", "fpga-cdc", "fpga-fifo",
+            "list", "demo",
+        )),
+        "flags": frozenset((
+            "--format", "--pclk", "--baud", "--os", "--freq", "--psc", "--arr",
+            "--bus", "--cb", "--vdd", "--bytes", "--clk", "--sp", "--family", "--ts",
+            "--fadc", "--nbits", "--cs", "--r", "--c", "--fc", "--fclk", "--div",
+            "--fs", "--fbw", "--fsw", "--dt", "--tclk", "--tco", "--tlogic",
+            "--troute", "--tsu", "--fpwm", "--presc", "--reload", "--clkin", "--m",
+            "--n", "--p", "--vcomin", "--vcomax", "--vin", "--vout", "--iua",
+            "--r25", "--beta", "--temp", "--base", "--ppm", "--target", "--clk-peri",
+            "--t0h", "--t1h", "--pulse-us", "--angle", "--range", "--step-deg",
+            "--microstep", "--rpm", "--module", "--days", "--mah", "--i",
+            "--no-derate", "--page", "--cycles", "--pages", "--sck", "--raw", "--fsr",
+            "--clk-div", "--rate", "--ms", "--stages", "--tx-bps", "--read-bps",
+            "--burst", "--depth",
+        )),
+    },
+}
+
+_PLACEHOLDER = re.compile(r"<[^>]+>")
+_PROSE_CHARS = re.compile(r"[\u4e00-\u9fff，。；：、（）《》“”‘’！？]")
 
 
 def _lint_next(node, problems, version):
-    """next：可选非空字符串，必须包含五个技能名之一。仅 schema 1.1 允许。"""
+    """next：可选非空字符串，必须是 `<skill-id> <subcommand> [参数]` 形式的可执行命令。
+
+    子命令必须在白名单内；`--flag` 必须是该技能 CLI 支持的参数；除 `<占位符>`
+    外不得混入中文说明文字。仅 schema 1.1 允许。
+    """
     if "next" not in node:
         return
     if version < 2:
@@ -75,8 +138,29 @@ def _lint_next(node, problems, version):
     if not isinstance(nxt, str) or not nxt.strip():
         problems.append("%s 的 next 非法（必须是非空字符串）" % node.get("id", "?"))
         return
-    if not any(s in nxt for s in NEXT_SKILLS):
-        problems.append("%s 的 next 未指向已知技能（应为 lookup/verify/debug-trees/pitfalls/timing-calc 之一）：%s"
+    nxt = nxt.strip()
+    if "\n" in nxt:
+        problems.append("%s 的 next 必须单行命令：%s" % (node.get("id", "?"), nxt))
+        return
+    parts = nxt.split()
+    skill = parts[0]
+    spec = NEXT_SKILLS.get(skill)
+    if spec is None:
+        problems.append("%s 的 next 必须以技能 id 开头（%s 之一）：%s"
+                        % (node.get("id", "?"), "/".join(sorted(NEXT_SKILLS)), nxt))
+        return
+    if len(parts) < 2 or parts[1] not in spec["subcommands"]:
+        problems.append("%s 的 next 子命令非法（%s 可用：%s）：%s"
+                        % (node.get("id", "?"), skill,
+                           "/".join(sorted(spec["subcommands"])), nxt))
+        return
+    for tok in parts[2:]:
+        if tok.startswith("--") and tok not in spec["flags"]:
+            problems.append("%s 的 next 含 %s 不支持的参数 %s：%s"
+                            % (node.get("id", "?"), skill, tok, nxt))
+            return
+    if _PROSE_CHARS.search(_PLACEHOLDER.sub("", nxt)):
+        problems.append("%s 的 next 必须是纯命令（说明文字请删掉，参数用 <占位符>）：%s"
                         % (node.get("id", "?"), nxt))
 
 
@@ -135,6 +219,7 @@ def lint_db(skill, db, problems):
                     problems.append("节点 %s 缺 keywords" % nid)
                 _lint_refs(node, problems, version)
                 _lint_see(node, problems, known, version)
+                _lint_next(node, problems, version)
     else:
         for cat in db["categories"]:
             if not cat.get("pitfalls"):

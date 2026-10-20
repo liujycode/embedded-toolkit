@@ -19,6 +19,10 @@ from helpers import AVR_SVD, FIXTURES, FSP_SVD, MW_SVD, SILABS_SVD, SYNTH, UNION
 VERIFY_BAD = os.path.join(FIXTURES, "verify_bad.c")
 VERIFY_OK = os.path.join(FIXTURES, "verify_ok.c")
 VERIFY_PATCH = os.path.join(FIXTURES, "verify_patch.diff")
+ENUM_DEFAULT_SVD = os.path.join(FIXTURES, "enum_default.svd")
+CLOCK_ALIAS_SVD = os.path.join(FIXTURES, "clock_alias.svd")
+FILE_LEVEL_E09 = os.path.join(FIXTURES, "file_level_e09.c")
+FILE_LEVEL_E11 = os.path.join(FIXTURES, "file_level_e11.c")
 VERIFY_CLI = os.path.join(VERIFY_SCRIPTS, "verify.py")
 DEMO_SVD = os.path.join(ROOT, "skills", "embedded-register-verify", "assets", "demo.svd")
 DEMO_C = os.path.join(ROOT, "skills", "embedded-register-verify", "examples", "verify_demo.c")
@@ -1331,6 +1335,267 @@ def test_cli_without_explain_has_no_explain_field():
     r = run_py(VERIFY_CLI, "check", VERIFY_BAD, "--svd", SYNTH, "--format", "json")
     findings = json.loads(r.stdout)["results"][0]["findings"]
     assert all("explain" not in f for f in findings)
+
+
+# ---------- 文件级规则退出码 / 补丁过滤 / 时钟顺序 / 枚举默认项 ----------
+
+def test_cli_file_level_findings_set_exit_code():
+    """E09/E11 只进 findings（counts.report=0），退出码仍须为 1；JSON 结构不变。"""
+    expected_counts = {"writes", "report", "undetermined", "passed", "findings",
+                       "report_by_class", "undetermined_by_category"}
+    for path, cls in ((FILE_LEVEL_E09, "E09"), (FILE_LEVEL_E11, "E11")):
+        r = run_py(VERIFY_CLI, "check", path, "--svd", SYNTH, "--format", "json")
+        assert r.returncode == 1, r.stdout
+        res = json.loads(r.stdout)["results"][0]
+        assert set(res["counts"]) == expected_counts
+        assert res["counts"]["report"] == 0
+        assert [f["class"] for f in res["findings"]] == [cls]
+        assert res["findings"][0]["bucket"] == "报"
+    r = run_py(VERIFY_CLI, "check", VERIFY_OK, "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stdout
+    assert json.loads(r.stdout)["results"][0]["findings"] == []
+
+
+def test_e05_is_default_is_fallback_only():
+    """显式枚举先匹配；没有显式命中时，只有存在 isDefault 项才放行。"""
+    device = load_device(ENUM_DEFAULT_SVD)
+    res = crules.Verifier(device).check_file(
+        "t.c",
+        "MOD->CTRL.WITH_DEFAULT = 3;\n"   # 有默认项：放行
+        "MOD->CTRL.NO_DEFAULT = 3;\n")    # 无默认项、3 不匹配 A/B：E05
+    assert res["counts"]["report"] == 1
+    assert res["counts"]["passed"] == 1
+    finding = res["findings"][0]
+    assert (finding["class"], finding["line"]) == ("E05", 2)
+    assert "NO_DEFAULT" in finding["message"]
+    assert "OTHER" not in finding["message"]
+    # 显式枚举仍然能命中
+    res2 = crules.Verifier(device).check_file("t2.c", "MOD->CTRL.WITH_DEFAULT = 1;\n")
+    assert res2["findings"] == []
+
+
+def test_clock_access_before_enable_is_reported(device):
+    text = ("USART2->CR1 |= USART_CR1_UE;\n"
+            "RCC->APB1ENR |= RCC_APB1ENR_USART2EN;\n")
+    res = _check(device, text)
+    e07 = [f for f in res["findings"] if f["class"] == "E07"]
+    assert len(e07) == 1
+    assert e07[0]["line"] == 1
+    assert "第 2 行" in e07[0]["message"]
+
+
+def test_clock_enable_before_access_is_not_reported(device):
+    text = ("RCC->APB1ENR |= RCC_APB1ENR_USART2EN;\n"
+            "USART2->CR1 |= USART_CR1_UE;\n")
+    assert not any(f["class"] == "E07" for f in _check(device, text)["findings"])
+
+
+def test_clock_enable_underscore_alias_is_conservative():
+    """<PERIPH>_EN 别名可用于核验，但不做前缀模糊匹配。"""
+    device = load_device(CLOCK_ALIAS_SVD)
+    verifier = crules.Verifier(device)
+    # 别名被识别：没有使能就访问 → E07（此前因精确匹配不到使能位而静默跳过）
+    res = verifier.check_file("t.c", "USART2->CR1 |= USART_CR1_UE;\n")
+    assert [f["class"] for f in res["findings"]] == ["E07"]
+    # 先使能后访问 → 不报
+    res = verifier.check_file(
+        "t.c",
+        "RCC->APB1ENR |= RCC_APB1ENR_USART2_EN;\n"
+        "USART2->CR1 |= USART_CR1_UE;\n")
+    assert res["findings"] == []
+    # USART10EN 不能当作 USART1 的使能位
+    res = verifier.check_file(
+        "t.c",
+        "RCC->APB1ENR |= RCC_APB1ENR_USART10EN;\n"
+        "USART1->CR1 |= USART_CR1_UE;\n")
+    assert [f["class"] for f in res["findings"]] == ["E07"]
+
+
+def _write_patch_repo(tmp_path, name, full, diff):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / name).write_text(full, encoding="utf-8", newline="\n")
+    patch_file = repo / "changes.diff"
+    patch_file.write_text(diff, encoding="utf-8", newline="\n")
+    return patch_file
+
+
+def test_patch_mode_ignores_grouping_outside_patch(tmp_path):
+    full = (
+        "void init(void)\n"
+        "{\n"
+        "    NVIC_SetPriorityGrouping(3);\n"
+        "    NVIC_SetPriorityGrouping(2);\n"
+        "    USART1->CR1 |= USART_CR1_UE;\n"
+        "    USART1->CR1 |= USART_CR1_TE;\n"
+        "}\n")
+    diff = (
+        "diff --git a/uart.c b/uart.c\n"
+        "--- a/uart.c\n"
+        "+++ b/uart.c\n"
+        "@@ -5,2 +5,3 @@ void init(void)\n"
+        "     USART1->CR1 |= USART_CR1_UE;\n"
+        "+    USART1->CR1 |= USART_CR1_TE;\n"
+        " }\n")
+    patch_file = _write_patch_repo(tmp_path, "uart.c", full, diff)
+    r = run_py(VERIFY_CLI, "check", "--patch", str(patch_file), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert not any(f["class"] == "E09" for f in res["findings"])
+    assert res["counts"]["writes"] == 1
+
+
+def test_patch_mode_reports_grouping_added_in_patch(tmp_path):
+    full = (
+        "void init(void)\n"
+        "{\n"
+        "    NVIC_SetPriorityGrouping(3);\n"
+        "    NVIC_SetPriorityGrouping(2);\n"
+        "    USART1->CR1 |= USART_CR1_UE;\n"
+        "    NVIC_SetPriorityGrouping(3);\n"
+        "    NVIC_SetPriorityGrouping(2);\n"
+        "}\n")
+    diff = (
+        "diff --git a/uart.c b/uart.c\n"
+        "--- a/uart.c\n"
+        "+++ b/uart.c\n"
+        "@@ -5,2 +5,4 @@ void init(void)\n"
+        "     USART1->CR1 |= USART_CR1_UE;\n"
+        "+    NVIC_SetPriorityGrouping(3);\n"
+        "+    NVIC_SetPriorityGrouping(2);\n"
+        " }\n")
+    patch_file = _write_patch_repo(tmp_path, "uart.c", full, diff)
+    r = run_py(VERIFY_CLI, "check", "--patch", str(patch_file), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["report"] == 0
+    assert [f["class"] for f in res["findings"]] == ["E09"]
+    assert res["findings"][0]["line"] == 6
+
+
+def test_patch_mode_reports_second_grouping_added_to_existing(tmp_path):
+    """旧文件已有一处分组、补丁再加一处：要归因给补丁（只筛补丁行会漏掉）。"""
+    full = (
+        "void init(void)\n"
+        "{\n"
+        "    NVIC_SetPriorityGrouping(3);\n"
+        "    USART1->CR1 |= USART_CR1_UE;\n"
+        "    NVIC_SetPriorityGrouping(2);\n"
+        "}\n")
+    diff = (
+        "diff --git a/uart.c b/uart.c\n"
+        "--- a/uart.c\n"
+        "+++ b/uart.c\n"
+        "@@ -3,3 +3,4 @@ void init(void)\n"
+        "     NVIC_SetPriorityGrouping(3);\n"
+        "     USART1->CR1 |= USART_CR1_UE;\n"
+        "+    NVIC_SetPriorityGrouping(2);\n"
+        " }\n")
+    patch_file = _write_patch_repo(tmp_path, "uart.c", full, diff)
+    r = run_py(VERIFY_CLI, "check", "--patch", str(patch_file), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert [f["class"] for f in res["findings"]] == ["E09"]
+    assert res["findings"][0]["line"] == 5
+
+
+def test_patch_mode_ignores_dma_order_outside_patch(tmp_path):
+    full = (
+        "void dma_init(void)\n"
+        "{\n"
+        "    DMA1_Channel1->CCR |= DMA_CCR_EN;\n"
+        "    DMA1_Channel1->CNDTR = 0x00000100;\n"
+        "    USART1->CR1 |= USART_CR1_TE;\n"
+        "}\n")
+    diff = (
+        "diff --git a/dma.c b/dma.c\n"
+        "--- a/dma.c\n"
+        "+++ b/dma.c\n"
+        "@@ -4,2 +4,3 @@ void dma_init(void)\n"
+        "     DMA1_Channel1->CNDTR = 0x00000100;\n"
+        "+    USART1->CR1 |= USART_CR1_TE;\n"
+        " }\n")
+    patch_file = _write_patch_repo(tmp_path, "dma.c", full, diff)
+    r = run_py(VERIFY_CLI, "check", "--patch", str(patch_file), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 0, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert not any(f["class"] == "E11" for f in res["findings"])
+    assert res["counts"]["writes"] == 1
+
+
+def test_patch_mode_reports_dma_order_added_in_patch(tmp_path):
+    full = (
+        "void dma_init(void)\n"
+        "{\n"
+        "    DMA1_Channel1->CCR |= DMA_CCR_EN;\n"
+        "    DMA1_Channel1->CNDTR = 0x00000100;\n"
+        "}\n")
+    diff = (
+        "diff --git a/dma.c b/dma.c\n"
+        "--- a/dma.c\n"
+        "+++ b/dma.c\n"
+        "@@ -2,1 +2,3 @@ void dma_init(void)\n"
+        " {\n"
+        "+    DMA1_Channel1->CCR |= DMA_CCR_EN;\n"
+        "+    DMA1_Channel1->CNDTR = 0x00000100;\n"
+        " }\n")
+    patch_file = _write_patch_repo(tmp_path, "dma.c", full, diff)
+    r = run_py(VERIFY_CLI, "check", "--patch", str(patch_file), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert res["counts"]["report"] == 0
+    assert [f["class"] for f in res["findings"]] == ["E11"]
+    assert res["findings"][0]["line"] == 4
+
+
+def test_patch_mode_reports_dma_config_added_after_existing_enable(tmp_path):
+    """补丁只加配置写、使能在补丁外：用整文件判先后仍应报 E11。"""
+    full = (
+        "void dma_init(void)\n"
+        "{\n"
+        "    DMA1_Channel1->CCR |= DMA_CCR_EN;\n"
+        "    DMA1_Channel1->CNDTR = 0x00000100;\n"
+        "}\n")
+    diff = (
+        "diff --git a/dma.c b/dma.c\n"
+        "--- a/dma.c\n"
+        "+++ b/dma.c\n"
+        "@@ -2,2 +2,3 @@ void dma_init(void)\n"
+        " {\n"
+        "     DMA1_Channel1->CCR |= DMA_CCR_EN;\n"
+        "+    DMA1_Channel1->CNDTR = 0x00000100;\n"
+        " }\n")
+    patch_file = _write_patch_repo(tmp_path, "dma.c", full, diff)
+    r = run_py(VERIFY_CLI, "check", "--patch", str(patch_file), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert [f["class"] for f in res["findings"]] == ["E11"]
+    assert res["findings"][0]["line"] == 4
+
+
+def test_patch_mode_reports_dma_enable_added_before_existing_config(tmp_path):
+    """补丁只加使能、配置在补丁外：使能行落在补丁内，也应报 E11。"""
+    full = (
+        "void dma_init(void)\n"
+        "{\n"
+        "    DMA1_Channel1->CCR |= DMA_CCR_EN;\n"
+        "    DMA1_Channel1->CNDTR = 0x00000100;\n"
+        "}\n")
+    diff = (
+        "diff --git a/dma.c b/dma.c\n"
+        "--- a/dma.c\n"
+        "+++ b/dma.c\n"
+        "@@ -2,2 +2,3 @@ void dma_init(void)\n"
+        " {\n"
+        "+    DMA1_Channel1->CCR |= DMA_CCR_EN;\n"
+        "     DMA1_Channel1->CNDTR = 0x00000100;\n"
+        " }\n")
+    patch_file = _write_patch_repo(tmp_path, "dma.c", full, diff)
+    r = run_py(VERIFY_CLI, "check", "--patch", str(patch_file), "--svd", SYNTH, "--format", "json")
+    assert r.returncode == 1, r.stdout
+    res = json.loads(r.stdout)["results"][0]
+    assert [f["class"] for f in res["findings"]] == ["E11"]
+    assert res["findings"][0]["line"] == 4
 
 
 # ---------- 真实厂商 SVD（需要 ETK_TEST_SVD_DIR） ----------

@@ -393,9 +393,17 @@ def find_address(device, address):
                  if periph.base_address + r.offset <= address]
         if not below:
             return dict(base, kind="gap", peripheral=periph.name, nearest=None)
-        abs_addr, reg = max(below, key=lambda item: item[0])
-        delta = address - abs_addr
-        kind = "inside_register" if delta < reg.nbytes else "gap"
+        # 宽寄存器与窄别名并存时（如 W32 @0x0 4 字节 + B2 @0x2 1 字节），
+        # "起始地址最大"不一定是包含者：先在所有包含者里取最具体的一个，找不到再回退最近者。
+        containing = [(start, r) for start, r in below if address < start + r.nbytes]
+        if containing:
+            abs_addr, reg = max(containing, key=lambda item: item[0])
+            delta = address - abs_addr
+            kind = "inside_register"
+        else:
+            abs_addr, reg = max(below, key=lambda item: item[0])
+            delta = address - abs_addr
+            kind = "gap"
         nearest = {
             "path": "%s.%s" % (periph.name, reg.name),
             "register": reg.name,
@@ -471,20 +479,44 @@ def _effective_write_semantics(reg):
 
 
 def _rmw_note(reg):
-    """读-改-写（reg |= x）陷阱提示：寄存器带 clear/set 类写语义、或读时可能被硬件修改时给出。"""
+    """读-改-写（reg |= x）陷阱提示：寄存器带 clear/set 类写语义、或读时可能被硬件修改时给出。
+
+    读语义同时看寄存器级 readAction 与字段级 readAction：后者即使寄存器级没有声明
+    （或两者并存）也要提示，避免漏掉"读后清零/置位/修改"的位域。
+    """
+    notes = []
     semantic = _effective_write_semantics(reg)
     if semantic == "oneToClear":
-        return ("寄存器是写 1 清零（modifiedWriteValues=oneToClear）语义：读改写（reg |= x）会把读回时"
-                "已置位的标志一并写回（写 1 = 清零），可能顺带清掉没提到的标志；清标志请直写目标标志"
-                "（REG = <标志>）。")
-    if semantic in _RMW_SEMANTICS:
-        return ("寄存器含 %s（modifiedWriteValues=%s）语义：用 reg |= x 改其它位可能误改状态位，"
-                "建议直接写完整目标值。" % (write_semantics(semantic) or semantic, semantic))
+        notes.append(
+            "寄存器是写 1 清零（modifiedWriteValues=oneToClear）语义：读改写（reg |= x）会把读回时"
+            "已置位的标志一并写回（写 1 = 清零），可能顺带清掉没提到的标志；清标志请直写目标标志"
+            "（REG = <标志>）。")
+    elif semantic in _RMW_SEMANTICS:
+        notes.append(
+            "寄存器含 %s（modifiedWriteValues=%s）语义：用 reg |= x 改其它位可能误改状态位，"
+            "建议直接写完整目标值。" % (write_semantics(semantic) or semantic, semantic))
     if reg.read_action == "modifyExternal":
-        return ("寄存器的读语义是%s（readAction=modifyExternal）：读改写（reg |= x）会把读取时的"
-                "外部变化一并写回，轮询与读改写需谨慎，建议直接写目标值。"
-                % (read_semantics(reg.read_action) or reg.read_action))
-    return None
+        notes.append(
+            "寄存器的读语义是%s（readAction=modifyExternal）：读改写（reg |= x）会把读取时的"
+            "外部变化一并写回，轮询与读改写需谨慎，建议直接写目标值。"
+            % (read_semantics(reg.read_action) or reg.read_action))
+    elif reg.read_action:
+        notes.append(
+            "寄存器的读语义是%s（readAction=%s）：读取时会被硬件修改，读改写（reg |= x）会把"
+            "读取时的变化一并写回，轮询与读改写需谨慎，建议直接写目标值。"
+            % (read_semantics(reg.read_action) or reg.read_action, reg.read_action))
+    # 字段可能继承寄存器级 readAction，已在上面提示过的不再重复
+    field_actions = [fld for fld in reg.fields
+                     if fld.read_action and fld.read_action != reg.read_action]
+    if field_actions:
+        shown = "、".join("%s（%s，readAction=%s）" % (
+            fld.name, read_semantics(fld.read_action) or fld.read_action, fld.read_action)
+            for fld in field_actions[:3])
+        more = "等 %d 个位域" % len(field_actions) if len(field_actions) > 3 else ""
+        notes.append(
+            "位域 %s%s 的读语义会在读取时被硬件清零/置位/修改：读改写（reg |= x）会把读回的"
+            "变化一并写回，轮询与读改写需谨慎，建议直接写目标值。" % (shown, more))
+    return "".join(notes) or None
 
 
 def decode(device, text, value, as_write=False):
@@ -501,11 +533,13 @@ def decode(device, text, value, as_write=False):
     for fld in reg.fields:
         covered |= fld.mask << fld.lsb
         fv = (value >> fld.lsb) & fld.mask
-        enum = next((e for e in fld.enums
+        # 写视角用 usage=write 的枚举组，读视角用 usage=read 的组；缺省 usage 仍视为两组共用
+        enums = fld.write_enums if as_write else fld.read_enums
+        enum = next((e for e in enums
                      if not getattr(e, "is_default", False) and (fv & e.mask) == e.value), None)
         if enum is None:
             # 没有具体枚举命中时，用"默认项"（isDefault）作为兜底说明
-            enum = next((e for e in fld.enums if getattr(e, "is_default", False)), None)
+            enum = next((e for e in enums if getattr(e, "is_default", False)), None)
         rows.append({
             "name": fld.name,
             "bits": fld.bit_text,
@@ -691,7 +725,8 @@ def set_fields(device, text, assignments, source_value=None):
                 hint=hint,
                 details={"suggestions": sugg},
             )
-        enum = next((e for e in fld.enums
+        # 写入只认写视角枚举（usage=write / 缺省 read-write），读枚举名不应被当成写入值
+        enum = next((e for e in fld.write_enums
                      if not getattr(e, "is_default", False) and e.name.upper() == raw.upper()), None)
         if enum is not None:
             fv = enum.value
@@ -699,7 +734,7 @@ def set_fields(device, text, assignments, source_value=None):
             try:
                 fv = parse_number(raw)
             except ValueError:
-                names = "、".join(e.name for e in fld.enums if e.name)
+                names = "、".join(e.name for e in fld.write_enums if e.name)
                 hint = "给出数字（如 0x1）"
                 if names:
                     hint += "，或字段的枚举名：" + names
@@ -1301,8 +1336,11 @@ def lint(device, peripheral=None, limit=200):
                             periph.name, reg.name, fld.name, fld.bit_text, fld.width, reg.size),
                         periph, reg, fld)
             fields = sorted(reg.fields, key=lambda f: (f.lsb, -f.width))
-            for first, later in zip(fields, fields[1:]):
-                if later.lsb <= first.msb:
+            # 按位区间扫描：只比较"后面还想跟前面重叠"的项，宽位域覆盖多个后续项时不会漏报。
+            for index, first in enumerate(fields):
+                for later in fields[index + 1:]:
+                    if later.lsb > first.msb:
+                        break
                     if later.msb <= first.msb:
                         # 后一个位域完全落在前一个里：同一位置的多宽度视图/别名（常见厂商写法）
                         add("info", "field_alias",
@@ -1316,27 +1354,29 @@ def lint(device, peripheral=None, limit=200):
                                 periph.name, reg.name, first.name, first.bit_text,
                                 later.name, later.bit_text),
                             periph, reg, later)
-        for first, later in zip(regs, regs[1:]):
-            if first.offset + first.nbytes <= later.offset:
-                continue
-            if first.offset == later.offset:
-                add("info", "register_alias",
-                    "%s 中 %s 与 %s 使用同一偏移 %s（同一寄存器的不同视图或别名，属常见写法；按需选用）" % (
-                        periph.name, first.name, later.name, hex_offset(first.offset)),
-                    periph, later)
-            elif later.offset + later.nbytes <= first.offset + first.nbytes:
-                # 后一个寄存器完全落在前一个里：同一位置的多宽度视图（32/16/8 位视图等）
-                add("info", "register_view",
-                    "%s 中 %s（偏移 %s，%d 字节）与 %s（偏移 %s，%d 字节）是同一位置的视图/别名（常见写法）" % (
-                        periph.name, first.name, hex_offset(first.offset), first.nbytes,
-                        later.name, hex_offset(later.offset), later.nbytes),
-                    periph, later)
-            else:
-                add("error", "register_overlap",
-                    "%s 中寄存器 %s（偏移 %s，%d 字节）与 %s（偏移 %s）地址区域部分重叠（不构成包含关系）" % (
-                        periph.name, first.name, hex_offset(first.offset), first.nbytes,
-                        later.name, hex_offset(later.offset)),
-                    periph, later)
+        # 寄存器按地址区间扫描：宽寄存器覆盖多个后续寄存器时逐对报告，不只比较相邻项。
+        for index, first in enumerate(regs):
+            for later in regs[index + 1:]:
+                if later.offset >= first.offset + first.nbytes:
+                    break
+                if first.offset == later.offset:
+                    add("info", "register_alias",
+                        "%s 中 %s 与 %s 使用同一偏移 %s（同一寄存器的不同视图或别名，属常见写法；按需选用）" % (
+                            periph.name, first.name, later.name, hex_offset(first.offset)),
+                        periph, later)
+                elif later.offset + later.nbytes <= first.offset + first.nbytes:
+                    # 后一个寄存器完全落在前一个里：同一位置的多宽度视图（32/16/8 位视图等）
+                    add("info", "register_view",
+                        "%s 中 %s（偏移 %s，%d 字节）与 %s（偏移 %s，%d 字节）是同一位置的视图/别名（常见写法）" % (
+                            periph.name, first.name, hex_offset(first.offset), first.nbytes,
+                            later.name, hex_offset(later.offset), later.nbytes),
+                        periph, later)
+                else:
+                    add("error", "register_overlap",
+                        "%s 中寄存器 %s（偏移 %s，%d 字节）与 %s（偏移 %s）地址区域部分重叠（不构成包含关系）" % (
+                            periph.name, first.name, hex_offset(first.offset), first.nbytes,
+                            later.name, hex_offset(later.offset)),
+                        periph, later)
         for item in periph.interrupts:
             key = item.name.upper()
             if key in irq_names and irq_names[key][1] != item.value:

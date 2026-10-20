@@ -42,6 +42,8 @@ class EnumValue:
     mask: int
     description: str
     is_default: bool = False
+    # enumeratedValues 的 usage：read / write / read-write（缺省按 read-write）
+    usage: str = "read-write"
 
 
 @dataclass
@@ -73,6 +75,16 @@ class Field:
     @property
     def mask(self):
         return (1 << self.width) - 1
+
+    @property
+    def read_enums(self):
+        """读视角枚举：排除 usage=write 的组；缺省 usage 视为 read-write，保持旧行为。"""
+        return [e for e in self.enums if getattr(e, "usage", "read-write") != "write"]
+
+    @property
+    def write_enums(self):
+        """写视角枚举：排除 usage=read 的组；缺省 usage 视为 read-write，保持旧行为。"""
+        return [e for e in self.enums if getattr(e, "usage", "read-write") != "read"]
 
 
 @dataclass
@@ -496,6 +508,9 @@ class _Builder:
     def _enums(self, f_el, width, where):
         out = []
         for group in _kids(f_el, "enumeratedValues"):
+            # usage 属于 enumeratedValues 组：read / write / read-write。
+            # 缺省（或无法识别的写法）按 read-write 处理，保证不丢枚举。
+            usage = (_text(group, "usage") or "").strip().lower() or "read-write"
             for ev in _kids(group, "enumeratedValue"):
                 text = _text(ev, "value")
                 is_default = (_text(ev, "isDefault") or "").strip().lower() in ("true", "1")
@@ -508,6 +523,7 @@ class _Builder:
                             mask=0,
                             description=_text(ev, "description") or "",
                             is_default=True,
+                            usage=usage,
                         ))
                     continue
                 try:
@@ -524,6 +540,7 @@ class _Builder:
                     mask=mask,
                     description=_text(ev, "description") or "",
                     is_default=is_default,
+                    usage=usage,
                 ))
         return out
 

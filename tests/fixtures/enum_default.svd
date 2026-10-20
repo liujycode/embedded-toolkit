@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<device schemaVersion="1.1">
+  <name>ENUMDEF32</name>
+  <version>1.0</version>
+  <description>E05 tested: field with isDefault entry (explicit value) and field without default</description>
+  <width>32</width>
+  <peripherals>
+    <peripheral>
+      <name>MOD</name>
+      <baseAddress>0x40000000</baseAddress>
+      <registers>
+        <register>
+          <name>CTRL</name>
+          <addressOffset>0x00</addressOffset>
+          <size>32</size>
+          <fields>
+            <field>
+              <name>WITH_DEFAULT</name>
+              <description>Two explicit values plus a default entry carrying an explicit value</description>
+              <bitOffset>0</bitOffset>
+              <bitWidth>2</bitWidth>
+              <enumeratedValues>
+                <enumeratedValue>
+                  <name>A</name>
+                  <value>0</value>
+                </enumeratedValue>
+                <enumeratedValue>
+                  <name>B</name>
+                  <value>1</value>
+                </enumeratedValue>
+                <enumeratedValue>
+                  <name>OTHER</name>
+                  <value>0</value>
+                  <isDefault>true</isDefault>
+                </enumeratedValue>
+              </enumeratedValues>
+            </field>
+            <field>
+              <name>NO_DEFAULT</name>
+              <description>Only two explicit values, no default</description>
+              <bitOffset>2</bitOffset>
+              <bitWidth>2</bitWidth>
+              <enumeratedValues>
+                <enumeratedValue>
+                  <name>A</name>
+                  <value>0</value>
+                </enumeratedValue>
+                <enumeratedValue>
+                  <name>B</name>
+                  <value>1</value>
+                </enumeratedValue>
+              </enumeratedValues>
+            </field>
+          </fields>
+        </register>
+      </registers>
+    </peripheral>
+  </peripherals>
+</device>

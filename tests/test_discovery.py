@@ -374,3 +374,60 @@ def test_wildcard_equal_unit():
     assert not _wildcard_equal("STM32F407", "STM32F40")
     assert not _wildcard_equal("STM32F407", "STM32F46X")
     assert not _wildcard_equal("STM32F407", "STM32F401X")
+
+
+def test_config_with_utf8_bom_is_accepted(isolated):
+    """Windows 编辑器保存的 UTF-8 BOM 配置不应直接报 E_INPUT_INVALID。"""
+    project = isolated / "proj"
+    _copy_svd(project / "svd", "BOMCHIP.svd")
+    (project / ".etk").mkdir()
+    config = project / ".etk" / "config.json"
+    config.write_bytes(b"\xef\xbb\xbf" + b'{"svd": "svd/BOMCHIP.svd"}')
+
+    assert read_config(str(config))["svd"] == "svd/BOMCHIP.svd"
+    path, how, _ = find_svd(project_dir=str(project))
+    assert path.endswith("BOMCHIP.svd")
+    assert how.startswith("项目配置")
+
+
+def test_env_svd_dir_is_not_limited_to_project_file_cap(isolated, monkeypatch):
+    """ETK_SVD_DIR 是显式目录：超过项目扫描的 50 个上限后，第 51 个之后仍要能找到。"""
+    extra = isolated / "my-svds"
+    extra.mkdir()
+    for index in range(55):
+        (extra / ("CHIP%03d.svd" % index)).write_text("<device/>", encoding="utf-8")
+    monkeypatch.setenv("ETK_SVD_DIR", str(extra))
+    project = isolated / "proj"
+    project.mkdir()
+
+    path, how, notes = find_svd(chip="CHIP054", project_dir=str(project))
+    assert os.path.basename(path) == "CHIP054.svd"
+    assert how == "环境变量 ETK_SVD_DIR"
+    assert notes == []
+
+
+def test_env_svd_dir_truncation_is_reported(isolated, monkeypatch):
+    """超过 ETK_SVD_DIR 上限时要明确提示截断，不能静默丢弃。"""
+    from etk_core import discovery
+
+    extra = isolated / "many"
+    extra.mkdir()
+    for index in range(12):
+        (extra / ("CHIP%03d.svd" % index)).write_text("<device/>", encoding="utf-8")
+    monkeypatch.setattr(discovery, "_ENV_MAX_FILES", 10)
+    monkeypatch.setenv("ETK_SVD_DIR", str(extra))
+
+    found, truncated = discovery._scan_roots([str(extra)], max_files=10)
+    assert len(found) == 10
+    assert truncated is True
+
+    project = isolated / "proj"
+    project.mkdir()
+    _, how, notes = find_svd(chip="CHIP", project_dir=str(project))
+    assert how == "环境变量 ETK_SVD_DIR"
+    assert any("ETK_SVD_DIR" in note and "上限" in note for note in notes)
+
+    # 找不到时也要在 tried 里保留截断信息，不能静默
+    with pytest.raises(EtkError) as info:
+        find_svd(chip="NOSUCHCHIP", project_dir=str(project))
+    assert any("ETK_SVD_DIR" in item and "截断" in item for item in info.value.details["tried"])

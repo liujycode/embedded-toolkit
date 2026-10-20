@@ -650,3 +650,97 @@ def test_diff_peripherals_unknown_side_is_labeled(device, device_b):
     with pytest.raises(EtkError) as info:
         query.diff_peripherals(device, device_b, "NOPE")
     assert "A 侧" in info.value.message
+
+
+def _fixture_device(name):
+    import os
+
+    from etk_core.svd import load_device
+    from helpers import FIXTURES
+
+    return load_device(os.path.join(FIXTURES, name))
+
+
+def test_address_inside_wide_register_with_narrow_alias():
+    """W32@0x0(4B) + B2@0x2(1B)：0x3 仍属于 W32，旧实现按最大起始地址会误判 gap。"""
+    dev = _fixture_device("alias_views.svd")
+    res = query.find_address(dev, 0x40000003)
+    assert res["kind"] == "inside_register"
+    assert res["nearest"]["path"] == "P.W32"
+    assert res["nearest"]["offset_in_register"] == 3
+    # addr == start + nbytes 是开区间，不算包含
+    boundary = query.find_address(dev, 0x40000004)
+    assert boundary["kind"] == "gap"
+    assert boundary["nearest"]["path"] == "P.B2"
+
+
+def test_lint_reports_chain_overlaps_not_only_adjacent():
+    """3 个寄存器/3 个位域两两部分重叠：只比较相邻项的旧实现会漏掉首尾一对。"""
+    dev = _fixture_device("overlap_chain.svd")
+    res = query.lint(dev)
+    assert res["counts"] == {"error": 6, "warning": 0, "info": 0, "total": 6}
+    field_msgs = [f["message"] for f in res["findings"] if f["code"] == "field_overlap"]
+    register_msgs = [f["message"] for f in res["findings"] if f["code"] == "register_overlap"]
+    assert len(field_msgs) == 3 and len(register_msgs) == 3
+    for a, b in (("FA", "FB"), ("FA", "FC"), ("FB", "FC")):
+        assert any(a in m and b in m for m in field_msgs), (a, b)
+    for a, b in (("REGA", "REGB"), ("REGA", "REGC"), ("REGB", "REGC")):
+        assert any(a in m and b in m for m in register_msgs), (a, b)
+    # 不重叠的寄存器/位域不误报
+    assert all("CLEAN" not in f["message"] for f in res["findings"])
+    assert all("FZ" not in f["message"] for f in res["findings"])
+
+
+def test_decode_uses_write_enums_in_write_mode():
+    """usage=read/write 两组枚举：读视角取 read 组，decode --write 取 write 组。"""
+    dev = _fixture_device("enum_usage.svd")
+    read_res = query.decode(dev, "P.CTRL", 1)
+    read_mode = next(f for f in read_res["fields"] if f["name"] == "MODE")
+    assert read_mode["enum"] == "R1"
+    write_res = query.decode(dev, "P.CTRL", 1, as_write=True)
+    write_mode = next(f for f in write_res["fields"] if f["name"] == "MODE")
+    assert write_mode["enum"] == "W1"
+    assert write_mode["enum_description"] == ""
+
+
+def test_set_uses_write_enums_only():
+    """set 只接受写视角枚举名；读枚举名不再被当成可写值。"""
+    dev = _fixture_device("enum_usage.svd")
+    res = query.set_fields(dev, "P.CTRL", ["MODE=W1"])
+    row = next(a for a in res["assignments"] if a["field"] == "MODE")
+    assert (row["via_enum"], res["value"]) == ("W1", 1)
+
+    with pytest.raises(EtkError) as info:
+        query.set_fields(dev, "P.CTRL", ["MODE=R1"])
+    assert info.value.code == E_INPUT_INVALID
+    assert "W1" in info.value.hint
+    assert "R1" not in info.value.hint
+
+    # 缺省 usage 的枚举两组共用，set 仍可用
+    plain = query.set_fields(dev, "P.CTRL", ["PLAIN=ON"])
+    assert plain["value"] == 0x10
+    assert plain["assignments"][0]["via_enum"] == "ON"
+
+
+def test_rmw_note_includes_field_level_read_action():
+    """寄存器级没有 readAction，但字段级 clear/set/modify 也要提示读改写风险。"""
+    dev = _fixture_device("field_readaction.svd")
+    res = query.decode(dev, "P.STAT", 0x1, as_write=True)
+    notes = res["write_notes"]
+    assert any("RF" in n and "readAction" in n and "读后清零" in n for n in notes)
+    assert any("SF" in n and "读后置位" in n for n in notes)
+    assert any("MF" in n and "读时修改" in n for n in notes)
+
+    set_res = query.set_fields(dev, "P.STAT", ["NF=1"])
+    assert any("readAction" in n and "reg |=" in n for n in set_res["notes"])
+
+    plain = query.lookup(dev, "P.PLAIN_STAT")
+    assert plain["notes"] == []
+
+
+def test_rmw_note_combines_write_semantics_and_field_read_action(device):
+    """寄存器级 oneToClear 与字段级 readAction=clear 并存时，两类提示都要保留。"""
+    res = query.decode(device, "EXTI.PR", 0x1, as_write=True)
+    note = "".join(res["write_notes"])
+    assert "写 1 清零" in note
+    assert "readAction=clear" in note and "P0" in note
