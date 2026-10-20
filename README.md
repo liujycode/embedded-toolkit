@@ -43,6 +43,14 @@
 
 **其他 Agent（Agent Skills 标准）**：`npx skills add liujycode/embedded-toolkit`，或把 `skills/embedded-register-lookup/` 整个文件夹复制到该 Agent 的技能目录（如 `.agents/skills/`、`.trae/skills/`），或导入对应技能页。
 
+**让 Agent 更愿意查库（建议）**：强编码模型常凭记忆直接回答"配置有哪些坑"类问题。把下面一段加进项目的 `CLAUDE.md` / 系统提示，可显著提高查库率：
+
+```
+涉及寄存器位定义/复位值、外设配置阈值（上拉阻值/采样点/死区/波特率误差）、芯片细节或"某外设有哪些坑"的问题，
+先运行 embedded-register-lookup / embedded-peripheral-pitfalls / embedded-debug-trees / embedded-timing-calc 查询，
+再依据查询结果回答；不要凭记忆给出具体数值或位名。
+```
+
 ## 快速上手
 
 ```bash
