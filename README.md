@@ -31,7 +31,7 @@
 
 ## 安装
 
-> 状态：GitHub 源码已公开。两个 P0 技能就位（查询 + 核验）。触发评测第三轮完成：核验器首轮全量 22 正 + 10 反（Claude Code 29/32、OpenCode 31/32）、百事通扩量 35 正 + 10 反（Claude Code 39/45、OpenCode 41/45）；首跑合计 140/154 = 90.9%，漏报与边界如实记录，见 `benchmarks/trigger-results.md`。Trae CN / WorkBuddy / Codex / Cursor 待人工。
+> 状态：GitHub 源码已公开。两个 P0 技能就位（查询 + 核验）。触发评测第三轮完成：核验器首轮全量 22 正 + 10 反（Claude Code 29/32、OpenCode 31/32）、百事通扩量 35 正 + 10 反（Claude Code 39/45、OpenCode 41/45）；首跑合计 140/154 = 90.9%，漏报与边界如实记录，见 `benchmarks/trigger-results.md`。知识技能 v1.2.0 触发轮（2026-10-20，路由 `deepseek_for_coding`）：决策树 52.5%、避坑 14.3%，**反例 33/33 零误触发**；未触发主因为强路由模型对咨询型问题直接作答（抽查答案基本正确），危害面收敛在寄存器级事实题，详见 `benchmarks/trigger-results-trees.md`。Trae CN / WorkBuddy / Codex / Cursor 待人工。
 
 **Claude Code（插件市场）**
 
