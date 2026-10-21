@@ -4,7 +4,7 @@ description: 嵌入式时序计算器：凡问"该填多少/是多少/选多大/
 license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。纯计算，不执行用户代码。
 metadata:
-  author: liujycode
+  author: 周衡
   version: "1.1.1"
 ---
 

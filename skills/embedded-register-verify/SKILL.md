@@ -4,7 +4,7 @@ description: 核验 C 代码里的 MCU 寄存器写入是否与芯片 SVD 一致
 license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件（查找规则同 embedded-register-lookup）；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
-  author: liujycode
+  author: 周衡
   version: "1.16.2"
 ---
 

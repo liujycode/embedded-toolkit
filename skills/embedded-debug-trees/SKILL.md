@@ -4,7 +4,7 @@ description: 排查 MCU 硬件/固件故障时使用：程序跑飞、HardFault�
 license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。纯知识检索，不执行用户代码。
 metadata:
-  author: liujycode
+  author: 周衡
   version: "1.3.1"
 ---
 

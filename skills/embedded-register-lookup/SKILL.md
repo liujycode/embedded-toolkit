@@ -4,7 +4,7 @@ description: 查询 MCU 外设寄存器、位域、复位值和地址（基于 C
 license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。需要目标芯片的 CMSIS SVD 文件：厂商 CMSIS-Pack 或用户自备的 .svd；没有 SVD 时可用内置演示芯片（--demo）零配置试用。
 metadata:
-  author: liujycode
+  author: 周衡
   version: "1.11.1"
 ---
 

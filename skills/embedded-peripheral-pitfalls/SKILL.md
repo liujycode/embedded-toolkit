@@ -4,7 +4,7 @@ description: 配置 MCU 外设前对照避坑清单，或排查"配置看起来�
 license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。纯知识检索，不执行用户代码。
 metadata:
-  author: liujycode
+  author: 周衡
   version: "1.2.1"
 ---
 
