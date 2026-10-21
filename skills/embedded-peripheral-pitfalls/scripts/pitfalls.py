@@ -17,7 +17,7 @@ import os
 import re
 import sys
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(os.path.dirname(HERE), "assets", "pitfalls.json")
@@ -275,7 +275,16 @@ def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
-    parser = argparse.ArgumentParser(prog="pitfalls.py", description="嵌入式外设配置坑清单检索器")
+    parser = argparse.ArgumentParser(
+        prog="pitfalls.py", description="嵌入式外设配置坑清单检索器",
+        epilog="""示例:
+  python pitfalls.py search "I2C 上拉"       按外设/症状检索坑位
+  python pitfalls.py search "SPI CPOL"       检索特定配置项
+  python pitfalls.py show adc                通读某类外设全部坑
+  python pitfalls.py rule                    输出配置口诀
+  python pitfalls.py demo                    自检
+零依赖、离线；检索不到会明说 E_NOT_FOUND，不编造坑位。""",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="cmd")
 

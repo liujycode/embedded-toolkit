@@ -17,7 +17,7 @@ import os
 import re
 import sys
 
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(os.path.dirname(HERE), "assets", "trees.json")
@@ -335,7 +335,17 @@ def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
-    parser = argparse.ArgumentParser(prog="trees.py", description="嵌入式排障决策树检索器")
+    parser = argparse.ArgumentParser(
+        prog="trees.py", description="嵌入式排障决策树检索器",
+        epilog="""示例:
+  python trees.py search "DMA 丢数据"      按症状检索（中英文均可）
+  python trees.py search "I2C 卡死" --tree comm   限定树内检索
+  python trees.py show hardfault           通读整棵决策树
+  python trees.py rootcauses hardfault     高频根因排行
+  python trees.py list                     列出全部决策树
+  python trees.py demo                     自检
+零依赖、离线；检索不到会明说 E_NOT_FOUND，不编造决策路径。""",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="cmd")
 

@@ -9,7 +9,7 @@ import math
 import os
 import sys
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TH = os.path.join(os.path.dirname(HERE), "assets", "thresholds.json")
@@ -960,7 +960,17 @@ def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
-    parser = argparse.ArgumentParser(prog="timing.py", description="嵌入式时序计算器")
+    parser = argparse.ArgumentParser(
+        prog="timing.py", description="嵌入式时序计算器",
+        epilog="""示例:
+  python timing.py uart --pclk 72000000 --baud 115200     UART 波特率/BRR
+  python timing.py timer --pclk 72000000 --freq 1000      反向推荐 PSC/ARR
+  python timing.py i2c-rp --bus fast --cb 100             I2C 上拉电阻
+  python timing.py can-bit --clk 42000000 --baud 500000   CAN 位时序
+  python timing.py fpga-slack --tclk 10 --tco 2.5 --tlogic 3.2 --troute 3.1 --tsu 0.8
+  python timing.py demo                                   自检（已知答案回归）
+零依赖、离线；每个结果带公式、合法性判定与依据。--format json 需放子命令前。""",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--format", choices=("text", "json"), default="text",
                         help="输出格式（放在子命令前，如 timing.py --format json uart ...）")

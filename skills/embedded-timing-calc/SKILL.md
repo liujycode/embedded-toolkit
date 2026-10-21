@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。纯计算，不执行用户代码。
 metadata:
   author: liujycode
-  version: "1.1.0"
+  version: "1.1.1"
 ---
 
 # 嵌入式时序计算器

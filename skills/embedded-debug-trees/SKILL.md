@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.9+，仅使用标准库，无需联网。纯知识检索，不执行用户代码。
 metadata:
   author: liujycode
-  version: "1.3.0"
+  version: "1.3.1"
 ---
 
 # 嵌入式排障决策树
