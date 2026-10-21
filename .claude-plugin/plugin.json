@@ -1,6 +1,6 @@
 {
   "name": "embedded-toolkit",
-  "version": "1.24.0",
+  "version": "1.24.1",
   "description": "嵌入式开发工具箱：五个技能——寄存器查询、寄存器核验、排障决策树（12 棵/77 节点）、外设避坑清单（148 坑）、时序计算器（37 个计算器）；离线、带出处与证据标签",
   "author": {
     "name": "liujycode"
